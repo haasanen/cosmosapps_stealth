@@ -131,7 +131,7 @@ dependencies {
     kapt("com.squareup.moshi:moshi-kotlin-codegen:${Dependencies.Versions.moshi}")
     implementation("com.squareup.moshi:moshi-adapters:${Dependencies.Versions.moshi}")
 
-    implementation("com.squareup.okio:okio:${Dependencies.Versions.moshi}")
+    implementation("com.squareup.okio:okio:${Dependencies.Versions.okio}")
 
     implementation("io.coil-kt:coil:${Dependencies.Versions.coil}")
     implementation("io.coil-kt:coil-gif:${Dependencies.Versions.coil}")
