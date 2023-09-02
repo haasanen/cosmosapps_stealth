@@ -1,8 +1,8 @@
 object Dependencies {
     object Versions {
-        const val kotlin = "1.7.20"
-        const val androidGradlePlugin = "7.3.1"
-        const val hiltGradlePlugin = "2.44.2"
+        const val kotlin = "1.9.10"
+        const val androidGradlePlugin = "8.1.1"
+        const val hiltGradlePlugin = "2.48"
 
         const val hilt = "1.0.0"
 
@@ -18,7 +18,7 @@ object Dependencies {
 
         const val navigation = "2.5.3"
 
-        const val room = "2.4.3"
+        const val room = "2.6.0-beta01"
         const val datastore = "1.0.0"
 
         const val paging = "3.1.1"
@@ -37,7 +37,7 @@ object Dependencies {
  
         const val retrofit = "2.9.0"
  
-        const val moshi = "1.14.0"
+        const val moshi = "1.15.0"
  
         const val okio = "3.2.0"
  

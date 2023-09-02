@@ -20,7 +20,7 @@ import com.google.android.material.transition.MaterialFadeThrough
 class SearchInputEditText @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.editTextStyle
+    defStyleAttr: Int = com.google.android.material.R.attr.editTextStyle
 ) : TextInputEditText(context, attrs, defStyleAttr) {
 
     private val searchInputTransition by lazy {
