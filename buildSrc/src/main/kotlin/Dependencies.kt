@@ -3,6 +3,7 @@ object Dependencies {
         const val kotlin = "1.9.10"
         const val androidGradlePlugin = "8.1.1"
         const val hiltGradlePlugin = "2.48"
+        const val ksp = "1.9.10-1.0.13"
 
         const val hilt = "1.0.0"
 

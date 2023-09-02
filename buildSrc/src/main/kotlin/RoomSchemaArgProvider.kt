@@ -11,6 +11,6 @@ class RoomSchemaArgProvider(
 ) : CommandLineArgumentProvider {
 
     override fun asArguments(): Iterable<String> {
-        return listOf("-Aroom.schemaLocation=${schemaDir.path}")
+        return listOf("room.schemaLocation=${schemaDir.path}")
     }
 }

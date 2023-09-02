@@ -5,8 +5,8 @@ plugins {
     id("com.android.application")
     kotlin("android")
     id("kotlin-parcelize")
-    kotlin("kapt")
-    id("dagger.hilt.android.plugin")
+    id("com.google.devtools.ksp")
+    id("com.google.dagger.hilt.android")
     id("androidx.navigation.safeargs.kotlin")
 }
 
@@ -36,12 +36,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables.useSupportLibrary = true
-
-        javaCompileOptions {
-            annotationProcessorOptions {
-                compilerArgumentProviders(RoomSchemaArgProvider(File(projectDir, "schemas")))
-            }
-        }
     }
 
     signingConfigs {
@@ -86,10 +80,14 @@ android {
     }
 }
 
+ksp {
+    arg(RoomSchemaArgProvider(File(projectDir, "schemas")))
+}
+
 dependencies {
     implementation("com.google.dagger:hilt-android:${Dependencies.Versions.hiltGradlePlugin}")
-    kapt("com.google.dagger:hilt-android-compiler:${Dependencies.Versions.hiltGradlePlugin}")
-    kapt("androidx.hilt:hilt-compiler:${Dependencies.Versions.hilt}")
+    ksp("com.google.dagger:hilt-android-compiler:${Dependencies.Versions.hiltGradlePlugin}")
+    ksp("androidx.hilt:hilt-compiler:${Dependencies.Versions.hilt}")
 
     implementation("androidx.hilt:hilt-navigation-fragment:${Dependencies.Versions.hilt}")
     implementation("androidx.hilt:hilt-work:${Dependencies.Versions.hilt}")
@@ -110,7 +108,7 @@ dependencies {
     implementation("androidx.navigation:navigation-ui-ktx:${Dependencies.Versions.navigation}")
 
     implementation("androidx.room:room-runtime:${Dependencies.Versions.room}")
-    kapt("androidx.room:room-compiler:${Dependencies.Versions.room}")
+    ksp("androidx.room:room-compiler:${Dependencies.Versions.room}")
     implementation("androidx.room:room-ktx:${Dependencies.Versions.room}")
     implementation("androidx.datastore:datastore-preferences:${Dependencies.Versions.datastore}")
 
@@ -128,7 +126,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-moshi:${Dependencies.Versions.retrofit}")
 
     implementation("com.squareup.moshi:moshi:${Dependencies.Versions.moshi}")
-    kapt("com.squareup.moshi:moshi-kotlin-codegen:${Dependencies.Versions.moshi}")
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:${Dependencies.Versions.moshi}")
     implementation("com.squareup.moshi:moshi-adapters:${Dependencies.Versions.moshi}")
 
     implementation("com.squareup.okio:okio:${Dependencies.Versions.okio}")
