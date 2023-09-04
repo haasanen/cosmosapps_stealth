@@ -23,5 +23,11 @@ enum class MediaType {
     // Generic type
     IMAGE, VIDEO,
 
-    LINK
+    LINK;
+
+    companion object {
+        fun toMediaType(value: String): MediaType {
+            return entries.find { it.name == value } ?: NO_MEDIA
+        }
+    }
 }

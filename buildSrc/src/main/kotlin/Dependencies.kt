@@ -50,6 +50,8 @@ object Dependencies {
  
         const val coroutines = "1.4.1"
 
+        const val jsonSerialization = "1.5.1"
+
         const val jUnit = "4.13.2"
         const val test = "1.1.5"
         const val testRunner = "1.5.2"

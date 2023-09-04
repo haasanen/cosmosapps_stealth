@@ -1,5 +1,6 @@
 plugins {
-    id("org.jetbrains.kotlin.jvm") version Dependencies.Versions.kotlin apply false
+    kotlin("jvm") version Dependencies.Versions.kotlin apply false
+    kotlin("plugin.serialization") version Dependencies.Versions.kotlin apply false
     id("com.android.application") version Dependencies.Versions.androidGradlePlugin apply false
     id("com.google.devtools.ksp") version Dependencies.Versions.ksp apply false
     id("com.google.dagger.hilt.android") version Dependencies.Versions.hiltGradlePlugin apply false

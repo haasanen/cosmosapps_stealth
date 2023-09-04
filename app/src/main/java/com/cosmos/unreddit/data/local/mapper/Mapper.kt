@@ -1,22 +1,25 @@
 package com.cosmos.unreddit.data.local.mapper
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 
 abstract class Mapper<From, To>(protected val defaultDispatcher: CoroutineDispatcher) {
 
     protected abstract suspend fun toEntity(from: From): To
 
-    protected open suspend fun toEntities(from: List<From>): List<To> {
-        return from.map { toEntity(it) }
+    protected open suspend fun toEntities(from: List<From>): List<To> = supervisorScope {
+        from.map { async { toEntity(it) } }.awaitAll()
     }
 
     protected open suspend fun fromEntity(from: To): From {
         throw UnsupportedOperationException()
     }
 
-    protected open suspend fun fromEntities(from: List<To>): List<From> {
-        return from.map { fromEntity(it) }
+    protected open suspend fun fromEntities(from: List<To>): List<From> = supervisorScope {
+        from.map { async { fromEntity(it) } }.awaitAll()
     }
 
     suspend fun dataToEntity(from: From): To = withContext(defaultDispatcher) {

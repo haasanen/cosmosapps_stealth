@@ -19,18 +19,6 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.Crosspost
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
-@Entity(
-    tableName = "post",
-    primaryKeys = ["id", "profile_id"],
-    foreignKeys = [
-        ForeignKey(
-            entity = Profile::class,
-            parentColumns = ["id"],
-            childColumns = ["profile_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ]
-)
 data class PostEntity @JvmOverloads constructor(
     @ColumnInfo(name = "id")
     val id: String,

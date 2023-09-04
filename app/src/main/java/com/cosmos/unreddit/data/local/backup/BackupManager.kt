@@ -59,7 +59,8 @@ sealed class BackupManager(
                         .map { post -> post.apply { profileId = id } }
                         .toTypedArray()
                         .let { posts ->
-                            postDao.insert(*posts)
+                            // TODO
+                            //postDao.insert(*posts)
                         }
                 }
 
@@ -69,7 +70,8 @@ sealed class BackupManager(
                         .map { comment -> comment.apply { profileId = id } }
                         .toTypedArray()
                         .let { comments ->
-                            commentDao.insert(*comments)
+                            // TODO
+                            //commentDao.insert(*comments)
                         }
                 }
             }

@@ -21,8 +21,8 @@ class ProfileMapper @Inject constructor(
             Profile(
                 profile.name,
                 subscriptionMapper.dataToEntities(subscription),
-                backupPostMapper.dataToEntities(savedPosts),
-                backupCommentMapper.dataToEntities(savedComments)
+                //backupPostMapper.dataToEntities(savedPosts), // TODO
+                //backupCommentMapper.dataToEntities(savedComments) // TODO
             )
         }
     }

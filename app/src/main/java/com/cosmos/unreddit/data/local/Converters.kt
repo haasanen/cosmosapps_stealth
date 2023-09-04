@@ -1,12 +1,17 @@
 package com.cosmos.unreddit.data.local
 
 import androidx.room.TypeConverter
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.PosterType
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.model.db.Redirect
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 class Converters {
     @TypeConverter
@@ -55,5 +60,53 @@ class Converters {
     @TypeConverter
     fun toRedirectModeInt(redirectMode: Redirect.RedirectMode?): Int {
         return redirectMode?.mode ?: Redirect.RedirectMode.OFF.mode
+    }
+
+    @TypeConverter
+    fun fromSerializedService(serializedService: String?): Service? {
+        return serializedService?.run { Json.decodeFromString(serializedService) }
+    }
+
+    @TypeConverter
+    fun toSerializedService(service: Service?): String? {
+        return try {
+            Json.encodeToString(service)
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+    }
+
+    @TypeConverter
+    fun fromSerializedMedia(serializedMedia: String?): Media? {
+        return serializedMedia?.run { Json.decodeFromString(serializedMedia) }
+    }
+
+    @TypeConverter
+    fun toSerializedMedia(media: Media?): String? {
+        return try {
+            Json.encodeToString(media)
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+    }
+
+    @TypeConverter
+    fun fromSerializedMediaList(serializedMedia: String?): List<Media>? {
+        return serializedMedia?.run { Json.decodeFromString(serializedMedia) }
+    }
+
+    @TypeConverter
+    fun toSerializedMediaList(media: List<Media>?): String? {
+        return try {
+            Json.encodeToString(media)
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
     }
 }

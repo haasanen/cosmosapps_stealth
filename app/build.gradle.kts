@@ -4,6 +4,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     kotlin("android")
+    kotlin("plugin.serialization")
     id("kotlin-parcelize")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
@@ -141,6 +142,8 @@ dependencies {
     implementation("org.jsoup:jsoup:${Dependencies.Versions.jsoup}")
 
     implementation("com.drakeet.drawer:drawer:${Dependencies.Versions.drawer}")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:${Dependencies.Versions.jsonSerialization}")
 
     testImplementation("junit:junit:${Dependencies.Versions.jUnit}")
 

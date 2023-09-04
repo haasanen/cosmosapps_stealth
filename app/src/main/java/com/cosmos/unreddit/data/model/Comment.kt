@@ -20,18 +20,6 @@ sealed class Comment {
     abstract val commentIndicator: Int?
 
     @Parcelize
-    @Entity(
-        tableName = "comment",
-        primaryKeys = ["name", "profile_id"],
-        foreignKeys = [
-            ForeignKey(
-                entity = Profile::class,
-                parentColumns = ["id"],
-                childColumns = ["profile_id"],
-                onDelete = ForeignKey.CASCADE
-            )
-        ]
-    )
     data class CommentEntity @JvmOverloads constructor(
         @ColumnInfo(name = "total_awards")
         val totalAwards: Int,

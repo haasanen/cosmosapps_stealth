@@ -99,7 +99,7 @@ class PostListRepository @Inject constructor(
 
     suspend fun subscribe(name: String, profileId: Int, icon: String? = null) {
         redditDatabase.subscriptionDao().insert(
-            Subscription(name, System.currentTimeMillis(), icon, profileId)
+            Subscription(name, System.currentTimeMillis(), icon, profileId = profileId) // TODO
         )
     }
 
@@ -225,7 +225,8 @@ class PostListRepository @Inject constructor(
         post.run {
             this.profileId = profileId
             this.time = System.currentTimeMillis()
-            redditDatabase.postDao().upsert(this)
+            // TODO
+            //redditDatabase.postDao().upsert(this)
         }
     }
 
@@ -234,7 +235,9 @@ class PostListRepository @Inject constructor(
     }
 
     fun getSavedPosts(profileId: Int): Flow<List<PostEntity>> {
-        return redditDatabase.postDao().getSavedPostsFromProfile(profileId)
+        // TODO
+        //return redditDatabase.postDao().getSavedPostsFromProfile(profileId)
+        return flow { emit(listOf()) }
     }
 
     fun getSavedPostIds(profileId: Int): Flow<List<String>> {
@@ -245,7 +248,8 @@ class PostListRepository @Inject constructor(
         comment.run {
             this.profileId = profileId
             this.time = System.currentTimeMillis()
-            redditDatabase.commentDao().upsert(comment)
+            // TODO
+            //redditDatabase.commentDao().upsert(comment)
         }
     }
 
@@ -254,7 +258,9 @@ class PostListRepository @Inject constructor(
     }
 
     fun getSavedComments(profileId: Int): Flow<List<Comment.CommentEntity>> {
-        return redditDatabase.commentDao().getSavedCommentsFromProfile(profileId)
+        // TODO
+        //return redditDatabase.commentDao().getSavedCommentsFromProfile(profileId)
+        return flow { emit(listOf()) }
     }
 
     fun getSavedCommentIds(profileId: Int): Flow<List<String>> {

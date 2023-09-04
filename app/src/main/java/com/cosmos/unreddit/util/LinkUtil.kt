@@ -19,10 +19,10 @@ object LinkUtil {
     private val USER_REGEX = Regex("/u/[A-Za-z0-9_-]{3,20}")
 
     private val REDDIT_LINK = Regex("(.+?)\\.reddit\\.com")
-    private val IMGUR_LINK = Regex("([im]\\.)?(stack\\.)?imgur\\.(com|io)")
-    private val GFYCAT_LINK = Regex("(.+?\\.)?gfycat\\.com")
-    private val REDGIFS_LINK = Regex("(.+?\\.)?redgifs\\.com")
-    private val STREAMABLE_LINK = Regex("(.+?)\\.streamable\\.com")
+    val IMGUR_LINK = Regex("([im]\\.)?(stack\\.)?imgur\\.(com|io)")
+    val GFYCAT_LINK = Regex("(.+?\\.)?gfycat\\.com")
+    val REDGIFS_LINK = Regex("(.+?\\.)?redgifs\\.com")
+    val STREAMABLE_LINK = Regex("(.+?)\\.streamable\\.com")
 
     private const val REDDIT_SOUNDTRACK_NAME: String = "DASH_AUDIO_128"
 
