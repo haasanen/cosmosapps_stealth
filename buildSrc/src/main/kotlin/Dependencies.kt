@@ -17,7 +17,7 @@ object Dependencies {
         const val viewpager2 = "1.0.0"
         const val preference = "1.2.1"
 
-        const val navigation = "2.7.1"
+        const val navigation = "2.5.3"
 
         const val room = "2.6.0-beta01"
         const val datastore = "1.0.0"
