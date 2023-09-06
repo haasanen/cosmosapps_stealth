@@ -20,6 +20,7 @@ import com.cosmos.unreddit.util.ClickableMovementMethod
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
 
+@Deprecated("Legacy class")
 abstract class PostViewHolder(
     itemView: View,
     private val postInfoBinding: IncludePostInfoBinding,
@@ -55,11 +56,11 @@ abstract class PostViewHolder(
         postEntity: PostEntity,
         contentPreferences: ContentPreferences
     ) {
-        postMetricsBinding.post = postEntity
-        postFlairsBinding.post = postEntity
+        //postMetricsBinding.post = postEntity
+        //postFlairsBinding.post = postEntity
 
         postInfoBinding.run {
-            this.post = postEntity
+            //this.post = postEntity
             textPostAuthor.text = postEntity.author
             textSubreddit.text = postEntity.subreddit
         }
@@ -87,15 +88,15 @@ abstract class PostViewHolder(
         when {
             postEntity.hasFlairs -> {
                 postFlairsBinding.root.visibility = View.VISIBLE
-                postFlairsBinding.postFlair.apply {
-                    if (!postEntity.flair.isEmpty()) {
-                        visibility = View.VISIBLE
-
-                        setFlair(postEntity.flair)
-                    } else {
-                        visibility = View.GONE
-                    }
-                }
+//                postFlairsBinding.postFlair.apply {
+//                    if (!postEntity.flair.isEmpty()) {
+//                        visibility = View.VISIBLE
+//
+//                        setFlair(postEntity.flair)
+//                    } else {
+//                        visibility = View.GONE
+//                    }
+//                }
             }
 
             postEntity.isSelf -> {
@@ -103,7 +104,7 @@ abstract class PostViewHolder(
             }
 
             else -> {
-                postFlairsBinding.postFlair.visibility = View.GONE
+                //postFlairsBinding.postFlair.visibility = View.GONE
             }
         }
 

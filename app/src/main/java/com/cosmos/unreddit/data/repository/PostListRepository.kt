@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Deprecated("Legacy repository")
 @Singleton
 class PostListRepository @Inject constructor(
     private val source: CurrentSource,

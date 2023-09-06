@@ -182,6 +182,7 @@ class SortFragment : BottomSheetDialogFragment() {
         const val BUNDLE_KEY_SORTING = "BUNDLE_KEY_SORTING"
         const val BUNDLE_KEY_TYPE = "BUNDLE_KEY_TYPE"
 
+        @Deprecated("Legacy function")
         fun show(
             fragmentManager: FragmentManager,
             sorting: Sorting,

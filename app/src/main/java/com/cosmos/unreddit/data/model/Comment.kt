@@ -13,6 +13,7 @@ import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.RawValue
 
+@Deprecated("Legacy entity")
 sealed class Comment {
 
     abstract val name: String

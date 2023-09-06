@@ -12,6 +12,8 @@ import com.cosmos.unreddit.data.model.PosterType
 import com.cosmos.unreddit.data.model.Reactions
 import com.cosmos.unreddit.data.model.RedditText
 import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.preferences.ContentPreferences
+import com.cosmos.unreddit.util.extension.orFalse
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
@@ -30,7 +32,7 @@ import kotlinx.parcelize.Parcelize
 data class PostItem @JvmOverloads constructor(
     val service: Service,
 
-    val id: String,
+    override val id: String,
 
     @ColumnInfo(name = "post_type")
     val postType: PostType,
@@ -101,13 +103,26 @@ data class PostItem @JvmOverloads constructor(
     val posterType: PosterType,
 
     @Ignore
-    var seen: Boolean = true,
+    override var seen: Boolean = true,
 
     @Ignore
-    var saved: Boolean = true,
+    override var saved: Boolean = true,
 
     var time: Long = -1,
 
     @ColumnInfo(name = "profile_id", index = true)
     var profileId: Int = -1
-) : FeedItem
+) : FeedItem {
+
+    val hasBadges: Boolean
+        get() {
+            return nsfw.orFalse() || spoiler.orFalse() || oc.orFalse() ||
+                    !postBadge?.badgeDataList.isNullOrEmpty() || pinned.orFalse() ||
+                    archived.orFalse() || locked.orFalse()
+        }
+
+    fun shouldShowPreview(contentPreferences: ContentPreferences): Boolean {
+        return (contentPreferences.showNsfwPreview || !nsfw.orFalse()) &&
+                (contentPreferences.showSpoilerPreview || !spoiler.orFalse())
+    }
+}

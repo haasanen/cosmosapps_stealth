@@ -11,6 +11,7 @@ import com.cosmos.unreddit.data.model.Award
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 
+@Deprecated("Legacy view")
 class AwardGroup
 @JvmOverloads constructor(
     context: Context,

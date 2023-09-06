@@ -5,6 +5,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.RichText
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 
+@Deprecated("Legacy entity")
 @Parcelize
 class Flair : Parcelable {
     @IgnoredOnParcel

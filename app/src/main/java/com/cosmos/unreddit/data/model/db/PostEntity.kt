@@ -18,6 +18,7 @@ import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.remote.api.reddit.model.Crosspost
 import kotlinx.parcelize.Parcelize
 
+@Deprecated("Legacy entity")
 @Parcelize
 data class PostEntity @JvmOverloads constructor(
     @ColumnInfo(name = "id")

@@ -7,7 +7,7 @@
     <data>
         <variable
             name="post"
-            type="com.cosmos.unreddit.data.model.db.PostEntity" />
+            type="com.cosmos.unreddit.data.model.db.PostItem" />
     </data>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -33,7 +33,6 @@
             app:layout_constraintBottom_toBottomOf="@id/image_vote_icon"
             app:layout_constraintStart_toEndOf="@id/image_vote_icon"
             android:layout_marginStart="@dimen/post_icon_text_margin"
-            android:text="@{post.score}"
             tools:text="12345"/>
 
         <TextView
@@ -66,7 +65,6 @@
             app:layout_constraintBottom_toBottomOf="@id/image_vote_icon"
             app:layout_constraintStart_toEndOf="@id/image_comments_icon"
             android:layout_marginStart="@dimen/post_icon_text_margin"
-            android:text="@{post.commentsNumber}"
             tools:text="1234"/>
 
         <ImageButton

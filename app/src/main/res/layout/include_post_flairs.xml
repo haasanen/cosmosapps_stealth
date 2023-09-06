@@ -8,7 +8,7 @@
         <import type="android.view.View"/>
         <variable
             name="post"
-            type="com.cosmos.unreddit.data.model.db.PostEntity" />
+            type="com.cosmos.unreddit.data.model.db.PostItem" />
     </data>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -23,7 +23,7 @@
             app:layout_constraintEnd_toStartOf="@id/text_domain"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:constraint_referenced_ids="nsfw_flair,spoiler_flair,oc_flair,post_flair,pinned_icon,archived_icon,locked_icon"
+            app:constraint_referenced_ids="nsfw_flair,spoiler_flair,oc_flair,post_badge,pinned_icon,archived_icon,locked_icon"
             android:layout_marginEnd="@dimen/post_margin_horizontal"
             app:flow_wrapMode="chain"
             app:flow_horizontalStyle="packed"
@@ -41,7 +41,7 @@
             android:textAppearance="@style/TextAppearancePostFlair"
             android:textColor="@null"
             android:text="@string/flair_nsfw"
-            android:visibility="@{post.isOver18 ? View.VISIBLE : View.GONE}" />
+            android:visibility="@{post.nsfw ? View.VISIBLE : View.GONE}" />
 
         <TextView
             android:id="@+id/spoiler_flair"
@@ -52,7 +52,7 @@
             android:textAppearance="@style/TextAppearancePostFlair"
             android:textColor="@null"
             android:text="@string/flair_spoiler"
-            android:visibility="@{post.isSpoiler ? View.VISIBLE : View.GONE}" />
+            android:visibility="@{post.spoiler ? View.VISIBLE : View.GONE}" />
 
         <TextView
             android:id="@+id/oc_flair"
@@ -63,10 +63,10 @@
             android:textAppearance="@style/TextAppearancePostFlair"
             android:textColor="@null"
             android:text="@string/flair_oc"
-            android:visibility="@{post.isOC ? View.VISIBLE : View.GONE}" />
+            android:visibility="@{post.oc ? View.VISIBLE : View.GONE}" />
 
-        <com.cosmos.unreddit.ui.common.widget.RedditFlairView
-            android:id="@+id/post_flair"
+        <com.cosmos.unreddit.ui.common.widget.BadgeView
+            android:id="@+id/post_badge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/post_flair_background"
@@ -80,21 +80,21 @@
             android:id="@+id/pinned_icon"
             android:layout_width="@dimen/post_icon_size"
             android:layout_height="@dimen/post_icon_size"
-            android:visibility="@{post.isStickied ? View.VISIBLE : View.GONE}"
+            android:visibility="@{post.pinned ? View.VISIBLE : View.GONE}"
             app:srcCompat="@drawable/ic_pin" />
 
         <ImageView
             android:id="@+id/archived_icon"
             android:layout_width="@dimen/post_icon_size"
             android:layout_height="@dimen/post_icon_size"
-            android:visibility="@{post.isArchived ? View.VISIBLE : View.GONE}"
+            android:visibility="@{post.archived ? View.VISIBLE : View.GONE}"
             app:srcCompat="@drawable/ic_archive" />
 
         <ImageView
             android:id="@+id/locked_icon"
             android:layout_width="@dimen/post_icon_size"
             android:layout_height="@dimen/post_icon_size"
-            android:visibility="@{post.isLocked ? View.VISIBLE : View.GONE}"
+            android:visibility="@{post.locked ? View.VISIBLE : View.GONE}"
             app:srcCompat="@drawable/ic_lock" />
 
         <TextView
@@ -107,7 +107,7 @@
             android:textColor="@null"
             android:textAppearance="@style/TextAppearancePostDomain"
             android:text="@{post.domain}"
-            android:visibility="@{!post.isSelf ? View.VISIBLE : View.GONE}"
+            android:visibility="@{!post.self ? View.VISIBLE : View.GONE}"
             tools:text="reddit.com"/>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

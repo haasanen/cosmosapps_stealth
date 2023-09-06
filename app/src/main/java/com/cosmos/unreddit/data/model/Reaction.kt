@@ -12,4 +12,8 @@ data class Reaction(
     val name: String? = null,
 
     val description: String? = null
-) : Parcelable
+) : Parcelable {
+
+    val icon: String?
+        get() = media?.resolutions?.getOrNull(3)?.url ?: media?.source?.url // 64x64 icon
+}

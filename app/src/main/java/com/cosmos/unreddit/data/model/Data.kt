@@ -6,7 +6,7 @@ sealed class Data {
 
     data class Fetch(val query: String, val sorting: Sorting) : Data()
 
-    data class FetchMultiple(val query: List<String>, val sorting: Sorting) : Data()
+    data class FetchMultiple(val query: List<ServiceQuery>, val filtering: Filtering) : Data()
 
     data class User(
         val history: List<String>,

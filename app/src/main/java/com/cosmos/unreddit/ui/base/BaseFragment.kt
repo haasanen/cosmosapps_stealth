@@ -12,7 +12,9 @@ import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.R
+import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.ui.common.listener.ItemClickListener
 import com.cosmos.unreddit.ui.common.widget.RedditView
 import com.cosmos.unreddit.ui.linkmenu.LinkMenuFragment
 import com.cosmos.unreddit.ui.postdetails.PostDetailsFragment
@@ -24,7 +26,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-open class BaseFragment : Fragment(), PostListAdapter.PostClickListener,
+open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostClickListener,
     RedditView.OnLinkClickListener {
 
     protected open val viewModel: BaseViewModel? = null
@@ -91,6 +93,32 @@ open class BaseFragment : Fragment(), PostListAdapter.PostClickListener,
             )
             .addToBackStack(null)
             .commit()
+    }
+
+    override fun onClick(item: FeedItem) {
+        //TODO("Not yet implemented")
+    }
+
+    override fun onLongClick(item: FeedItem) {
+        //TODO("Not yet implemented")
+    }
+
+    override fun onMenuClick(item: FeedItem) {
+        //TODO("Not yet implemented")
+    }
+
+    override fun onMediaClick(item: FeedItem) {
+        // TODO
+        //  if media != null && not empty -> openMedia(media)
+        //  else -> open with url + type
+    }
+
+    override fun onLinkClick(item: FeedItem) {
+        //TODO("Not yet implemented")
+    }
+
+    override fun onSaveClick(item: FeedItem) {
+        //TODO("Not yet implemented")
     }
 
     override fun onLongClick(post: PostEntity) {

@@ -19,10 +19,12 @@ import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
+import com.cosmos.unreddit.data.model.Sort
+import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.db.Profile
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.databinding.FragmentPostBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.ui.common.adapter.FeedItemListAdapter
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshView
 import com.cosmos.unreddit.ui.loadstate.NetworkLoadStateAdapter
@@ -43,7 +45,6 @@ import com.google.android.material.appbar.AppBarLayout
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
@@ -80,12 +81,9 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     private val isDrawerOpen: Boolean
         get() = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
 
-    private lateinit var postListAdapter: PostListAdapter
+    private lateinit var feedItemListAdapter: FeedItemListAdapter
 
     private lateinit var profileAdapter: ProfileAdapter
-
-    @Inject
-    lateinit var repository: PostListRepository
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -106,7 +104,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
         binding.infoRetry.apply {
             applyMarginWindowInsets(left = false, right = false, bottom = false)
-            setActionClickListener { postListAdapter.retry() }
+            setActionClickListener { feedItemListAdapter.retry() }
         }
     }
 
@@ -143,7 +141,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             launch {
                 viewModel.contentPreferences.collect {
                     binding.infoRetry.hide()
-                    postListAdapter.contentPreferences = it
+                    feedItemListAdapter.contentPreferences = it
                 }
             }
 
@@ -160,15 +158,16 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             }
 
             launch {
-                viewModel.postDataFlow.collectLatest {
-                    postListAdapter.submitData(it)
+                viewModel.feedItemDataFlow.collectLatest {
+                    feedItemListAdapter.submitData(it)
                 }
             }
 
             launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
-                }
+                // TODO
+//                viewModel.sorting.collect {
+//                    binding.appBar.sortIcon.setSorting(it)
+//                }
             }
 
             launch {
@@ -230,7 +229,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     private fun initRecyclerView() {
-        postListAdapter = PostListAdapter(repository, this, this).apply {
+        feedItemListAdapter = FeedItemListAdapter(this, this).apply {
             addLoadStateListener { loadState ->
                 val isLoading = loadState.source.refresh is LoadState.Loading
 
@@ -254,16 +253,16 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         binding.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
             layoutManager = LinearLayoutManager(requireContext())
-            adapter = postListAdapter.withLoadStateHeaderAndFooter(
-                header = NetworkLoadStateAdapter { postListAdapter.retry() },
-                footer = NetworkLoadStateAdapter { postListAdapter.retry() }
+            adapter = feedItemListAdapter.withLoadStateHeaderAndFooter(
+                header = NetworkLoadStateAdapter { feedItemListAdapter.retry() },
+                footer = NetworkLoadStateAdapter { feedItemListAdapter.retry() }
             )
         }
 
         binding.pullRefresh.setOnRefreshListener(this)
 
         launchRepeat(Lifecycle.State.STARTED) {
-            postListAdapter.onRefreshFromNetwork {
+            feedItemListAdapter.onRefreshFromNetwork {
                 scrollToTop()
             }
         }
@@ -279,7 +278,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting -> sorting?.let { viewModel.setSorting(it) } }
+        setSortingListener { sorting -> sorting?.let { /*viewModel.setSorting(it)*/ } }
 
         setNavigationListener { showNavigation ->
             uiViewModel.setNavigationVisibility(showNavigation && onOffsetChangedListener.visible)
@@ -291,7 +290,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     private fun showSortDialog() {
-        SortFragment.show(childFragmentManager, viewModel.sorting.value)
+        SortFragment.show(childFragmentManager, Sorting(Sort.HOT))
     }
 
     private fun updateContainerView(
@@ -325,7 +324,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     override fun onRefresh() {
-        postListAdapter.refresh()
+        feedItemListAdapter.refresh()
     }
 
     override fun onBackPressed() {

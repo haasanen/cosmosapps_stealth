@@ -4,6 +4,7 @@ import android.os.Parcelable
 import androidx.annotation.Keep
 import kotlinx.parcelize.Parcelize
 
+@Deprecated("Legacy entity")
 @Keep
 @Parcelize
 data class GalleryMedia(

@@ -65,6 +65,7 @@ fun ImageView.loadSubredditIcon(uri: String?) {
     }
 }
 
+@Deprecated("Legacy listener")
 fun Fragment.setSortingListener(result: (Sorting?) -> Unit) {
     childFragmentManager.setFragmentResultListener(
         SortFragment.REQUEST_KEY_SORTING,
@@ -75,10 +76,12 @@ fun Fragment.setSortingListener(result: (Sorting?) -> Unit) {
     }
 }
 
+@Deprecated("Legacy listener")
 fun Fragment.clearSortingListener() {
     childFragmentManager.clearFragmentResultListener(SortFragment.REQUEST_KEY_SORTING)
 }
 
+@Deprecated("Legacy listener")
 fun Fragment.setCommentListener(result: (Comment.CommentEntity?) -> Unit) {
     childFragmentManager.setFragmentResultListener(
         CommentMenuFragment.REQUEST_KEY_COMMENT,
@@ -91,6 +94,7 @@ fun Fragment.setCommentListener(result: (Comment.CommentEntity?) -> Unit) {
     }
 }
 
+@Deprecated("Legacy listener")
 fun Fragment.clearCommentListener() {
     childFragmentManager.clearFragmentResultListener(CommentMenuFragment.REQUEST_KEY_COMMENT)
 }

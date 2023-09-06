@@ -460,6 +460,7 @@ abstract class RedditDatabase : RoomDatabase() {
                                 ?.run { "https://www.reddit.com$this" },
                             PosterType.toType(cursor.getInt(cursor.getColumnIndex("poster_type"))),
                             null,
+                            seen = true,
                             saved = true,
                             cursor.getLong(cursor.getColumnIndex("time")),
                             profileId = cursor.getInt(cursor.getColumnIndex("profile_id"))

@@ -110,7 +110,8 @@ class FeedableMapper @Inject constructor(
                 postRefLink,
                 posterType.toPosterType(),
                 CommentUtil.getCommentIndicator(depth),
-                false
+                seen = false,
+                saved = false
             )
         }
     }
@@ -124,7 +125,9 @@ class FeedableMapper @Inject constructor(
                 content,
                 parentId,
                 depth,
-                CommentUtil.getCommentIndicator(depth)
+                CommentUtil.getCommentIndicator(depth),
+                seen = false,
+                saved = false
             )
         }
     }
@@ -132,16 +135,18 @@ class FeedableMapper @Inject constructor(
     private fun Postable.getMediaType(): MediaType {
         val media = media ?: listOf()
         val domain = domain ?: ""
-        val mime = media.firstOrNull()?.mime ?: ""
+        val mime by lazy { media.firstOrNull()?.mime ?: "" }
         val extension by lazy { url.extension }
 
         return when {
             postType == PostType.text -> MediaType.NO_MEDIA
             postType == PostType.link -> MediaType.LINK
 
+            // TODO: Media > 1 -> Generic gallery
             media.size > 1 -> MediaType.REDDIT_GALLERY
 
             mime.startsWith("image") -> MediaType.IMAGE
+            // TODO: startsWith video -> VIDEO (no audio check)
             mime.startsWith("video") -> {
                 val alternativeMime = media.getOrNull(1)?.mime ?: ""
 

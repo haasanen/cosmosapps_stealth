@@ -65,11 +65,11 @@ class PostAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(post: PostEntity) {
-            binding.includePostMetrics.post = post
-            binding.includePostFlairs.post = post
+            //binding.includePostMetrics.post = post
+            //binding.includePostFlairs.post = post
 
             binding.includePostInfo.run {
-                this.post = post
+                //this.post = post
                 textPostAuthor.text = post.author
                 textSubreddit.text = post.subreddit
             }
@@ -152,7 +152,7 @@ class PostAdapter(
                         root.isVisible = true
                         root.setOnClickListener { postClickListener.onClick(post.crosspost) }
                         title.text = post.crosspost.title
-                        includePostInfo.post = post.crosspost
+                        //includePostInfo.post = post.crosspost
                         includePostInfo.textPostAuthor.text = post.crosspost.author
                         includePostInfo.textSubreddit.text = post.crosspost.subreddit
                         includePostInfo.groupCrosspost.isVisible = false
@@ -177,8 +177,8 @@ class PostAdapter(
         }
 
         fun update(post: PostEntity) {
-            binding.includePostMetrics.post = post
-            binding.includePostFlairs.post = post
+            //binding.includePostMetrics.post = post
+            //binding.includePostFlairs.post = post
 
             binding.includePostMetrics.buttonSave.isChecked = post.saved
 
@@ -205,21 +205,21 @@ class PostAdapter(
             when {
                 post.hasFlairs -> {
                     binding.includePostFlairs.root.visibility = View.VISIBLE
-                    binding.includePostFlairs.postFlair.apply {
-                        if (!post.flair.isEmpty()) {
-                            visibility = View.VISIBLE
-
-                            setFlair(post.flair)
-                        } else {
-                            visibility = View.GONE
-                        }
-                    }
+//                    binding.includePostFlairs.postFlair.apply {
+//                        if (!post.flair.isEmpty()) {
+//                            visibility = View.VISIBLE
+//
+//                            setFlair(post.flair)
+//                        } else {
+//                            visibility = View.GONE
+//                        }
+//                    }
                 }
                 post.isSelf -> {
                     binding.includePostFlairs.root.visibility = View.GONE
                 }
                 else -> {
-                    binding.includePostFlairs.postFlair.visibility = View.GONE
+                    //binding.includePostFlairs.postFlair.visibility = View.GONE
                 }
             }
             binding.includePostInfo.postFlair.apply {

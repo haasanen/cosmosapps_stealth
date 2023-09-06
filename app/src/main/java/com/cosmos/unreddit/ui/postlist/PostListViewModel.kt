@@ -3,19 +3,23 @@ package com.cosmos.unreddit.ui.postlist
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.cosmos.unreddit.data.local.mapper.PostMapper2
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.stealth.sdk.data.model.api.Sort
+import com.cosmos.unreddit.data.local.mapper.FeedableMapper
 import com.cosmos.unreddit.data.model.Data
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.Filtering
+import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.ServiceQuery
+import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
+import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
-import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.updateValue
+import com.cosmos.unreddit.util.mapFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -38,8 +42,9 @@ import javax.inject.Inject
 class PostListViewModel
 @Inject constructor(
     private val repository: PostListRepository,
+    private val stealthRepository: StealthRepository,
     private val preferencesRepository: PreferencesRepository,
-    private val postMapper: PostMapper2,
+    private val feedableMapper: FeedableMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : BaseViewModel(preferencesRepository, repository) {
 
@@ -48,31 +53,41 @@ class PostListViewModel
 
     val profiles: Flow<List<Profile>> = repository.getAllProfiles()
 
-    private val _sorting: MutableStateFlow<Sorting> = MutableStateFlow(DEFAULT_SORTING)
-    val sorting: StateFlow<Sorting> = _sorting
+    private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
+    val filtering: StateFlow<Filtering> = _filtering
 
-    val subreddit: Flow<List<String>> = subscriptionsNames
+    val communities: Flow<List<ServiceQuery>> = subscriptions
         .distinctUntilChanged()
         .map { subscriptions ->
             if (subscriptions.isNotEmpty()) {
-                subscriptions.shuffled()
+                subscriptions
+                    .groupBy { it.service }
+                    .map { entry ->
+                        ServiceQuery(
+                            Service(
+                                entry.key,
+                                entry.value.firstNotNullOfOrNull { it.instance }
+                            ),
+                            entry.value.map { it.name }
+                        )
+                    }
             } else {
-                listOf(DEFAULT_SUBREDDIT)
+                listOf(DEFAULT_QUERY)
             }
         }
         .flowOn(defaultDispatcher)
 
-    val postDataFlow: Flow<PagingData<PostEntity>>
+    val feedItemDataFlow: Flow<PagingData<FeedItem>>
 
     val fetchData: StateFlow<Data.FetchMultiple> = combine(
-        subreddit,
-        sorting
-    ) { subreddit, sorting ->
-        Data.FetchMultiple(subreddit, sorting)
+        communities,
+        filtering
+    ) { communities, filtering ->
+        Data.FetchMultiple(communities, filtering)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        Data.FetchMultiple(listOf(DEFAULT_SUBREDDIT), DEFAULT_SORTING)
+        Data.FetchMultiple(listOf(DEFAULT_QUERY), DEFAULT_FILTERING)
     )
 
     private var latestUser: Data.User? = null
@@ -93,23 +108,24 @@ class PostListViewModel
     var isDrawerOpen: Boolean = false
 
     init {
-        postDataFlow = fetchData
+        feedItemDataFlow = fetchData
             // Fetch last user data when search data is updated and merge them together
             .flatMapLatest { fetchData -> userData.map { fetchData to it } }
-            .flatMapLatest { getPosts(it.first, it.second) }
+            .flatMapLatest { getFeedItems(it.first, it.second) }
             .onEach { _lastRefresh.value = System.currentTimeMillis() }
             .cachedIn(viewModelScope)
     }
 
-    private fun getPosts(data: Data.FetchMultiple, user: Data.User): Flow<PagingData<PostEntity>> {
-        return repository.getPosts(data.query, data.sorting)
-            .map { pagingData ->
-                PostUtil.filterPosts(pagingData, latestUser ?: user, postMapper, defaultDispatcher)
-            }
+    private fun getFeedItems(
+        data: Data.FetchMultiple,
+        user: Data.User
+    ): Flow<PagingData<FeedItem>> {
+        return stealthRepository.getFeed(data.query, data.filtering)
+            .map { it.mapFilter(latestUser ?: user, feedableMapper, defaultDispatcher) }
     }
 
-    fun setSorting(sorting: Sorting) {
-        _sorting.updateValue(sorting)
+    fun setFiltering(filtering: Filtering) {
+        _filtering.updateValue(filtering)
     }
 
     fun selectProfile(profile: Profile) {
@@ -119,7 +135,9 @@ class PostListViewModel
     }
 
     companion object {
-        private const val DEFAULT_SUBREDDIT = "popular"
-        private val DEFAULT_SORTING = Sorting(Sort.HOT)
+        private const val DEFAULT_COMMUNITY = "popular"
+        private val DEFAULT_QUERY =
+            ServiceQuery(Service(ServiceName.reddit), listOf(DEFAULT_COMMUNITY))
+        private val DEFAULT_FILTERING = Filtering(Sort.trending)
     }
 }

@@ -9,6 +9,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import com.cosmos.stealth.sdk.Stealth
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.util.FileUncaughtExceptionHandler
@@ -40,6 +41,10 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
     override fun onCreate() {
         super.onCreate()
+
+        Stealth.init {
+            url("http://10.0.2.2:8080/")
+        }
 
         runBlocking {
             val nightMode = preferencesRepository.getNightMode().first()

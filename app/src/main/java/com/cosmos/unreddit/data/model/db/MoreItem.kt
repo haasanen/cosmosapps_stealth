@@ -7,7 +7,7 @@ import kotlinx.parcelize.Parcelize
 data class MoreItem(
     val service: Service,
 
-    val id: String,
+    override val id: String,
 
     val count: Int,
 
@@ -17,5 +17,9 @@ data class MoreItem(
 
     val depth: Int,
 
-    val commentIndicator: Int? = null
+    val commentIndicator: Int? = null,
+
+    override var seen: Boolean = true,
+
+    override var saved: Boolean = true
 ) : FeedItem

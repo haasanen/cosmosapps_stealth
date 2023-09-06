@@ -28,7 +28,7 @@ import kotlinx.parcelize.Parcelize
 data class CommentItem @JvmOverloads constructor(
     val service: Service,
 
-    val id: String,
+    override val id: String,
 
     @ColumnInfo(name = "post_id")
     val postId: String,
@@ -84,7 +84,10 @@ data class CommentItem @JvmOverloads constructor(
     val commentIndicator: Int? = null,
 
     @Ignore
-    var saved: Boolean = true,
+    override var seen: Boolean = true,
+
+    @Ignore
+    override var saved: Boolean = true,
 
     var time: Long = -1,
 

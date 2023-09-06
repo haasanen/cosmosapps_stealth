@@ -14,6 +14,7 @@ import coil.size.Scale
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Award
 
+@Deprecated("Legacy view")
 class AwardView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,

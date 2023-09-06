@@ -11,6 +11,7 @@ import coil.size.Scale
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Flair
 
+@Deprecated("Legacy view")
 class RedditFlairView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
