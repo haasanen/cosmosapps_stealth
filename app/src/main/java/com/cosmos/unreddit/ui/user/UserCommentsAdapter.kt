@@ -49,7 +49,7 @@ class UserCommentsAdapter(
 
         fun bind(comment: CommentEntity) {
             binding.comment = comment
-            binding.includeItemComment.comment = comment
+//            binding.includeItemComment.comment = comment
 
             with(comment) {
                 binding.includeItemComment.commentScore.blurText(scoreHidden)
@@ -77,25 +77,25 @@ class UserCommentsAdapter(
                     backgroundTintList = colorPrimary
                 }
 
-                with(binding.includeItemComment.commentFlair) {
-                    if (!flair.isEmpty()) {
-                        visibility = View.VISIBLE
+//                with(binding.includeItemComment.commentFlair) {
+//                    if (!flair.isEmpty()) {
+//                        visibility = View.VISIBLE
+//
+//                        setFlair(flair)
+//                    } else {
+//                        visibility = View.GONE
+//                    }
+//                }
 
-                        setFlair(flair)
-                    } else {
-                        visibility = View.GONE
-                    }
-                }
-
-                with(binding.includeItemComment.commentAwards) {
-                    if (awards.isNotEmpty()) {
-                        visibility = View.VISIBLE
-
-                        setAwards(awards, totalAwards)
-                    } else {
-                        visibility = View.GONE
-                    }
-                }
+//                with(binding.includeItemComment.commentAwards) {
+//                    if (awards.isNotEmpty()) {
+//                        visibility = View.VISIBLE
+//
+//                        setAwards(awards, totalAwards)
+//                    } else {
+//                        visibility = View.GONE
+//                    }
+//                }
 
             }
 

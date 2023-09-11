@@ -15,7 +15,6 @@ import com.cosmos.unreddit.databinding.IncludePostMetricsBinding
 import com.cosmos.unreddit.databinding.ItemPostImageBinding
 import com.cosmos.unreddit.databinding.ItemPostLinkBinding
 import com.cosmos.unreddit.databinding.ItemPostTextBinding
-import com.cosmos.unreddit.ui.common.widget.AwardView
 import com.cosmos.unreddit.util.ClickableMovementMethod
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
@@ -30,7 +29,7 @@ abstract class PostViewHolder(
 ) : RecyclerView.ViewHolder(itemView) {
 
     private val title = itemView.findViewById<TextView>(R.id.text_post_title)
-    private val awards = itemView.findViewById<AwardView>(R.id.awards)
+    //private val awards = itemView.findViewById<AwardView>(R.id.awards)
 
     init {
         itemView.apply {
@@ -72,14 +71,14 @@ abstract class PostViewHolder(
 
         postMetricsBinding.setRatio(postEntity.ratio)
 
-        awards.apply {
-            if (postEntity.awards.isNotEmpty()) {
-                visibility = View.VISIBLE
-                setAwards(postEntity.awards, postEntity.totalAwards)
-            } else {
-                visibility = View.GONE
-            }
-        }
+//        awards.apply {
+//            if (postEntity.awards.isNotEmpty()) {
+//                visibility = View.VISIBLE
+//                setAwards(postEntity.awards, postEntity.totalAwards)
+//            } else {
+//                visibility = View.GONE
+//            }
+//        }
 
         postInfoBinding.textPostAuthor.apply {
             setTextColor(ContextCompat.getColor(context, postEntity.posterType.color))

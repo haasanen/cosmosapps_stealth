@@ -14,6 +14,7 @@ import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.ui.common.listener.ItemClickListener
 import com.cosmos.unreddit.ui.common.widget.RedditView
 import com.cosmos.unreddit.ui.linkmenu.LinkMenuFragment
@@ -79,6 +80,10 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     protected open fun onClick(fragmentManager: FragmentManager, post: PostEntity) {
+        // ignore
+    }
+
+    protected open fun onClick(fragmentManager: FragmentManager, post: PostItem) {
         fragmentManager.beginTransaction()
             .setCustomAnimations(
                 R.anim.nav_enter_anim,
@@ -96,7 +101,7 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onClick(item: FeedItem) {
-        //TODO("Not yet implemented")
+        onClick(parentFragmentManager, item as PostItem)
     }
 
     override fun onLongClick(item: FeedItem) {

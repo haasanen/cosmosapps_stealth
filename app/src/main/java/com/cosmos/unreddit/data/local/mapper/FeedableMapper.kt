@@ -119,11 +119,8 @@ class FeedableMapper @Inject constructor(
     private fun toMoreItem(from: Appendable): MoreItem {
         return with(from) {
             MoreItem(
-                service.toService(),
+                from,
                 id,
-                count,
-                content,
-                parentId,
                 depth,
                 CommentUtil.getCommentIndicator(depth),
                 seen = false,

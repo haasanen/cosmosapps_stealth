@@ -20,6 +20,7 @@ import com.cosmos.unreddit.ui.common.widget.ReactionView
 import com.cosmos.unreddit.util.ClickableMovementMethod
 import com.cosmos.unreddit.util.extension.formatNumber
 import com.cosmos.unreddit.util.extension.load
+import com.cosmos.unreddit.util.extension.orFalse
 import com.cosmos.unreddit.util.extension.setRatio
 import com.cosmos.unreddit.util.extension.toPercentage
 
@@ -108,7 +109,7 @@ abstract class PostItemViewHolder(
                 }
             }
 
-            post.self ?: false -> {
+            post.self.orFalse() -> {
                 postFlairsBinding.root.visibility = View.GONE
             }
 

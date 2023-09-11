@@ -7,13 +7,11 @@ import androidx.core.content.ContextCompat
 import coil.Coil
 import coil.request.ImageRequest
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.Award
+import com.cosmos.unreddit.data.model.Reactions
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 
-@Deprecated("Legacy view")
-class AwardGroup
-@JvmOverloads constructor(
+class ReactionGroup @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
@@ -22,13 +20,13 @@ class AwardGroup
     private val awardImageSize = context.resources.getDimension(R.dimen.award_image_size)
     private val textColor = ContextCompat.getColor(context, R.color.text_color)
 
-    fun setAwards(awards: List<Award>) {
+    fun setReactions(reactions: Reactions) {
         removeAllViews()
 
-        for (award in awards) {
+        for (reaction in reactions.reactions) {
             val chip = Chip(context).apply {
                 Coil.imageLoader(context).enqueue(ImageRequest.Builder(context).apply {
-                    data(award.icon)
+                    data(reaction.icon)
                     allowHardware(false)
                     target { drawable ->
                         chipIcon = drawable
@@ -37,7 +35,7 @@ class AwardGroup
                 chipIconSize = awardImageSize
                 chipEndPadding = 0F
                 textSize = 12F
-                text = context.getString(R.string.award_count, award.count)
+                text = context.getString(R.string.award_count, reaction.count)
                 setTextColor(textColor)
                 setChipBackgroundColorResource(R.color.chip_background_color)
             }

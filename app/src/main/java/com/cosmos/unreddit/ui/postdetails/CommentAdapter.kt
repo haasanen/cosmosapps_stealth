@@ -13,17 +13,18 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.local.mapper.CommentMapper2
-import com.cosmos.unreddit.data.model.Comment
-import com.cosmos.unreddit.data.model.Comment.CommentEntity
-import com.cosmos.unreddit.data.model.Comment.MoreEntity
-import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.local.mapper.FeedableMapper
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.data.model.db.FeedItem
+import com.cosmos.unreddit.data.model.db.MoreItem
+import com.cosmos.unreddit.data.model.db.PostItem
+import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.databinding.ItemCommentBinding
 import com.cosmos.unreddit.databinding.ItemMoreBinding
 import com.cosmos.unreddit.ui.common.widget.RedditView
-import com.cosmos.unreddit.util.extension.blurText
+import com.cosmos.unreddit.util.extension.formatNumber
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,13 +40,13 @@ class CommentAdapter(
     context: Context,
     mainImmediateDispatcher: CoroutineDispatcher,
     private val defaultDispatcher: CoroutineDispatcher,
-    private val repository: PostListRepository,
-    private val commentMapper: CommentMapper2,
+    private val repository: StealthRepository,
+    private val feedableMapper: FeedableMapper,
     private val onLinkClickListener: RedditView.OnLinkClickListener? = null,
-    private val onCommentLongClick: (CommentEntity) -> Unit
-) : ListAdapter<Comment, RecyclerView.ViewHolder>(COMMENT_COMPARATOR) {
+    private val onCommentLongClick: (CommentItem) -> Unit
+) : ListAdapter<FeedItem, RecyclerView.ViewHolder>(COMMENT_COMPARATOR) {
 
-    var postEntity: PostEntity? = null
+    var postItem: PostItem? = null
 
     var savedIds: List<String> = emptyList()
 
@@ -74,19 +75,18 @@ class CommentAdapter(
 
     override fun getItemViewType(position: Int): Int {
         return when (getItem(position)) {
-            is CommentEntity -> Type.COMMENT.value
-            is MoreEntity -> Type.MORE.value
+            is CommentItem -> Type.COMMENT.value
+            is MoreItem -> Type.MORE.value
             else -> throw IllegalArgumentException("Unknown type")
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (getItemViewType(position)) {
-            Type.COMMENT.value ->
-                (holder as CommentViewHolder).bind(getItem(position) as CommentEntity)
-            Type.MORE.value -> {
-                (holder as MoreViewHolder).bind(getItem(position) as MoreEntity)
+            Type.COMMENT.value -> {
+                (holder as CommentViewHolder).bind(getItem(position) as CommentItem)
             }
+            Type.MORE.value -> (holder as MoreViewHolder).bind(getItem(position) as MoreItem)
             else -> throw IllegalArgumentException("Unknown type")
         }
     }
@@ -100,7 +100,7 @@ class CommentAdapter(
             super.onBindViewHolder(holder, position, payloads)
         } else {
             val comment = getItem(position)
-            if (holder is CommentViewHolder && comment is CommentEntity) {
+            if (holder is CommentViewHolder && comment is CommentItem) {
                 holder.bindCommentHiddenIndicator(comment, true)
             }
         }
@@ -109,19 +109,20 @@ class CommentAdapter(
     private fun onCommentClick(position: Int) {
         val newList = currentList.toMutableList()
         when (val comment = newList[position]) {
-            is CommentEntity -> {
+            is CommentItem -> {
                 scope.launch { onCommentClick(position, newList, comment) }
             }
-            is MoreEntity -> {
+            is MoreItem -> {
                 scope.launch { onMoreClick(position, newList, comment) }
             }
+            else -> { /* ignore */ }
         }
     }
 
     private suspend fun onCommentClick(
         position: Int,
-        newList: MutableList<Comment>,
-        comment: CommentEntity
+        newList: MutableList<FeedItem>,
+        comment: CommentItem
     ) {
         if (!comment.hasReplies) return
 
@@ -135,7 +136,7 @@ class CommentAdapter(
         } else {
             comment.isExpanded = false
 
-            val replyCount = getReplyCount(startIndex, comment.depth)
+            val replyCount = getReplyCount(startIndex, comment.depth ?: 0)
             comment.visibleReplyCount = replyCount
 
             val endIndex = startIndex + replyCount
@@ -148,56 +149,35 @@ class CommentAdapter(
 
     private suspend fun onMoreClick(
         position: Int,
-        newList: MutableList<Comment>,
-        comment: MoreEntity
+        newList: MutableList<FeedItem>,
+        comment: MoreItem
     ) {
-        val post = postEntity ?: return
-
-        val containsMoreComments = comment.more.size > LOAD_MORE_LIMIT
-
-        val children = comment.more.take(LOAD_MORE_LIMIT).joinToString(",")
-        if (containsMoreComments) {
-            // Remove first 100 comments from list
-            with(comment) {
-                more.subList(0, LOAD_MORE_LIMIT).clear()
-                count = if (count > LOAD_MORE_LIMIT) count - LOAD_MORE_LIMIT else 0
-            }
-        }
-
-        repository.getMoreChildren(children, post.id)
+        repository.getMore(comment.appendable)
             .map {
-                commentMapper.dataToEntities(it.json.data.things, null)
-            }
-            .map {
-                it.filter { comment -> comment.depth < COMMENT_DEPTH_LIMIT }
-            }
-            .map {
-                restoreCommentHierarchy(it, comment.depth)
+                when (it) {
+                    is Resource.Success -> feedableMapper.dataToEntities(it.data)
+                    is Resource.Error -> error(it.message)
+                    is Resource.Exception -> error(it.throwable.message.orEmpty())
+                }
             }
             .map { comments ->
                 comment.apply { isLoading = false; isError = false }
 
                 comments.forEach { comment ->
-                    (comment as? CommentEntity)?.run {
-                        linkTitle = linkTitle ?: post.title
-                        linkPermalink = linkPermalink ?: post.permalink
-                        linkAuthor = linkAuthor ?: post.author
-                        saved = savedIds.contains(comment.name)
+                    (comment as? CommentItem)?.run {
+                        saved = savedIds.contains(comment.id)
                     }
                 }
 
                 if (comment.depth > 0) {
-                    val parentComment = newList.find { it.name == comment.parent }
+                    val parentComment = newList.find { it.id == comment.appendable.parentId }
 
                     if (parentComment != null &&
-                        parentComment is CommentEntity &&
+                        parentComment is CommentItem &&
                         parentComment.isExpanded
                     ) {
                         parentComment.replies.removeLastOrNull()
                         parentComment.replies.addAll(comments)
-                        if (containsMoreComments) {
-                            parentComment.replies.add(comment)
-                        }
                     } else {
                         return@map newList
                     }
@@ -205,10 +185,6 @@ class CommentAdapter(
 
                 newList.removeAt(position)
                 newList.addAll(position, comments)
-
-                if (containsMoreComments) {
-                    newList.add(position + comments.size, comment)
-                }
 
                 return@map newList
             }
@@ -228,28 +204,29 @@ class CommentAdapter(
 
     private fun onCommentLongClick(position: Int) {
         val comment = getItem(position)
-        if (comment is CommentEntity) {
+        if (comment is CommentItem) {
             comment.run {
-                saved = savedIds.contains(name)
+                saved = savedIds.contains(id)
                 onCommentLongClick.invoke(this)
             }
         }
     }
 
     private suspend fun getExpandedReplies(
-        comments: List<Comment>
-    ): List<Comment> = withContext(defaultDispatcher) {
-        val replies = mutableListOf<Comment>()
+        comments: List<FeedItem>
+    ): List<FeedItem> = withContext(defaultDispatcher) {
+        val replies = mutableListOf<FeedItem>()
 
         for (comment in comments) {
             when (comment) {
-                is CommentEntity -> {
+                is CommentItem -> {
                     replies.add(comment)
                     if (comment.isExpanded) {
                         replies.addAll(getExpandedReplies(comment.replies))
                     }
                 }
-                is MoreEntity -> replies.add(comment)
+                is MoreItem -> replies.add(comment)
+                else -> continue
             }
         }
 
@@ -263,7 +240,12 @@ class CommentAdapter(
         var count = 0
 
         for (i in index until itemCount) {
-            if (getItem(i).depth > depth) {
+            val item = getItem(i)
+            val itemDepth = (item as? CommentItem)?.depth
+                ?: (item as? MoreItem)?.depth
+                ?: 0
+
+            if (itemDepth > depth) {
                 count++
             } else {
                 break
@@ -271,36 +253,6 @@ class CommentAdapter(
         }
 
         return@withContext count
-    }
-
-    private suspend fun restoreCommentHierarchy(
-        comments: List<Comment>,
-        depth: Int
-    ): List<Comment> = withContext(defaultDispatcher) {
-        val restored = mutableListOf<Comment>()
-
-        for (i in comments.indices) {
-            val comment = comments[i]
-
-            if (comment.depth > depth) {
-                continue
-            } else if (comment.depth < depth) {
-                break
-            }
-
-            val nextComment = comments.getOrNull(i + 1)
-
-            if (comment is CommentEntity && nextComment != null && nextComment.depth > depth) {
-                comment.replies.addAll(
-                    restoreCommentHierarchy(comments.subList(i + 1, comments.lastIndex), depth + 1)
-                )
-                comment.visibleReplyCount = comment.replies.size
-            }
-
-            restored.add(comment)
-        }
-
-        return@withContext restored
     }
 
     fun cleanUp() {
@@ -311,40 +263,43 @@ class CommentAdapter(
         private val binding: ItemCommentBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(comment: CommentEntity) {
+        fun bind(comment: CommentItem) {
             binding.comment = comment
 
             binding.commentAuthor.apply {
                 setTextColor(ContextCompat.getColor(context, comment.posterType.color))
             }
 
-            binding.commentScore.blurText(comment.scoreHidden)
+            binding.commentScore.text = itemView.context.getString(
+                R.string.comment_score,
+                comment.score.formatNumber()
+            )
 
             binding.commentColorIndicator.setCommentColor(comment)
 
             bindCommentHiddenIndicator(comment, false)
 
-            binding.commentFlair.apply {
-                if (!comment.flair.isEmpty()) {
+            binding.commentBadge.apply {
+                if (comment.authorBadge != null) {
                     visibility = View.VISIBLE
 
-                    setFlair(comment.flair)
+                    setBadge(comment.authorBadge)
                 } else {
                     visibility = View.GONE
                 }
             }
 
-            binding.commentAwards.apply {
-                if (comment.awards.isNotEmpty()) {
+            binding.commentReactions.apply {
+                if (comment.reactions != null) {
                     visibility = View.VISIBLE
 
-                    setAwards(comment.awards, comment.totalAwards)
+                    setReactions(comment.reactions)
                 } else {
                     visibility = View.GONE
                 }
             }
 
-            binding.commentOpText.visibility = if (comment.isSubmitter) View.VISIBLE else View.GONE
+            binding.commentOpText.visibility = if (comment.submitter) View.VISIBLE else View.GONE
 
             itemView.setOnClickListener {
                 onCommentClick(bindingAdapterPosition)
@@ -356,7 +311,7 @@ class CommentAdapter(
             }
 
             binding.commentBody.apply {
-                setText(comment.body)
+                setText(comment.bodyText)
                 setOnLinkClickListener(onLinkClickListener)
                 setOnClickListener {
                     onCommentClick(bindingAdapterPosition)
@@ -368,7 +323,7 @@ class CommentAdapter(
             }
         }
 
-        fun bindCommentHiddenIndicator(comment: CommentEntity, showAnimation: Boolean) {
+        fun bindCommentHiddenIndicator(comment: CommentItem, showAnimation: Boolean) {
             binding.commentHiddenIndicator.apply {
                 if (comment.hasReplies && !comment.isExpanded) {
                     visibility = View.VISIBLE
@@ -386,7 +341,7 @@ class CommentAdapter(
         private val binding: ItemMoreBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(more: MoreEntity) {
+        fun bind(more: MoreItem) {
             binding.more = more
 
             binding.progress.isVisible = more.isLoading
@@ -400,13 +355,28 @@ class CommentAdapter(
         }
     }
 
-    private fun ImageView.setCommentColor(comment: Comment) {
+    private fun ImageView.setCommentColor(comment: FeedItem) {
+        val depth: Int
+        val commentIndicator: Int?
+
+        when (comment) {
+            is CommentItem -> {
+                depth = comment.depth ?: 0
+                commentIndicator = comment.commentIndicator
+            }
+            is MoreItem -> {
+                depth = comment.depth
+                commentIndicator = comment.commentIndicator
+            }
+            else -> return
+        }
+
         this.apply {
-            if (comment.depth == 0) {
+            if (depth == 0) {
                 visibility = View.GONE
             } else {
                 visibility = View.VISIBLE
-                comment.commentIndicator?.let {
+                commentIndicator?.let {
                     backgroundTintList = ColorStateList.valueOf(
                         ContextCompat.getColor(context, it)
                     )
@@ -414,7 +384,7 @@ class CommentAdapter(
                 val params = ConstraintLayout.LayoutParams(
                     layoutParams as ConstraintLayout.LayoutParams
                 ).apply {
-                    marginStart = (commentOffset * (comment.depth - 1)).toInt()
+                    marginStart = (commentOffset * (depth - 1)).toInt()
                 }
                 layoutParams = params
             }
@@ -426,25 +396,16 @@ class CommentAdapter(
     }
 
     companion object {
-        const val LOAD_MORE_LIMIT = 100
-        const val COMMENT_DEPTH_LIMIT = 10
-
-        private val COMMENT_COMPARATOR = object : DiffUtil.ItemCallback<Comment>() {
-            override fun areItemsTheSame(oldItem: Comment, newItem: Comment): Boolean {
-                return when {
-                    oldItem is CommentEntity && newItem is CommentEntity -> {
-                        oldItem.name == newItem.name
-                    }
-                    oldItem is MoreEntity && newItem is MoreEntity -> {
-                        oldItem.id == newItem.id
-                    }
-                    else -> {
-                        false
-                    }
+        private val COMMENT_COMPARATOR = object : DiffUtil.ItemCallback<FeedItem>() {
+            override fun areItemsTheSame(oldItem: FeedItem, newItem: FeedItem): Boolean {
+                return when (oldItem) {
+                    is CommentItem -> oldItem.id == (newItem as? CommentItem)?.id
+                    is MoreItem -> oldItem.id == (newItem as? MoreItem)?.id
+                    else -> error("Unsupported type")
                 }
             }
 
-            override fun areContentsTheSame(oldItem: Comment, newItem: Comment): Boolean {
+            override fun areContentsTheSame(oldItem: FeedItem, newItem: FeedItem): Boolean {
                 return oldItem == newItem
             }
         }

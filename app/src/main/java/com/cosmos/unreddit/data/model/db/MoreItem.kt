@@ -1,19 +1,15 @@
 package com.cosmos.unreddit.data.model.db
 
-import com.cosmos.unreddit.data.model.Service
+import com.cosmos.stealth.sdk.data.model.api.Appendable
+import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
+import kotlinx.parcelize.RawValue
 
 @Parcelize
 data class MoreItem(
-    val service: Service,
+    val appendable: @RawValue Appendable,
 
     override val id: String,
-
-    val count: Int,
-
-    val content: List<String>,
-
-    val parentId: String,
 
     val depth: Int,
 
@@ -22,4 +18,11 @@ data class MoreItem(
     override var seen: Boolean = true,
 
     override var saved: Boolean = true
-) : FeedItem
+) : FeedItem {
+
+    @IgnoredOnParcel
+    var isLoading: Boolean = false
+
+    @IgnoredOnParcel
+    var isError: Boolean = false
+}

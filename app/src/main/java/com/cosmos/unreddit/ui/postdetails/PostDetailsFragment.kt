@@ -20,21 +20,19 @@ import androidx.recyclerview.widget.RecyclerView.Adapter.StateRestorationPolicy.
 import androidx.transition.Slide
 import androidx.transition.TransitionManager
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.local.mapper.CommentMapper2
+import com.cosmos.unreddit.data.local.mapper.FeedableMapper
 import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.repository.PreferencesRepository
+import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.databinding.FragmentPostDetailsBinding
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.di.DispatchersModule.MainImmediateDispatcher
 import com.cosmos.unreddit.ui.base.BaseFragment
-import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.common.ElasticDragDismissFrameLayout
 import com.cosmos.unreddit.ui.loadstate.ResourceStateAdapter
-import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
-import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
 import com.cosmos.unreddit.util.extension.clearCommentListener
 import com.cosmos.unreddit.util.extension.clearSortingListener
 import com.cosmos.unreddit.util.extension.launchRepeat
@@ -76,13 +74,13 @@ class PostDetailsFragment : BaseFragment(),
         get() = parentFragmentManager.fragments.count { it is PostDetailsFragment } == 1
 
     @Inject
-    lateinit var repository: PostListRepository
+    lateinit var repository: StealthRepository
 
     @Inject
     lateinit var preferencesRepository: PreferencesRepository
 
     @Inject
-    lateinit var commentMapper: CommentMapper2
+    lateinit var feedableMapper: FeedableMapper
 
     @Inject
     @MainImmediateDispatcher
@@ -128,7 +126,7 @@ class PostDetailsFragment : BaseFragment(),
         initAppBar()
         initRecyclerView()
 
-        val post = arguments?.parcelable<PostEntity>(KEY_POST_ENTITY)
+        val post = arguments?.parcelable<PostItem>(KEY_POST_ENTITY)
         post?.let {
             bindPost(it, true)
         }
@@ -149,10 +147,11 @@ class PostDetailsFragment : BaseFragment(),
             mainImmediateDispatcher,
             defaultDispatcher,
             repository,
-            commentMapper,
+            feedableMapper,
             this
         ) {
-            CommentMenuFragment.show(childFragmentManager, it, CommentMenuFragment.MenuType.DETAILS)
+            // TODO
+            //CommentMenuFragment.show(childFragmentManager, it, CommentMenuFragment.MenuType.DETAILS)
         }.apply {
             // Wait for data to restore adapter position
             stateRestorationPolicy = PREVENT_WHEN_EMPTY
@@ -170,8 +169,12 @@ class PostDetailsFragment : BaseFragment(),
     private fun bindViewModel() {
         launchRepeat(Lifecycle.State.STARTED) {
             launch {
-                combine(viewModel.permalink, viewModel.sorting) { permalink, _ ->
-                    permalink?.let {
+                combine(
+                    viewModel.postId,
+                    viewModel.service,
+                    viewModel.filtering
+                ) { postId, service, _ ->
+                    if (postId != null && service != null) {
                         viewModel.loadPost(false)
                     }
                 }.collect()
@@ -180,7 +183,7 @@ class PostDetailsFragment : BaseFragment(),
             launch {
                 viewModel.post.collect {
                     when (it) {
-                        is Resource.Success -> bindPost(it.data, false)
+                        is Resource.Success -> bindPost(it.data as PostItem, false)
                         else -> {
                             // ignore
                         }
@@ -189,7 +192,7 @@ class PostDetailsFragment : BaseFragment(),
             }
 
             launch {
-                viewModel.comments.collect {
+                viewModel.replies.collect {
                     resourceStateAdapter.resource = it
                     when (it) {
                         is Resource.Success -> commentAdapter.submitList(it.data)
@@ -201,8 +204,9 @@ class PostDetailsFragment : BaseFragment(),
             }
 
             launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
+                viewModel.filtering.collect {
+                    // TODO
+                    //binding.appBar.sortIcon.setSorting(it)
                 }
             }
 
@@ -235,53 +239,39 @@ class PostDetailsFragment : BaseFragment(),
 
     private fun initResultListener() {
         setSortingListener { sorting ->
-            sorting?.let {
-                viewModel.setSorting(sorting)
-                binding.listComments.betterSmoothScrollToPosition(0)
-            }
+            // TODO
+//            sorting?.let {
+//                viewModel.setSorting(sorting)
+//                binding.listComments.betterSmoothScrollToPosition(0)
+//            }
         }
         setCommentListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
     }
 
-    private fun bindPost(post: PostEntity, fromCache: Boolean) {
+    private fun bindPost(post: PostItem, fromCache: Boolean) {
         binding.appBar.label.text = post.title
         postAdapter.setPost(post, fromCache)
-        commentAdapter.postEntity = post
+        commentAdapter.postItem = post
         viewModel.insertPostInHistory(post.id)
     }
 
     private fun handleArguments() {
         if (args.id != null) {
-            val permalink = if (args.name != null) {
-                // Full URL
-                val stringBuilder = StringBuilder().apply {
-                    append("/").append(args.type).append("/").append(args.name).append("/comments/")
-                        .append(args.id)
-                }
-
-                if (args.title != null && args.comment != null) {
-                    stringBuilder.append("/").append(args.title).append("/").append(args.comment)
-                    viewModel.setSingleThread(true)
-                }
-
-                stringBuilder.toString()
-            } else {
-                // Shortened URL
-                args.id!!
-            }
-
-            viewModel.setPermalink(permalink)
+            viewModel.setPostId(args.id!!)
         } else {
             if (arguments?.containsKey(KEY_POST_ENTITY) == true) {
-                val post = arguments?.parcelable<PostEntity>(KEY_POST_ENTITY)
+                val post = arguments?.parcelable<PostItem>(KEY_POST_ENTITY)
                 post?.let {
-                    viewModel.setSorting(it.suggestedSorting)
-                    viewModel.setPermalink(it.permalink)
+                    // TODO
+                    //viewModel.setSorting(it.suggestedSorting)
+                    viewModel.setPostId(it.id)
+                    viewModel.setService(it.service)
                 }
             } else if (arguments?.containsKey(KEY_THREAD_PERMALINK) == true) {
+                // TODO: Parse permalink
                 val threadPermalink = arguments?.getString(KEY_THREAD_PERMALINK)
                 threadPermalink?.let {
-                    viewModel.setPermalink(it)
+                    viewModel.setPostId(it)
                     viewModel.setSingleThread(true)
                 }
             }
@@ -289,10 +279,10 @@ class PostDetailsFragment : BaseFragment(),
     }
 
     private fun loadFullDiscussion() {
-        val permalink = viewModel.permalink.value
+        val permalink = viewModel.postId.value
         permalink?.let {
             val newPermalink = it.removeSuffix("/").substringBeforeLast("/")
-            viewModel.setPermalink(newPermalink)
+            viewModel.setPostId(newPermalink)
             viewModel.setSingleThread(false)
             viewModel.loadPost(false)
         }
@@ -303,11 +293,12 @@ class PostDetailsFragment : BaseFragment(),
     }
 
     private fun showSortDialog() {
-        SortFragment.show(
-            childFragmentManager,
-            viewModel.sorting.value,
-            SortFragment.SortType.POST
-        )
+        // TODO
+//        SortFragment.show(
+//            childFragmentManager,
+//            viewModel.sorting.value,
+//            SortFragment.SortType.POST
+//        )
     }
 
     private fun showNavigation(show: Boolean) {
@@ -350,7 +341,7 @@ class PostDetailsFragment : BaseFragment(),
         super.onPause()
 
         // Save comment hierarchy
-        viewModel.setComments(commentAdapter.currentList)
+        viewModel.setReplies(commentAdapter.currentList)
     }
 
     override fun onDestroyView() {
@@ -385,8 +376,7 @@ class PostDetailsFragment : BaseFragment(),
 
         private const val KEY_THREAD_PERMALINK = "KEY_THREAD_PERMALINK"
 
-        @JvmStatic
-        fun newInstance(post: PostEntity) = PostDetailsFragment().apply {
+        fun newInstance(post: PostItem) = PostDetailsFragment().apply {
             arguments = bundleOf(
                 KEY_POST_ENTITY to post
             )

@@ -1,14 +1,17 @@
 package com.cosmos.unreddit.data.model.db
 
+import android.content.Context
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Ignore
+import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Badge
 import com.cosmos.unreddit.data.model.PosterType
 import com.cosmos.unreddit.data.model.Reactions
 import com.cosmos.unreddit.data.model.RedditText
 import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.util.DateUtil
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 
@@ -102,4 +105,17 @@ data class CommentItem @JvmOverloads constructor(
     @Ignore
     @IgnoredOnParcel
     var visibleReplyCount: Int = replies.size
+
+    val hasReplies: Boolean
+        get() = replies.isNotEmpty()
+
+    fun getTimeDifference(context: Context): String {
+        val timeDifference = DateUtil.getTimeDifference(context, created)
+        return if (edited != null) {
+            val editedTimeDifference = DateUtil.getTimeDifference(context, edited, false)
+            context.getString(R.string.comment_date_edited, timeDifference, editedTimeDifference)
+        } else {
+            timeDifference
+        }
+    }
 }

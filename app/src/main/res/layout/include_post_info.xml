@@ -26,8 +26,8 @@
             android:textColor="@color/colorPrimary"
             tools:text="author"/>
 
-        <com.cosmos.unreddit.ui.common.widget.RedditFlairView
-            android:id="@+id/post_flair"
+        <com.cosmos.unreddit.ui.common.widget.BadgeView
+            android:id="@+id/post_badge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             app:layout_constraintStart_toEndOf="@id/text_post_author"

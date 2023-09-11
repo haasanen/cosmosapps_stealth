@@ -188,7 +188,7 @@ class ProfileSavedAdapter(
 
         fun bind(comment: Comment.CommentEntity) {
             binding.comment = comment
-            binding.includeItemComment.comment = comment
+//            binding.includeItemComment.comment = comment
 
             with(comment) {
                 binding.includeItemComment.commentScore.blurText(scoreHidden)
@@ -216,25 +216,25 @@ class ProfileSavedAdapter(
                     backgroundTintList = colorPrimary
                 }
 
-                binding.includeItemComment.commentFlair.run {
-                    if (!flair.isEmpty()) {
-                        visibility = View.VISIBLE
+//                binding.includeItemComment.commentFlair.run {
+//                    if (!flair.isEmpty()) {
+//                        visibility = View.VISIBLE
+//
+//                        setFlair(flair)
+//                    } else {
+//                        visibility = View.GONE
+//                    }
+//                }
 
-                        setFlair(flair)
-                    } else {
-                        visibility = View.GONE
-                    }
-                }
-
-                binding.includeItemComment.commentAwards.run {
-                    if (awards.isNotEmpty()) {
-                        visibility = View.VISIBLE
-
-                        setAwards(awards, totalAwards)
-                    } else {
-                        visibility = View.GONE
-                    }
-                }
+//                binding.includeItemComment.commentAwards.run {
+//                    if (awards.isNotEmpty()) {
+//                        visibility = View.VISIBLE
+//
+//                        setAwards(awards, totalAwards)
+//                    } else {
+//                        visibility = View.GONE
+//                    }
+//                }
 
             }
 

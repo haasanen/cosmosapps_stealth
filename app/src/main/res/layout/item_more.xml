@@ -6,7 +6,7 @@
     <data>
         <variable
             name="more"
-            type="com.cosmos.unreddit.data.model.Comment.MoreEntity" />
+            type="com.cosmos.unreddit.data.model.db.MoreItem" />
     </data>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -43,7 +43,7 @@
             app:layout_constraintHorizontal_chainStyle="packed"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceCommentMore"
-            android:text="@{@string/comment_more(more.count)}"
+            android:text="@{@string/comment_more(more.appendable.count)}"
             tools:text="More (256)"/>
 
         <ProgressBar

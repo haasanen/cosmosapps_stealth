@@ -15,6 +15,7 @@ import com.cosmos.unreddit.databinding.ItemPostTextBinding
 import com.cosmos.unreddit.ui.common.widget.RedditView
 import com.cosmos.unreddit.util.ClickableMovementMethod
 
+@Deprecated("Legacy adapter")
 class PostListAdapter(
     private val repository: PostListRepository,
     private val postClickListener: PostClickListener,
