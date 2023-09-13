@@ -139,20 +139,10 @@ class FeedableMapper @Inject constructor(
             postType == PostType.text -> MediaType.NO_MEDIA
             postType == PostType.link -> MediaType.LINK
 
-            // TODO: Media > 1 -> Generic gallery
-            media.size > 1 -> MediaType.REDDIT_GALLERY
+            media.size > 1 -> MediaType.GALLERY
 
             mime.startsWith("image") -> MediaType.IMAGE
-            // TODO: startsWith video -> VIDEO (no audio check)
-            mime.startsWith("video") -> {
-                val alternativeMime = media.getOrNull(1)?.mime ?: ""
-
-                if (alternativeMime.startsWith("audio")) {
-                    MediaType.REDDIT_VIDEO
-                } else {
-                    MediaType.VIDEO
-                }
-            }
+            mime.startsWith("video") -> MediaType.VIDEO
 
             domain.matches(LinkUtil.IMGUR_LINK) -> {
                 when {

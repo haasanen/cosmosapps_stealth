@@ -80,7 +80,7 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     protected open fun onClick(fragmentManager: FragmentManager, post: PostEntity) {
-        // ignore
+        throw UnsupportedOperationException("Deprecated")
     }
 
     protected open fun onClick(fragmentManager: FragmentManager, post: PostItem) {
@@ -113,9 +113,17 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onMediaClick(item: FeedItem) {
-        // TODO
-        //  if media != null && not empty -> openMedia(media)
-        //  else -> open with url + type
+        viewModel?.insertPostInHistory(item.id)
+        when (item) {
+            is PostItem -> {
+                if (item.media != null) {
+                    linkHandler.openGallery(item.media)
+                } else {
+                    linkHandler.openMedia(item.url, item.mediaType)
+                }
+            }
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onLinkClick(item: FeedItem) {
@@ -135,12 +143,7 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onImageClick(post: PostEntity) {
-        viewModel?.insertPostInHistory(post.id)
-        if (post.gallery.isNotEmpty()) {
-            linkHandler.openGallery(post.gallery)
-        } else {
-            linkHandler.openMedia(post.mediaUrl, post.mediaType)
-        }
+        throw UnsupportedOperationException("Deprecated")
     }
 
     override fun onVideoClick(post: PostEntity) {

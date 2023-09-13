@@ -11,7 +11,7 @@
         tools:layout="@layout/fragment_media_viewer">
         <argument
             android:name="images"
-            app:argType="com.cosmos.unreddit.data.model.GalleryMedia[]"
+            app:argType="com.cosmos.unreddit.data.model.Media[]"
             app:nullable="true"
             android:defaultValue="@null"/>
         <argument

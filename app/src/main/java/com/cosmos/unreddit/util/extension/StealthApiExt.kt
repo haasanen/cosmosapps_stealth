@@ -35,6 +35,7 @@ fun RemoteMedia.toMedia(): Media {
     return Media(
         mime,
         source.toMediaSource(),
+        Media.Type.fromMime(mime),
         id,
         resolutions?.map { it.toMediaSource() },
         alternatives?.map { it.toMedia() },

@@ -6,14 +6,14 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import coil.size.Precision
 import coil.size.Scale
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.databinding.ItemThumbnailBinding
 
 class MediaViewerThumbnailAdapter(
     private val onClick: (Int) -> Unit
 ) : RecyclerView.Adapter<MediaViewerThumbnailAdapter.ViewHolder>() {
 
-    private val images: MutableList<GalleryMedia> = mutableListOf()
+    private val images: MutableList<Media> = mutableListOf()
     private var selected: Int = 0
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -37,7 +37,7 @@ class MediaViewerThumbnailAdapter(
         return images.size
     }
 
-    fun submitData(images: List<GalleryMedia>) {
+    fun submitData(images: List<Media>) {
         this.images.clear()
         this.images.addAll(images)
         notifyDataSetChanged()
@@ -55,8 +55,8 @@ class MediaViewerThumbnailAdapter(
         private val binding: ItemThumbnailBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(image: GalleryMedia) {
-            binding.thumbnail.load(image.url) {
+        fun bind(image: Media) {
+            binding.thumbnail.load(image.source.url) {
                 crossfade(true)
                 scale(Scale.FILL)
                 precision(Precision.AUTOMATIC)

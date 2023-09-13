@@ -21,7 +21,7 @@ enum class MediaType {
     STREAMABLE,
 
     // Generic type
-    IMAGE, VIDEO,
+    IMAGE, VIDEO, GALLERY,
 
     LINK;
 

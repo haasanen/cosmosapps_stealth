@@ -23,7 +23,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.cosmos.unreddit.BuildConfig
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.receiver.DownloadManagerReceiver
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.util.DateUtil
@@ -65,7 +65,7 @@ class MediaDownloadWorker @AssistedInject constructor (
     override suspend fun doWork(): Result {
         val url = inputData.getString(KEY_URL) ?: return Result.failure()
         val type = inputData.getInt(KEY_TYPE, -1).let {
-            GalleryMedia.Type.fromValue(it)
+            Media.Type.fromValue(it)
         } ?: return Result.failure()
 
         val builder = createDownloadManagerBuilder()
@@ -111,7 +111,7 @@ class MediaDownloadWorker @AssistedInject constructor (
                     )
                     .setContentIntent(pendingIntent)
 
-                if (type == GalleryMedia.Type.IMAGE) {
+                if (type == Media.Type.IMAGE) {
                     val bitmap = getBitmap(uri)
                     builder
                         .setLargeIcon(bitmap)
@@ -146,18 +146,21 @@ class MediaDownloadWorker @AssistedInject constructor (
     @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun downloadMedia(
         url: String,
-        type: GalleryMedia.Type,
+        type: Media.Type,
         name: String,
         mimeType: String
     ): Uri? {
         var uri: Uri? = null
 
         val collection = when (type) {
-            GalleryMedia.Type.IMAGE -> {
+            Media.Type.IMAGE -> {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             }
-            GalleryMedia.Type.VIDEO -> {
+            Media.Type.VIDEO -> {
                 MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            }
+            Media.Type.AUDIO -> {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             }
         }
 
@@ -207,21 +210,23 @@ class MediaDownloadWorker @AssistedInject constructor (
     /**
      * @see <a href="https://commonsware.com/blog/2019/12/21/scoped-storage-stories-storing-mediastore.html">Scoped Storage Stories: Storing via MediaStore </a>
      */
-    @Suppress("deprecation")
     private suspend fun downloadMediaLegacy(
         url: String,
-        type: GalleryMedia.Type,
+        type: Media.Type,
         name: String,
         mimeType: String
     ): Uri? {
         var uri: Uri? = null
 
         val publicDirectory = when (type) {
-            GalleryMedia.Type.IMAGE -> {
+            Media.Type.IMAGE -> {
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
             }
-            GalleryMedia.Type.VIDEO -> {
+            Media.Type.VIDEO -> {
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            }
+            Media.Type.AUDIO -> {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
             }
         }
 
@@ -306,7 +311,7 @@ class MediaDownloadWorker @AssistedInject constructor (
         )
     }
 
-    private fun getRetryAction(url: String, type: GalleryMedia.Type): NotificationCompat.Action {
+    private fun getRetryAction(url: String, type: Media.Type): NotificationCompat.Action {
         return NotificationCompat.Action.Builder(
             null,
             applicationContext.getString(R.string.notification_download_action_retry),
@@ -333,7 +338,7 @@ class MediaDownloadWorker @AssistedInject constructor (
         private const val KEY_URL = "KEY_URL"
         private const val KEY_TYPE = "KEY_TYPE"
 
-        fun enqueueWork(context: Context, url: String, type: GalleryMedia.Type) {
+        fun enqueueWork(context: Context, url: String, type: Media.Type) {
             val downloadRequest = OneTimeWorkRequestBuilder<MediaDownloadWorker>()
                 .addTag(WORK_TAG)
                 .setInputData(

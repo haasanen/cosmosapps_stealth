@@ -5,7 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.cosmos.unreddit.BuildConfig
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.worker.MediaDownloadWorker
 import com.cosmos.unreddit.util.IntentUtil
 
@@ -17,7 +17,7 @@ class DownloadManagerReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_DOWNLOAD_RETRY -> {
                 val mediaType = intent.extras?.getInt(KEY_TYPE, -1)?.let {
-                    GalleryMedia.Type.fromValue(it)
+                    Media.Type.fromValue(it)
                 } ?: return
 
                 retry(context, url, mediaType)
@@ -26,7 +26,7 @@ class DownloadManagerReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun retry(context: Context, url: String, type: GalleryMedia.Type) {
+    private fun retry(context: Context, url: String, type: Media.Type) {
         MediaDownloadWorker.enqueueWork(context, url, type)
     }
 
@@ -47,7 +47,7 @@ class DownloadManagerReceiver : BroadcastReceiver() {
         fun getRetryPendingIntent(
             context: Context,
             url: String,
-            type: GalleryMedia.Type
+            type: Media.Type
         ): PendingIntent {
             val intent = Intent(context, DownloadManagerReceiver::class.java).apply {
                 action = ACTION_DOWNLOAD_RETRY

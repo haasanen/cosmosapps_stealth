@@ -23,7 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.worker.MediaDownloadWorker
@@ -220,7 +220,7 @@ class MediaViewerFragment : FullscreenBottomSheetFragment() {
         } else {
             arguments?.let { bundle ->
                 if (bundle.containsKey(BUNDLE_KEY_IMAGES)) {
-                    val images = bundle.parcelableArrayList<GalleryMedia>(BUNDLE_KEY_IMAGES)
+                    val images = bundle.parcelableArrayList<Media>(BUNDLE_KEY_IMAGES)
                     if (images != null) {
                         viewerViewModel.setMedia(images.toList())
                     }
@@ -234,7 +234,7 @@ class MediaViewerFragment : FullscreenBottomSheetFragment() {
         }
     }
 
-    private fun bindMedia(media: List<GalleryMedia>) {
+    private fun bindMedia(media: List<Media>) {
         if (media.size > 1) {
             thumbnailAdapter.submitData(media)
             binding.textPageCount.text = media.size.toString()
@@ -306,7 +306,7 @@ class MediaViewerFragment : FullscreenBottomSheetFragment() {
         media?.let {
             MediaDownloadWorker.enqueueWork(
                 requireContext().applicationContext,
-                it.url,
+                it.source.url,
                 it.type
             )
 
@@ -405,7 +405,7 @@ class MediaViewerFragment : FullscreenBottomSheetFragment() {
         private const val BUNDLE_KEY_LINK = "BUNDLE_KEY_LINK"
         private const val BUNDLE_KEY_TYPE = "BUNDLE_KEY_TYPE"
 
-        fun newInstance(images: List<GalleryMedia>) = MediaViewerFragment().apply {
+        fun newInstance(images: List<Media>) = MediaViewerFragment().apply {
             arguments = bundleOf(
                 BUNDLE_KEY_IMAGES to images
             )

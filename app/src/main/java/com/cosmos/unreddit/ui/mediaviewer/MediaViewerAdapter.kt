@@ -12,7 +12,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Precision
 import coil.size.Scale
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.databinding.ItemImageBinding
 import com.cosmos.unreddit.databinding.ItemVideoBinding
 import com.cosmos.unreddit.util.ExoPlayerHelper
@@ -35,7 +35,7 @@ class MediaViewerAdapter(
     private val hasAudio: (Boolean) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    private val media: MutableList<GalleryMedia> = mutableListOf()
+    private val media: MutableList<Media> = mutableListOf()
 
     private val players: MutableList<Player> = mutableListOf()
 
@@ -45,10 +45,10 @@ class MediaViewerAdapter(
         val inflater = LayoutInflater.from(parent.context)
 
         return when (viewType) {
-            GalleryMedia.Type.IMAGE.value -> ImageViewHolder(
+            Media.Type.IMAGE.value -> ImageViewHolder(
                 ItemImageBinding.inflate(inflater, parent, false)
             )
-            GalleryMedia.Type.VIDEO.value -> VideoViewHolder(
+            Media.Type.VIDEO.value -> VideoViewHolder(
                 ItemVideoBinding.inflate(inflater, parent, false)
             )
             else -> throw IllegalArgumentException("Unknown type $viewType")
@@ -57,8 +57,8 @@ class MediaViewerAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (getItemViewType(position)) {
-            GalleryMedia.Type.IMAGE.value -> (holder as ImageViewHolder).bind(media[position])
-            GalleryMedia.Type.VIDEO.value -> (holder as VideoViewHolder).bind(media[position])
+            Media.Type.IMAGE.value -> (holder as ImageViewHolder).bind(media[position])
+            Media.Type.VIDEO.value -> (holder as VideoViewHolder).bind(media[position])
         }
     }
 
@@ -67,17 +67,14 @@ class MediaViewerAdapter(
     }
 
     override fun getItemViewType(position: Int): Int {
-        return when (media[position].type) {
-            GalleryMedia.Type.IMAGE -> GalleryMedia.Type.IMAGE.value
-            GalleryMedia.Type.VIDEO -> GalleryMedia.Type.VIDEO.value
-        }
+        return getItem(position)?.type?.value ?: -1
     }
 
-    fun getItem(position: Int): GalleryMedia? {
+    fun getItem(position: Int): Media? {
         return media.getOrNull(position)
     }
 
-    fun submitData(images: List<GalleryMedia>) {
+    fun submitData(images: List<Media>) {
         this.media.clear()
         this.media.addAll(images)
         notifyDataSetChanged()
@@ -103,16 +100,16 @@ class MediaViewerAdapter(
             }
         }
 
-        fun bind(image: GalleryMedia) {
+        fun bind(image: Media) {
             loadImage(image)
             binding.infoRetry.setActionClickListener { loadImage(image) }
         }
 
-        private fun loadImage(image: GalleryMedia) {
+        private fun loadImage(image: Media) {
             with(binding.image) {
                 Coil.imageLoader(context).enqueue(
                     ImageRequest.Builder(context).apply {
-                        data(image.url)
+                        data(image.source.url)
                         crossfade(true)
                         scale(Scale.FILL)
                         precision(Precision.AUTOMATIC)
@@ -181,8 +178,8 @@ class MediaViewerAdapter(
         private val binding: ItemVideoBinding
     ) : RecyclerView.ViewHolder(binding.root), Player.Listener {
 
-        fun bind(video: GalleryMedia) {
-            val url = video.url.toHttpUrlOrNull() ?: return
+        fun bind(video: Media) {
+            val url = video.source.url.toHttpUrlOrNull() ?: return
 
             if (url.host.contains("redgifs", ignoreCase = true)) {
                 val requestProperties = url
@@ -196,11 +193,17 @@ class MediaViewerAdapter(
                 .setMediaSourceFactory(exoPlayerHelper.defaultMediaSourceFactory)
                 .build()
 
-            val videoItem = exoPlayerHelper.getMediaItem(video.url)
+            val videoItem = exoPlayerHelper.getMediaItem(video.source.url)
 
-            if (video.sound != null) {
+            val sound = video.alternatives
+                ?.firstOrNull()
+                ?.takeIf { it.type == Media.Type.AUDIO }
+                ?.source
+                ?.url
+
+            if (sound != null) {
                 val videoSource = exoPlayerHelper.getMediaSource(videoItem)
-                val audioSource = exoPlayerHelper.getMediaSource(video.sound)
+                val audioSource = exoPlayerHelper.getMediaSource(sound)
                 val mergedSource = MergingMediaSource(videoSource, audioSource)
 
                 player.setMediaSource(mergedSource)

@@ -329,7 +329,7 @@ abstract class RedditDatabase : RoomDatabase() {
                         val mediaPreview = preview?.run {
                             val mime = mimeType
                             if (mime.startsWith("image")) {
-                                Media(mime, MediaSource(this))
+                                Media(mime, MediaSource(this), Media.Type.IMAGE)
                             } else {
                                 null
                             }
@@ -339,7 +339,7 @@ abstract class RedditDatabase : RoomDatabase() {
                         val media = mediaUrl.run {
                             val mime = mimeType
                             if (mime.startsWith("image") || mime.startsWith("video")) {
-                                Media(mime, MediaSource(this))
+                                Media(mime, MediaSource(this), Media.Type.fromMime(mime))
                             } else {
                                 null
                             }

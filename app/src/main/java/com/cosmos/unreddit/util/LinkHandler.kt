@@ -4,7 +4,7 @@ import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.fragment.app.Fragment
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.GalleryMedia
+import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.db.Redirect
 import com.cosmos.unreddit.data.model.db.Redirect.RedirectMode.ALWAYS_ASK
@@ -108,7 +108,7 @@ class LinkHandler @Inject constructor(
             .show()
     }
 
-    fun openGallery(images: List<GalleryMedia>) {
+    fun openGallery(images: List<Media>) {
         MediaViewerFragment.newInstance(images).run {
             show(fragment.parentFragmentManager, MediaViewerFragment.TAG)
         }

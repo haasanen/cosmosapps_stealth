@@ -2,23 +2,18 @@ package com.cosmos.unreddit.ui.mediaviewer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cosmos.unreddit.data.local.mapper.PostMapper2
-import com.cosmos.unreddit.data.model.GalleryMedia
-import com.cosmos.unreddit.data.model.GalleryMedia.Type
+import com.cosmos.unreddit.data.model.Media
+import com.cosmos.unreddit.data.model.MediaSource
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.repository.GfycatRepository
 import com.cosmos.unreddit.data.repository.ImgurRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.RedgifsRepository
 import com.cosmos.unreddit.data.repository.StreamableRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.util.LinkUtil
 import com.cosmos.unreddit.util.LinkUtil.https
-import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.updateValue
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -38,6 +33,7 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
 import javax.inject.Inject
+import com.google.common.net.MediaType as ContentType
 
 @HiltViewModel
 class MediaViewerViewModel
@@ -46,15 +42,13 @@ class MediaViewerViewModel
     private val streamableRepository: StreamableRepository,
     private val gfycatRepository: GfycatRepository,
     private val redgifsRepository: RedgifsRepository,
-    private val postListRepository: PostListRepository,
-    private val postMapper: PostMapper2,
     private val preferencesRepository: PreferencesRepository,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
-    private val _media: MutableStateFlow<Resource<List<GalleryMedia>>> =
+    private val _media: MutableStateFlow<Resource<List<Media>>> =
         MutableStateFlow(Resource.Loading())
-    val media: StateFlow<Resource<List<GalleryMedia>>> = _media
+    val media: StateFlow<Resource<List<Media>>> = _media
 
     private val _selectedPage: MutableStateFlow<Int> = MutableStateFlow(0)
     val selectedPage: StateFlow<Int> = _selectedPage
@@ -84,23 +78,22 @@ class MediaViewerViewModel
 
     private suspend fun retrieveMedia(link: String, mediaType: MediaType) {
         when (mediaType) {
-            MediaType.IMGUR_IMAGE, MediaType.IMAGE -> {
-                setMedia(GalleryMedia.singleton(Type.IMAGE, link))
-            }
             MediaType.IMGUR_LINK -> {
                 val id = LinkUtil.getImageIdFromImgurLink(link)
-                setMedia(GalleryMedia.singleton(Type.IMAGE, LinkUtil.getUrlFromImgurId(id)))
+                val media = Media(
+                    ContentType.JPEG.toString(),
+                    MediaSource(LinkUtil.getUrlFromImgurId(id)),
+                    Media.Type.IMAGE
+                )
+                setMedia(media.singletonList())
             }
             MediaType.IMGUR_GIF -> {
-                setMedia(GalleryMedia.singleton(Type.VIDEO, LinkUtil.getImgurVideo(link)))
-            }
-            MediaType.REDDIT_GIF, MediaType.IMGUR_VIDEO, MediaType.VIDEO -> {
-                setMedia(GalleryMedia.singleton(Type.VIDEO, link))
-            }
-            MediaType.REDDIT_VIDEO -> {
-                setMedia(
-                    GalleryMedia.singleton(Type.VIDEO, link, LinkUtil.getRedditSoundTrack(link))
+                val media = Media(
+                    ContentType.MP4_VIDEO.toString(),
+                    MediaSource(LinkUtil.getImgurVideo(link)),
+                    Media.Type.VIDEO
                 )
+                setMedia(media.singletonList())
             }
             MediaType.GFYCAT -> {
                 val id = LinkUtil.getGfycatId(link)
@@ -113,7 +106,11 @@ class MediaViewerViewModel
                         catchError(it)
                     }
                     .map {
-                        GalleryMedia.singleton(Type.VIDEO, it.gfyItem.contentUrls.mp4.url)
+                        Media(
+                            ContentType.MP4_VIDEO.toString(),
+                            MediaSource(it.gfyItem.contentUrls.mp4.url),
+                            Media.Type.VIDEO
+                        ).singletonList()
                     }
                     .collect {
                         setMedia(it)
@@ -130,7 +127,11 @@ class MediaViewerViewModel
                         catchError(it)
                     }
                     .map {
-                        GalleryMedia.singleton(Type.VIDEO, it.gif.urls.hd)
+                        Media(
+                            ContentType.MP4_VIDEO.toString(),
+                            MediaSource(it.gif.urls.hd),
+                            Media.Type.VIDEO
+                        ).singletonList()
                     }
                     .collect {
                         setMedia(it)
@@ -138,32 +139,56 @@ class MediaViewerViewModel
             }
             MediaType.STREAMABLE -> {
                 val shortcode = LinkUtil.getStreamableShortcode(link)
-                streamableRepository.getVideo(shortcode).onStart {
-                    _media.value = Resource.Loading()
-                }.catch {
-                    catchError(it)
-                }.map { video ->
-                    GalleryMedia.singleton(Type.VIDEO, video.files.mp4.url)
-                }.collect {
-                    setMedia(it)
-                }
+                streamableRepository.getVideo(shortcode)
+                    .onStart {
+                        _media.value = Resource.Loading()
+                    }
+                    .catch {
+                        catchError(it)
+                    }
+                    .map { video ->
+                        Media(
+                            ContentType.MP4_VIDEO.toString(),
+                            MediaSource(video.files.mp4.url),
+                            Media.Type.VIDEO
+                        ).singletonList()
+                    }
+                    .collect {
+                        setMedia(it)
+                    }
             }
             MediaType.IMGUR_ALBUM, MediaType.IMGUR_GALLERY -> {
                 val albumId = LinkUtil.getAlbumIdFromImgurLink(link)
                 imgurRepository.getAlbum(albumId)
                     .map { album ->
                         album.data.images.map { image ->
-                            GalleryMedia(
-                                if (image.preferVideo) Type.VIDEO else Type.IMAGE,
-                                LinkUtil.getUrlFromImgurImage(image),
-                                description = image.description
+                            val mime: String
+                            val type: Media.Type
+
+                            if (image.preferVideo) {
+                                mime = ContentType.MP4_VIDEO.toString()
+                                type = Media.Type.VIDEO
+                            } else {
+                                mime = ContentType.JPEG.toString()
+                                type = Media.Type.IMAGE
+                            }
+
+                            Media(
+                                mime,
+                                MediaSource(LinkUtil.getUrlFromImgurImage(image)),
+                                type,
+                                caption = image.description
                             )
                         }
                     }
                     .map {
                         // Some Imgur galleries are empty and actually point to a single image
                         it.ifEmpty {
-                            GalleryMedia.singleton(Type.IMAGE, LinkUtil.getUrlFromImgurId(albumId))
+                            Media(
+                                ContentType.JPEG.toString(),
+                                MediaSource(LinkUtil.getUrlFromImgurId(albumId)),
+                                Media.Type.IMAGE
+                            ).singletonList()
                         }
                     }
                     .flowOn(defaultDispatcher)
@@ -178,16 +203,17 @@ class MediaViewerViewModel
                     }
             }
             MediaType.REDDIT_GALLERY -> {
-                val permalink = LinkUtil.getPermalinkFromMediaUrl(link)
-                postListRepository.getPost(permalink, Sorting(Sort.BEST)).onStart {
-                    _media.value = Resource.Loading()
-                }.catch {
-                    catchError(it)
-                }.map { listings ->
-                    postMapper.dataToEntity(PostUtil.getPostData(listings)).gallery
-                }.collect {
-                    setMedia(it)
-                }
+                // TODO: Get post ID from gallery link and fetch post through Stealth API
+//                val permalink = LinkUtil.getPermalinkFromMediaUrl(link)
+//                postListRepository.getPost(permalink, Sorting(Sort.BEST)).onStart {
+//                    _media.value = Resource.Loading()
+//                }.catch {
+//                    catchError(it)
+//                }.map { listings ->
+//                    postMapper.dataToEntity(PostUtil.getPostData(listings)).gallery
+//                }.collect {
+//                    setMedia(it)
+//                }
             }
             else -> {
                 _media.value = Resource.Error()
@@ -203,7 +229,7 @@ class MediaViewerViewModel
         }
     }
 
-    fun setMedia(media: List<GalleryMedia>) {
+    fun setMedia(media: List<Media>) {
         _media.updateValue(Resource.Success(media))
     }
 
