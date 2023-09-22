@@ -13,6 +13,7 @@ import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.User
+import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.PostListRepository
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -84,7 +86,7 @@ class UserViewModel @Inject constructor(
     val lastRefreshComment: StateFlow<Long> = _lastRefreshComment.asStateFlow()
 
     val postDataFlow: Flow<PagingData<PostEntity>>
-    val commentDataFlow: Flow<PagingData<Comment>>
+    val commentDataFlow: Flow<PagingData<FeedItem>>
 
     private val searchData: StateFlow<Data.Fetch> = combine(
         user,
@@ -122,10 +124,12 @@ class UserViewModel @Inject constructor(
             .onEach { _lastRefreshPost.value = System.currentTimeMillis() }
             .cachedIn(viewModelScope)
 
-        commentDataFlow = data
-            .flatMapLatest { data -> getComments(data.first, data.second) }
-            .onEach { _lastRefreshComment.value = System.currentTimeMillis() }
-            .cachedIn(viewModelScope)
+        // TODO: Migration V3
+//        commentDataFlow = data
+//            .flatMapLatest { data -> getComments(data.first, data.second) }
+//            .onEach { _lastRefreshComment.value = System.currentTimeMillis() }
+//            .cachedIn(viewModelScope)
+        commentDataFlow = flow {  }
     }
 
     private fun getPosts(

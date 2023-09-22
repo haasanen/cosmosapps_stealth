@@ -1,10 +1,10 @@
 package com.cosmos.unreddit.data.local.mapper
 
 import com.cosmos.unreddit.data.model.Block
-import com.cosmos.unreddit.data.model.Comment.CommentEntity
 import com.cosmos.unreddit.data.model.SavedItem
-import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.data.model.db.PostItem
+import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.util.HtmlParser
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -13,7 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class SavedMapper2 @Inject constructor(
-    @DispatchersModule.DefaultDispatcher defaultDispatcher: CoroutineDispatcher
+    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : Mapper<Any, SavedItem>(defaultDispatcher) {
 
     private val htmlParser: HtmlParser = HtmlParser(defaultDispatcher)
@@ -26,32 +26,31 @@ class SavedMapper2 @Inject constructor(
         throw UnsupportedOperationException()
     }
 
-    suspend fun dataToEntity(data: PostEntity): SavedItem = withContext(defaultDispatcher) {
-        val redditText = htmlParser.separateHtmlBlocks(data.selfTextHtml)
+    suspend fun dataToEntity(data: PostItem): SavedItem = withContext(defaultDispatcher) {
+        val redditText = htmlParser.separateHtmlBlocks(data.body)
         SavedItem.Post(
             data.apply {
-                hasFlairs = isOver18 || isSpoiler || isOC || isStickied || isArchived || isLocked
-                selfRedditText = redditText
+                bodyText = redditText
                 previewText = (redditText.blocks.firstOrNull()?.block as? Block.TextBlock)?.text
             }
         )
     }
 
-    suspend fun dataToEntity(data: CommentEntity): SavedItem = withContext(defaultDispatcher) {
+    suspend fun dataToEntity(data: CommentItem): SavedItem = withContext(defaultDispatcher) {
         SavedItem.Comment(
             data.apply {
-                body = htmlParser.separateHtmlBlocks(bodyHtml)
+                bodyText = htmlParser.separateHtmlBlocks(body)
             }
         )
     }
 
-    suspend fun postsToEntities(data: List<PostEntity>): List<SavedItem> = withContext(
+    suspend fun postsToEntities(data: List<PostItem>): List<SavedItem> = withContext(
         defaultDispatcher
     ) {
         data.map { dataToEntity(it) }
     }
 
-    suspend fun commentsToEntities(data: List<CommentEntity>): List<SavedItem> =
+    suspend fun commentsToEntities(data: List<CommentItem>): List<SavedItem> =
         withContext(defaultDispatcher) {
             data.map { dataToEntity(it) }
         }

@@ -6,7 +6,7 @@
     <data>
         <variable
             name="comment"
-            type="com.cosmos.unreddit.data.model.Comment.CommentEntity" />
+            type="com.cosmos.unreddit.data.model.db.CommentItem" />
     </data>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -22,7 +22,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             android:textAppearance="@style/TextAppearanceUserCommentTitle"
-            android:text="@{comment.linkTitle}"
+            android:text="@{comment.postTitle}"
             tools:text="This is a post"/>
 
         <TextView
@@ -33,7 +33,7 @@
             app:layout_constraintTop_toBottomOf="@id/comment_link_title"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserCommentInfo"
-            android:text="@{@string/comment_link_info(comment.subreddit, comment.linkAuthor)}"
+            android:text="@{@string/comment_link_info(comment.community, comment.postAuthor)}"
             tools:text="r/subreddit - u/author"/>
 
         <include

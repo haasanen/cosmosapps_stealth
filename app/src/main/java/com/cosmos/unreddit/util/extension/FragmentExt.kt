@@ -6,6 +6,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.cosmos.unreddit.UnredditApplication
 import com.cosmos.unreddit.data.model.Filtering
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.sort.SortFragment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -33,4 +35,20 @@ fun Fragment.setFilteringListener(result: (Filtering?) -> Unit) {
 
 fun Fragment.clearFilteringListener() {
     childFragmentManager.clearFragmentResultListener(SortFragment.REQUEST_KEY_SORTING)
+}
+
+fun Fragment.setCommentSaveListener(result: (CommentItem?) -> Unit) {
+    childFragmentManager.setFragmentResultListener(
+        CommentMenuFragment.REQUEST_KEY_COMMENT,
+        viewLifecycleOwner
+    ) { _, bundle ->
+        val comment = bundle.parcelable<CommentItem>(
+            CommentMenuFragment.BUNDLE_KEY_COMMENT
+        )
+        result(comment)
+    }
+}
+
+fun Fragment.clearCommentSaveListener() {
+    childFragmentManager.clearFragmentResultListener(CommentMenuFragment.REQUEST_KEY_COMMENT)
 }

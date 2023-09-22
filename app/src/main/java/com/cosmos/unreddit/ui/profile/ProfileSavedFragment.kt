@@ -12,7 +12,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.Comment
+import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.common.fragment.ListFragment
 import com.cosmos.unreddit.ui.postdetails.PostDetailsFragment
@@ -68,21 +68,21 @@ class ProfileSavedFragment : ListFragment<ProfileSavedAdapter>(),
         }
     }
 
-    override fun onClick(comment: Comment.CommentEntity) {
+    override fun onClick(comment: CommentItem) {
         activity?.currentNavigationFragment
             ?.parentFragmentManager
             ?.beginTransaction()
             ?.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
             ?.add(
                 R.id.fragment_container,
-                PostDetailsFragment.newInstance(comment.permalink),
+                PostDetailsFragment.newInstance(comment.refLink),
                 PostDetailsFragment.TAG
             )
             ?.addToBackStack(null)
             ?.commit()
     }
 
-    override fun onLongClick(comment: Comment.CommentEntity) {
+    override fun onLongClick(comment: CommentItem) {
         CommentMenuFragment.show(
             parentFragmentManager,
             comment,

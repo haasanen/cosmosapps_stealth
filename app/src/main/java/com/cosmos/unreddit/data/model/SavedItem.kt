@@ -1,11 +1,13 @@
 package com.cosmos.unreddit.data.model
 
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.data.model.db.PostItem
 
 sealed class SavedItem(val timestamp: Long) {
-    data class Post(val post: PostEntity) : SavedItem(post.time)
+
+    data class Post(val post: PostItem) : SavedItem(post.time)
 
     data class Comment(
-        val comment: com.cosmos.unreddit.data.model.Comment.CommentEntity
+        val comment: CommentItem
     ) : SavedItem(comment.time)
 }

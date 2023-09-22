@@ -12,7 +12,7 @@ import androidx.navigation.fragment.findNavController
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Block
-import com.cosmos.unreddit.data.model.Comment
+import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.databinding.FragmentCommentMenuBinding
 import com.cosmos.unreddit.util.extension.doAndDismiss
 import com.cosmos.unreddit.util.extension.openExternalLink
@@ -41,23 +41,21 @@ class CommentMenuFragment : BottomSheetDialogFragment() {
         val type = arguments?.serializable(BUNDLE_KEY_TYPE) ?: MenuType.DETAILS
         binding.type = type
 
-        val comment = arguments?.parcelable<Comment.CommentEntity>(BUNDLE_KEY_COMMENT)
+        val comment = arguments?.parcelable<CommentItem>(BUNDLE_KEY_COMMENT)
         comment?.let {
             binding.comment = it
 
-            binding.textTitle.text = if (it.body.isFirstBlockText()) {
-                (it.body.blocks.first().block as Block.TextBlock).text
+            binding.textTitle.text = if (it.bodyText.isFirstBlockText()) {
+                (it.bodyText.blocks.first().block as Block.TextBlock).text
             } else {
-                it.subreddit
+                it.community
             }
 
             initActions(it)
         }
     }
 
-    private fun initActions(comment: Comment.CommentEntity) {
-        val url = "https://www.reddit.com${comment.permalink}"
-
+    private fun initActions(comment: CommentItem) {
         with(binding) {
             buttonUser.setOnClickListener {
                 doAndDismiss {
@@ -66,9 +64,10 @@ class CommentMenuFragment : BottomSheetDialogFragment() {
             }
 
             buttonSubreddit.setOnClickListener {
-                val subreddit = comment.subreddit.removePrefix("r/")
                 doAndDismiss {
-                    findNavController().navigate(NavigationGraphDirections.openSubreddit(subreddit))
+                    // TODO: Migration V3
+                    //  Deprecate openSubreddit destination
+                    findNavController().navigate(NavigationGraphDirections.openSubreddit(comment.community))
                 }
             }
 
@@ -88,11 +87,11 @@ class CommentMenuFragment : BottomSheetDialogFragment() {
             }
 
             buttonOpen.setOnClickListener {
-                doAndDismiss { openExternalLink(url) }
+                doAndDismiss { openExternalLink(comment.refLink) }
             }
 
             buttonShareLink.setOnClickListener {
-                doAndDismiss { shareExternalLink(url) }
+                doAndDismiss { shareExternalLink(comment.refLink) }
             }
         }
     }
@@ -116,7 +115,7 @@ class CommentMenuFragment : BottomSheetDialogFragment() {
 
         fun show(
             fragmentManager: FragmentManager,
-            comment: Comment.CommentEntity,
+            comment: CommentItem,
             type: MenuType
         ) {
             CommentMenuFragment().apply {

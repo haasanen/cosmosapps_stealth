@@ -2,10 +2,11 @@ package com.cosmos.unreddit.ui.base
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cosmos.unreddit.data.model.Comment
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.db.Subscription
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.util.extension.latest
@@ -17,9 +18,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 
+// TODO: Migration V3
+//  Remove PostListRepository
+//  Remove nullability for DatabaseRepository
 open class BaseViewModel(
     preferencesRepository: PreferencesRepository,
-    private val postListRepository: PostListRepository
+    private val postListRepository: PostListRepository,
+    private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
 
     val currentProfile: SharedFlow<Profile> = preferencesRepository.getCurrentProfile().map {
@@ -50,25 +55,25 @@ open class BaseViewModel(
         }
     }
 
-    fun toggleSavePost(post: PostEntity) {
+    fun toggleSavePost(post: PostItem) {
         viewModelScope.launch {
             currentProfile.latest?.let {
                 if (post.saved) {
-                    postListRepository.unsavePost(post, it.id)
+                    databaseRepository?.unsavePost(post, it.id)
                 } else {
-                    postListRepository.savePost(post, it.id)
+                    databaseRepository?.savePost(post, it.id)
                 }
             }
         }
     }
 
-    fun toggleSaveComment(comment: Comment.CommentEntity) {
+    fun toggleSaveComment(comment: CommentItem) {
         viewModelScope.launch {
             currentProfile.latest?.let {
                 if (comment.saved) {
-                    postListRepository.unsaveComment(comment, it.id)
+                    databaseRepository?.unsaveComment(comment, it.id)
                 } else {
-                    postListRepository.saveComment(comment, it.id)
+                    databaseRepository?.saveComment(comment, it.id)
                 }
             }
         }

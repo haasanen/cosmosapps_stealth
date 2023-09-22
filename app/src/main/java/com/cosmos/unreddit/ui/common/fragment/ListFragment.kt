@@ -10,7 +10,8 @@ import androidx.recyclerview.widget.RecyclerView.Adapter
 import androidx.recyclerview.widget.RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
 import androidx.recyclerview.widget.RecyclerView.ViewHolder
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.FeedItem
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.databinding.ItemListContentBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.PostDividerItemDecoration
@@ -51,9 +52,12 @@ abstract class ListFragment<T : Adapter<out ViewHolder>> : BaseFragment(),
         binding.pullRefresh.enablePullToRefresh = enablePullToRefresh
     }
 
-    override fun onClick(post: PostEntity) {
+    override fun onClick(item: FeedItem) {
         activity?.currentNavigationFragment?.let { currentFragment ->
-            onClick(currentFragment.parentFragmentManager, post)
+            when (item) {
+                is PostItem -> onClick(currentFragment.parentFragmentManager, item)
+                else -> { /* ignore */ }
+            }
         }
     }
 

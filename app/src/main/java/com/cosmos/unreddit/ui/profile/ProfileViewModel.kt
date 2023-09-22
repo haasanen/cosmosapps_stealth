@@ -1,15 +1,17 @@
 package com.cosmos.unreddit.ui.profile
 
 import com.cosmos.unreddit.data.local.mapper.SavedMapper2
-import com.cosmos.unreddit.data.model.Comment
 import com.cosmos.unreddit.data.model.SavedItem
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.CommentItem
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
+import com.cosmos.unreddit.util.extension.orFalse
 import com.cosmos.unreddit.util.extension.updateValue
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -29,9 +31,10 @@ import javax.inject.Inject
 class ProfileViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
     repository: PostListRepository,
+    databaseRepository: DatabaseRepository,
     private val savedMapper: SavedMapper2,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> = preferencesRepository.getContentPreferences()
 
@@ -40,12 +43,12 @@ class ProfileViewModel @Inject constructor(
 
     var layoutState: Int? = null
 
-    private val _savedPosts: Flow<List<PostEntity>> = currentProfile.flatMapLatest {
-        repository.getSavedPosts(it.id)
+    private val _savedPosts: Flow<List<PostItem>> = currentProfile.flatMapLatest {
+        databaseRepository.getSavedPosts(it.id)
     }
 
-    private val _savedComments: Flow<List<Comment.CommentEntity>> = currentProfile.flatMapLatest {
-        repository.getSavedComments(it.id)
+    private val _savedComments: Flow<List<CommentItem>> = currentProfile.flatMapLatest {
+        databaseRepository.getSavedComments(it.id)
     }
 
     val selectedProfile: Flow<Profile> = combine(
@@ -64,7 +67,7 @@ class ProfileViewModel @Inject constructor(
         coroutineScope {
             val posts = async {
                 savedMapper.postsToEntities(_posts).filter {
-                    preferences.showNsfw || !(it as SavedItem.Post).post.isOver18
+                    preferences.showNsfw || !(it as SavedItem.Post).post.nsfw.orFalse()
                 }
             }
 

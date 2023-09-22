@@ -8,7 +8,7 @@
         <import type="com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment.MenuType"/>
         <variable
             name="comment"
-            type="com.cosmos.unreddit.data.model.Comment.CommentEntity" />
+            type="com.cosmos.unreddit.data.model.db.CommentItem" />
         <variable
             name="type"
             type="com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment.MenuType" />
@@ -54,7 +54,7 @@
             android:layout_height="wrap_content"
             style="@style/ChipActionStyle"
             app:chipIcon="@drawable/ic_profile"
-            android:text="@{@string/reddit_user_prefixed(comment.author)}"
+            android:text="@{comment.author}"
             android:visibility="@{type != MenuType.USER ? View.VISIBLE : View.GONE}"
             tools:text="u/user"/>
 
@@ -64,7 +64,7 @@
             android:layout_height="wrap_content"
             style="@style/ChipActionStyle"
             app:chipIcon="@drawable/icon_reddit_placeholder"
-            android:text="@{comment.subreddit}"
+            android:text="@{comment.community}"
             tools:text="r/subreddit"/>
 
         <com.google.android.material.chip.Chip

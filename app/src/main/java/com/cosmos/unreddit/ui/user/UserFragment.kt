@@ -22,12 +22,12 @@ import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.adapter.FragmentAdapter
 import com.cosmos.unreddit.ui.postmenu.PostMenuFragment
 import com.cosmos.unreddit.ui.sort.SortFragment
-import com.cosmos.unreddit.util.extension.clearCommentListener
+import com.cosmos.unreddit.util.extension.clearCommentSaveListener
 import com.cosmos.unreddit.util.extension.clearSortingListener
 import com.cosmos.unreddit.util.extension.getRecyclerView
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.scrollToTop
-import com.cosmos.unreddit.util.extension.setCommentListener
+import com.cosmos.unreddit.util.extension.setCommentSaveListener
 import com.cosmos.unreddit.util.extension.setSortingListener
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
@@ -149,7 +149,7 @@ class UserFragment : BaseFragment() {
         setSortingListener { sorting ->
             sorting?.let { viewModel.setSorting(sorting) }
         }
-        setCommentListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
+        setCommentSaveListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
     }
 
     private fun bindInfo(user: User) {
@@ -226,7 +226,7 @@ class UserFragment : BaseFragment() {
         viewModel.layoutState = binding.layoutRoot.currentState
 
         clearSortingListener()
-        clearCommentListener()
+        clearCommentSaveListener()
 
         _binding = null
     }

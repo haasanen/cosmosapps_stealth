@@ -89,7 +89,7 @@
     <string name="comment_controversiality">✝</string>
     <string name="comment_op">OP</string>
 
-    <string name="comment_link_info">%1$s - u/%2$s</string>
+    <string name="comment_link_info">%1$s - %2$s</string>
 
     <string name="media_page_counter_label">of</string>
 

@@ -13,6 +13,7 @@ import com.cosmos.unreddit.data.model.ServiceQuery
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
@@ -41,12 +42,13 @@ import javax.inject.Inject
 @HiltViewModel
 class PostListViewModel
 @Inject constructor(
+    databaseRepository: DatabaseRepository,
     private val repository: PostListRepository,
     private val stealthRepository: StealthRepository,
     private val preferencesRepository: PreferencesRepository,
     private val feedableMapper: FeedableMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()

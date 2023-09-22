@@ -29,16 +29,17 @@ import com.cosmos.unreddit.databinding.FragmentPostDetailsBinding
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.di.DispatchersModule.MainImmediateDispatcher
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.common.ElasticDragDismissFrameLayout
 import com.cosmos.unreddit.ui.loadstate.ResourceStateAdapter
 import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
-import com.cosmos.unreddit.util.extension.clearCommentListener
+import com.cosmos.unreddit.util.extension.clearCommentSaveListener
 import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.parcelable
-import com.cosmos.unreddit.util.extension.setCommentListener
+import com.cosmos.unreddit.util.extension.setCommentSaveListener
 import com.cosmos.unreddit.util.extension.setFilteringListener
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineDispatcher
@@ -151,8 +152,7 @@ class PostDetailsFragment : BaseFragment(),
             feedableMapper,
             this
         ) {
-            // TODO
-            //CommentMenuFragment.show(childFragmentManager, it, CommentMenuFragment.MenuType.DETAILS)
+            CommentMenuFragment.show(childFragmentManager, it, CommentMenuFragment.MenuType.DETAILS)
         }.apply {
             // Wait for data to restore adapter position
             stateRestorationPolicy = PREVENT_WHEN_EMPTY
@@ -244,7 +244,7 @@ class PostDetailsFragment : BaseFragment(),
                 binding.listComments.betterSmoothScrollToPosition(0)
             }
         }
-        setCommentListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
+        setCommentSaveListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
     }
 
     private fun bindPost(post: PostItem, fromCache: Boolean) {
@@ -345,7 +345,7 @@ class PostDetailsFragment : BaseFragment(),
     override fun onDestroyView() {
         super.onDestroyView()
         clearFilteringListener()
-        clearCommentListener()
+        clearCommentSaveListener()
         _binding = null
         commentAdapter.cleanUp()
     }

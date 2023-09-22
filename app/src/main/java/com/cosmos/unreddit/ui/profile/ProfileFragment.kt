@@ -17,13 +17,13 @@ import com.cosmos.unreddit.databinding.FragmentProfileBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.adapter.FragmentAdapter
 import com.cosmos.unreddit.ui.profilemanager.ProfileManagerDialogFragment
-import com.cosmos.unreddit.util.extension.clearCommentListener
+import com.cosmos.unreddit.util.extension.clearCommentSaveListener
 import com.cosmos.unreddit.util.extension.clearNavigationListener
 import com.cosmos.unreddit.util.extension.getListContent
 import com.cosmos.unreddit.util.extension.getRecyclerView
 import com.cosmos.unreddit.util.extension.latest
 import com.cosmos.unreddit.util.extension.scrollToTop
-import com.cosmos.unreddit.util.extension.setCommentListener
+import com.cosmos.unreddit.util.extension.setCommentSaveListener
 import com.cosmos.unreddit.util.extension.setNavigationListener
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -75,7 +75,7 @@ class ProfileFragment : BaseFragment() {
     }
 
     private fun initResultListener() {
-        setCommentListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
+        setCommentSaveListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
 
         setNavigationListener { showNavigation ->
             uiViewModel.setNavigationVisibility(showNavigation)
@@ -167,7 +167,7 @@ class ProfileFragment : BaseFragment() {
 
     override fun onStop() {
         super.onStop()
-        clearCommentListener()
+        clearCommentSaveListener()
         clearNavigationListener()
     }
 

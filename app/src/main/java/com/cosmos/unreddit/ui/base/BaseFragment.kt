@@ -140,7 +140,10 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onSaveClick(item: FeedItem) {
-        //TODO("Not yet implemented")
+        when (item) {
+            is PostItem -> viewModel?.toggleSavePost(item)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onLongClick(post: PostEntity) {
@@ -174,7 +177,7 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onSaveClick(post: PostEntity) {
-        viewModel?.toggleSavePost(post)
+        throw UnsupportedOperationException("Deprecated")
     }
 
     open fun openSubreddit(subreddit: String) {
