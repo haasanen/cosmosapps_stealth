@@ -101,15 +101,24 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onClick(item: FeedItem) {
-        onClick(parentFragmentManager, item as PostItem)
+        when (item) {
+            is PostItem -> onClick(parentFragmentManager, item)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onLongClick(item: FeedItem) {
-        //TODO("Not yet implemented")
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onMenuClick(item: FeedItem) {
-        //TODO("Not yet implemented")
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onMediaClick(item: FeedItem) {

@@ -8,7 +8,7 @@
         <import type="com.cosmos.unreddit.ui.postmenu.PostMenuFragment.MenuType"/>
         <variable
             name="post"
-            type="com.cosmos.unreddit.data.model.db.PostEntity" />
+            type="com.cosmos.unreddit.data.model.db.PostItem" />
         <variable
             name="type"
             type="com.cosmos.unreddit.ui.postmenu.PostMenuFragment.MenuType" />
@@ -55,7 +55,7 @@
             android:layout_height="wrap_content"
             style="@style/ChipActionStyle"
             app:chipIcon="@drawable/ic_profile"
-            android:text="@{@string/reddit_user_prefixed(post.author)}"
+            android:text="@{post.author}"
             android:visibility="@{type != MenuType.USER ? View.VISIBLE : View.GONE}"
             tools:text="u/user"/>
 
@@ -65,7 +65,7 @@
             android:layout_height="wrap_content"
             style="@style/ChipActionStyle"
             app:chipIcon="@drawable/icon_reddit_placeholder"
-            android:text="@{post.subreddit}"
+            android:text="@{post.community}"
             android:visibility="@{type != MenuType.SUBREDDIT ? View.VISIBLE : View.GONE}"
             tools:text="r/subreddit"/>
 

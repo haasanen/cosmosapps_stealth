@@ -9,6 +9,7 @@ import androidx.fragment.app.FragmentManager
 import androidx.navigation.fragment.findNavController
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.databinding.FragmentPostMenuBinding
 import com.cosmos.unreddit.util.extension.doAndDismiss
 import com.cosmos.unreddit.util.extension.openExternalLink
@@ -37,14 +38,14 @@ class PostMenuFragment : BottomSheetDialogFragment() {
         val type = arguments?.serializable(BUNDLE_KEY_TYPE) ?: MenuType.GENERAL
         binding.type = type
 
-        val post = arguments?.parcelable<PostEntity>(BUNDLE_KEY_POST)
+        val post = arguments?.parcelable<PostItem>(BUNDLE_KEY_POST)
         post?.let {
             binding.post = it
             initActions(it)
         }
     }
 
-    private fun initActions(post: PostEntity) {
+    private fun initActions(post: PostItem) {
         with(binding) {
             buttonUser.setOnClickListener {
                 doAndDismiss {
@@ -53,9 +54,10 @@ class PostMenuFragment : BottomSheetDialogFragment() {
             }
 
             buttonSubreddit.setOnClickListener {
-                val subreddit = post.subreddit.removePrefix("r/")
                 doAndDismiss {
-                    findNavController().navigate(NavigationGraphDirections.openSubreddit(subreddit))
+                    // TODO: Migration V3
+                    //  Deprecate openSubreddit destination
+                    findNavController().navigate(NavigationGraphDirections.openSubreddit(post.community))
                 }
             }
 
@@ -68,8 +70,7 @@ class PostMenuFragment : BottomSheetDialogFragment() {
             }
 
             buttonSharePost.setOnClickListener {
-                val url = "https://www.reddit.com${post.permalink}"
-                doAndDismiss { shareExternalLink(url, post.title) }
+                doAndDismiss { shareExternalLink(post.refLink, post.title) }
             }
         }
     }
@@ -89,9 +90,18 @@ class PostMenuFragment : BottomSheetDialogFragment() {
         private const val BUNDLE_KEY_POST = "BUNDLE_KEY_POST"
         private const val BUNDLE_KEY_TYPE = "BUNDLE_KEY_TYPE"
 
+        @Deprecated("Legacy function")
         fun show(
             fragmentManager: FragmentManager,
             post: PostEntity,
+            type: MenuType = MenuType.GENERAL
+        ) {
+            // ignore
+        }
+
+        fun show(
+            fragmentManager: FragmentManager,
+            post: PostItem,
             type: MenuType = MenuType.GENERAL
         ) {
             PostMenuFragment().apply {
