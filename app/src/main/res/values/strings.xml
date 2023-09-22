@@ -49,6 +49,7 @@
     <string name="sort_new">New</string>
     <string name="sort_top">Top</string>
     <string name="sort_rising">Rising</string>
+    <string name="sort_trending">Trending</string>
     <string name="sort_controversial">Controversial</string>
     <string name="sort_relevance">Relevance</string>
     <string name="sort_comments">Comments</string>

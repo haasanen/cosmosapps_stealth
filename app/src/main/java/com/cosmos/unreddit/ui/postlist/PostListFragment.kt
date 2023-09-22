@@ -19,8 +19,6 @@ import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.databinding.FragmentPostBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
@@ -33,14 +31,14 @@ import com.cosmos.unreddit.util.DateUtil
 import com.cosmos.unreddit.util.extension.applyMarginWindowInsets
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
+import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.clearNavigationListener
-import com.cosmos.unreddit.util.extension.clearSortingListener
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
 import com.cosmos.unreddit.util.extension.getFloatValue
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.onRefreshFromNetwork
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import com.cosmos.unreddit.util.extension.setNavigationListener
-import com.cosmos.unreddit.util.extension.setSortingListener
 import com.google.android.material.appbar.AppBarLayout
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
@@ -164,10 +162,9 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             }
 
             launch {
-                // TODO
-//                viewModel.sorting.collect {
-//                    binding.appBar.sortIcon.setSorting(it)
-//                }
+                viewModel.filtering.collect {
+                    binding.appBar.sortIcon.setFiltering(it)
+                }
             }
 
             launch {
@@ -278,7 +275,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting -> sorting?.let { /*viewModel.setSorting(it)*/ } }
+        setFilteringListener { filtering -> filtering?.let { viewModel.setFiltering(filtering) } }
 
         setNavigationListener { showNavigation ->
             uiViewModel.setNavigationVisibility(showNavigation && onOffsetChangedListener.visible)
@@ -290,7 +287,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     private fun showSortDialog() {
-        SortFragment.show(childFragmentManager, Sorting(Sort.HOT))
+        SortFragment.show(childFragmentManager, viewModel.filtering.value)
     }
 
     private fun updateContainerView(
@@ -337,7 +334,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
     override fun onStop() {
         super.onStop()
-        clearSortingListener()
+        clearFilteringListener()
         clearNavigationListener()
     }
 

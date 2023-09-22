@@ -9,9 +9,11 @@ import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.setFragmentResult
 import androidx.transition.Slide
 import androidx.transition.TransitionManager
-import com.cosmos.unreddit.data.model.Sort
+import com.cosmos.stealth.sdk.data.model.api.Order
+import com.cosmos.stealth.sdk.data.model.api.Sort
+import com.cosmos.stealth.sdk.data.model.api.Time
+import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.Sorting
-import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.databinding.FragmentSortBinding
 import com.cosmos.unreddit.util.extension.parcelable
 import com.cosmos.unreddit.util.extension.serializable
@@ -41,44 +43,46 @@ class SortFragment : BottomSheetDialogFragment() {
         val type = arguments?.serializable(BUNDLE_KEY_TYPE) ?: SortType.GENERAL
         binding.type = type
 
-        val sorting = arguments?.parcelable<Sorting>(BUNDLE_KEY_SORTING) ?: return
-        with(sorting) {
-            when (generalSorting) {
-                Sort.HOT -> binding.chipHot.isChecked = true
-                Sort.NEW -> binding.chipNew.isChecked = true
-                Sort.TOP -> {
-                    binding.chipTop.isChecked = true
+        val filtering = arguments?.parcelable<Filtering>(BUNDLE_KEY_SORTING) ?: return
+        with(filtering) {
+            when (sort) {
+                Sort.trending -> binding.chipTrending.isChecked = true
+                Sort.date -> {
+                    if (order == Order.asc) {
+                        binding.chipOld.isChecked = true
+                    } else {
+                        binding.chipNew.isChecked = true
+                    }
+                }
+                Sort.score -> {
+                    if (order == Order.asc) {
+                        binding.chipControversial.isChecked = true
+                    } else {
+                        binding.chipTop.isChecked = true
+                    }
+
                     if (type != SortType.POST) {
                         showTimeGroup()
                     }
                 }
-                Sort.RISING -> binding.chipRising.isChecked = true
-                Sort.CONTROVERSIAL -> {
-                    binding.chipControversial.isChecked = true
-                    if (type != SortType.POST) {
-                        showTimeGroup()
-                    }
-                }
-                Sort.RELEVANCE -> {
-                    binding.chipRelevance.isChecked = true
-                    showTimeGroup()
-                }
-                Sort.COMMENTS -> {
+                Sort.comments -> {
                     binding.chipComments.isChecked = true
                     showTimeGroup()
                 }
-                Sort.BEST -> binding.chipBest.isChecked = true
-                Sort.OLD -> binding.chipOld.isChecked = true
-                Sort.QA -> binding.chipQa.isChecked = true
+                Sort.relevance -> {
+                    binding.chipRelevance.isChecked = true
+                    showTimeGroup()
+                }
+                null -> error("Sort cannot be null")
             }
 
-            when (timeSorting) {
-                TimeSorting.HOUR -> binding.chipHour.isChecked = true
-                TimeSorting.DAY -> binding.chipDay.isChecked = true
-                TimeSorting.WEEK -> binding.chipWeek.isChecked = true
-                TimeSorting.MONTH -> binding.chipMonth.isChecked = true
-                TimeSorting.YEAR -> binding.chipYear.isChecked = true
-                TimeSorting.ALL -> binding.chipAll.isChecked = true
+            when (time) {
+                Time.hour -> binding.chipHour.isChecked = true
+                Time.day -> binding.chipDay.isChecked = true
+                Time.week -> binding.chipWeek.isChecked = true
+                Time.month -> binding.chipMonth.isChecked = true
+                Time.year -> binding.chipYear.isChecked = true
+                Time.all -> binding.chipAll.isChecked = true
                 else -> {
                     // Ignore
                 }
@@ -88,8 +92,7 @@ class SortFragment : BottomSheetDialogFragment() {
         binding.groupGeneral.setOnCheckedStateChangeListener { _, checkedIds ->
             val checkedId = checkedIds.getOrNull(0) ?: return@setOnCheckedStateChangeListener
             when (checkedId) {
-                binding.chipHot.id, binding.chipNew.id, binding.chipRising.id, binding.chipBest.id,
-                binding.chipOld.id, binding.chipQa.id -> setChoice(false)
+                binding.chipTrending.id, binding.chipNew.id, binding.chipOld.id -> setChoice(false)
                 binding.chipTop.id, binding.chipControversial.id, binding.chipRelevance.id,
                 binding.chipComments.id -> {
                     if (type != SortType.POST) {
@@ -113,30 +116,27 @@ class SortFragment : BottomSheetDialogFragment() {
         }
     }
 
-    private fun getGeneralChoice(): Sort? {
+    private fun getGeneralChoice(): Filtering? {
         return when (binding.groupGeneral.checkedChipId) {
-            binding.chipHot.id -> Sort.HOT
-            binding.chipNew.id -> Sort.NEW
-            binding.chipTop.id -> Sort.TOP
-            binding.chipRising.id -> Sort.RISING
-            binding.chipControversial.id -> Sort.CONTROVERSIAL
-            binding.chipRelevance.id -> Sort.RELEVANCE
-            binding.chipComments.id -> Sort.COMMENTS
-            binding.chipBest.id -> Sort.BEST
-            binding.chipOld.id -> Sort.OLD
-            binding.chipQa.id -> Sort.QA
+            binding.chipTrending.id -> Filtering(Sort.trending)
+            binding.chipNew.id -> Filtering(Sort.date, Order.desc)
+            binding.chipTop.id -> Filtering(Sort.score, Order.desc)
+            binding.chipControversial.id -> Filtering(Sort.score, Order.asc)
+            binding.chipRelevance.id -> Filtering(Sort.relevance)
+            binding.chipComments.id -> Filtering(Sort.comments)
+            binding.chipOld.id -> Filtering(Sort.date, Order.asc)
             else -> null
         }
     }
 
-    private fun getTimeChoice(): TimeSorting? {
+    private fun getTimeChoice(): Time? {
         return when (binding.groupTime.checkedChipId) {
-            binding.chipHour.id -> TimeSorting.HOUR
-            binding.chipDay.id -> TimeSorting.DAY
-            binding.chipWeek.id -> TimeSorting.WEEK
-            binding.chipMonth.id -> TimeSorting.MONTH
-            binding.chipYear.id -> TimeSorting.YEAR
-            binding.chipAll.id -> TimeSorting.ALL
+            binding.chipHour.id -> Time.hour
+            binding.chipDay.id -> Time.day
+            binding.chipWeek.id -> Time.week
+            binding.chipMonth.id -> Time.month
+            binding.chipYear.id -> Time.year
+            binding.chipAll.id -> Time.all
             else -> null
         }
     }
@@ -154,12 +154,12 @@ class SortFragment : BottomSheetDialogFragment() {
     }
 
     private fun setChoice(withTime: Boolean) {
-        val sort = getGeneralChoice() ?: return
+        val filtering = getGeneralChoice() ?: return
         val timeSorting = if (withTime) getTimeChoice() else null
 
         setFragmentResult(
             REQUEST_KEY_SORTING,
-            bundleOf(BUNDLE_KEY_SORTING to Sorting(sort, timeSorting))
+            bundleOf(BUNDLE_KEY_SORTING to filtering.copy(time = timeSorting))
         )
 
         dismiss()
@@ -191,6 +191,19 @@ class SortFragment : BottomSheetDialogFragment() {
             SortFragment().apply {
                 arguments = bundleOf(
                     BUNDLE_KEY_SORTING to sorting,
+                    BUNDLE_KEY_TYPE to type
+                )
+            }.show(fragmentManager, TAG)
+        }
+
+        fun show(
+            fragmentManager: FragmentManager,
+            filtering: Filtering,
+            type: SortType = SortType.GENERAL
+        ) {
+            SortFragment().apply {
+                arguments = bundleOf(
+                    BUNDLE_KEY_SORTING to filtering,
                     BUNDLE_KEY_TYPE to type
                 )
             }.show(fragmentManager, TAG)

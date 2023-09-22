@@ -22,7 +22,6 @@ import androidx.transition.TransitionManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.local.mapper.FeedableMapper
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
@@ -32,13 +31,15 @@ import com.cosmos.unreddit.di.DispatchersModule.MainImmediateDispatcher
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.ElasticDragDismissFrameLayout
 import com.cosmos.unreddit.ui.loadstate.ResourceStateAdapter
+import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
+import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
 import com.cosmos.unreddit.util.extension.clearCommentListener
-import com.cosmos.unreddit.util.extension.clearSortingListener
+import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.parcelable
 import com.cosmos.unreddit.util.extension.setCommentListener
-import com.cosmos.unreddit.util.extension.setSortingListener
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.collect
@@ -205,8 +206,7 @@ class PostDetailsFragment : BaseFragment(),
 
             launch {
                 viewModel.filtering.collect {
-                    // TODO
-                    //binding.appBar.sortIcon.setSorting(it)
+                    binding.appBar.sortIcon.setFiltering(it)
                 }
             }
 
@@ -238,12 +238,11 @@ class PostDetailsFragment : BaseFragment(),
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting ->
-            // TODO
-//            sorting?.let {
-//                viewModel.setSorting(sorting)
-//                binding.listComments.betterSmoothScrollToPosition(0)
-//            }
+        setFilteringListener { filtering ->
+            filtering?.let {
+                viewModel.setFiltering(filtering)
+                binding.listComments.betterSmoothScrollToPosition(0)
+            }
         }
         setCommentListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
     }
@@ -293,12 +292,11 @@ class PostDetailsFragment : BaseFragment(),
     }
 
     private fun showSortDialog() {
-        // TODO
-//        SortFragment.show(
-//            childFragmentManager,
-//            viewModel.sorting.value,
-//            SortFragment.SortType.POST
-//        )
+        SortFragment.show(
+            childFragmentManager,
+            viewModel.filtering.value,
+            SortFragment.SortType.POST
+        )
     }
 
     private fun showNavigation(show: Boolean) {
@@ -346,7 +344,7 @@ class PostDetailsFragment : BaseFragment(),
 
     override fun onDestroyView() {
         super.onDestroyView()
-        clearSortingListener()
+        clearFilteringListener()
         clearCommentListener()
         _binding = null
         commentAdapter.cleanUp()

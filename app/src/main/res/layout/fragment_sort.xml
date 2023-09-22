@@ -36,7 +36,7 @@
             app:layout_constraintTop_toBottomOf="@id/text_title"
             app:singleSelection="true"
             app:selectionRequired="true"
-            app:checkedChip="@id/chip_hot"
+            app:checkedChip="@id/chip_trending"
             android:layout_marginTop="@dimen/sort_margin">
 
             <com.google.android.material.chip.Chip
@@ -49,22 +49,12 @@
                 android:visibility="@{type == SortType.SEARCH ? View.VISIBLE : View.GONE}"/>
 
             <com.google.android.material.chip.Chip
-                android:id="@+id/chip_hot"
+                android:id="@+id/chip_trending"
                 style="@style/ChipChoiceStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                app:chipIcon="@drawable/ic_hot"
-                android:text="@string/sort_hot"
-                android:visibility="@{type != SortType.POST ? View.VISIBLE : View.GONE}"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_best"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                app:chipIcon="@drawable/ic_best"
-                android:text="@string/sort_best"
-                android:visibility="@{type == SortType.POST ? View.VISIBLE : View.GONE}"/>
+                app:chipIcon="@drawable/ic_rising"
+                android:text="@string/sort_trending"/>
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_new"
@@ -81,15 +71,6 @@
                 android:layout_height="wrap_content"
                 app:chipIcon="@drawable/ic_top"
                 android:text="@string/sort_top"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_rising"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                app:chipIcon="@drawable/ic_rising"
-                android:text="@string/sort_rising"
-                android:visibility="@{type == SortType.GENERAL ? View.VISIBLE : View.GONE}"/>
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_controversial"
@@ -116,15 +97,6 @@
                 android:layout_height="wrap_content"
                 app:chipIcon="@drawable/ic_old"
                 android:text="@string/sort_old"
-                android:visibility="@{type == SortType.POST ? View.VISIBLE : View.GONE}"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_qa"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                app:chipIcon="@drawable/ic_question_answer"
-                android:text="@string/sort_qa"
                 android:visibility="@{type == SortType.POST ? View.VISIBLE : View.GONE}"/>
 
         </com.google.android.material.chip.ChipGroup>
