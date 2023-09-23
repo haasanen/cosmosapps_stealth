@@ -12,6 +12,7 @@ import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.R
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.PostItem
@@ -184,8 +185,8 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
         navigate(NavigationGraphDirections.openSubreddit(subreddit))
     }
 
-    open fun openUser(user: String) {
-        navigate(NavigationGraphDirections.openUser(user))
+    open fun openUser(user: String, service: Service) {
+        navigate(NavigationGraphDirections.openUser(user, service))
     }
 
     open fun openRedditLink(link: String) {

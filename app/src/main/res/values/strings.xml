@@ -81,6 +81,9 @@
     <string name="user_comment_karma">Comment Karma</string>
     <string name="user_cake_day">Cake Day</string>
 
+    <string name="user_score">Score</string>
+    <string name="user_created">Created</string>
+
     <string name="flair_nsfw">NSFW</string>
     <string name="flair_spoiler">Spoiler</string>
     <string name="flair_oc">OC</string>

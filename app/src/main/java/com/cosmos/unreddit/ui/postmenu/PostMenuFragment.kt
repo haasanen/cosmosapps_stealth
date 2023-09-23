@@ -49,7 +49,9 @@ class PostMenuFragment : BottomSheetDialogFragment() {
         with(binding) {
             buttonUser.setOnClickListener {
                 doAndDismiss {
-                    findNavController().navigate(NavigationGraphDirections.openUser(post.author))
+                    findNavController().navigate(
+                        NavigationGraphDirections.openUser(post.author, post.service)
+                    )
                 }
             }
 

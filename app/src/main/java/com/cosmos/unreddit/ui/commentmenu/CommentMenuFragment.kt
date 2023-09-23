@@ -59,15 +59,17 @@ class CommentMenuFragment : BottomSheetDialogFragment() {
         with(binding) {
             buttonUser.setOnClickListener {
                 doAndDismiss {
-                    findNavController().navigate(NavigationGraphDirections.openUser(comment.author))
+                    findNavController().navigate(
+                        NavigationGraphDirections.openUser(comment.author, comment.service)
+                    )
                 }
             }
 
             buttonSubreddit.setOnClickListener {
                 doAndDismiss {
-                    // TODO: Migration V3
-                    //  Deprecate openSubreddit destination
-                    findNavController().navigate(NavigationGraphDirections.openSubreddit(comment.community))
+                    findNavController().navigate(
+                        NavigationGraphDirections.openCommunity(comment.community, comment.service)
+                    )
                 }
             }
 

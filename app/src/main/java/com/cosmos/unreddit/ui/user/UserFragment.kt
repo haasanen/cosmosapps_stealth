@@ -15,20 +15,24 @@ import coil.size.Precision
 import coil.size.Scale
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.User
-import com.cosmos.unreddit.data.model.db.PostEntity
+import com.cosmos.unreddit.data.model.User2
+import com.cosmos.unreddit.data.model.db.FeedItem
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.databinding.FragmentUserBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.adapter.FragmentAdapter
 import com.cosmos.unreddit.ui.postmenu.PostMenuFragment
+import com.cosmos.unreddit.ui.postmenu.PostMenuFragment.MenuType.USER
 import com.cosmos.unreddit.ui.sort.SortFragment
+import com.cosmos.unreddit.util.DateUtil
 import com.cosmos.unreddit.util.extension.clearCommentSaveListener
-import com.cosmos.unreddit.util.extension.clearSortingListener
+import com.cosmos.unreddit.util.extension.clearFilteringListener
+import com.cosmos.unreddit.util.extension.formatNumber
 import com.cosmos.unreddit.util.extension.getRecyclerView
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.scrollToTop
 import com.cosmos.unreddit.util.extension.setCommentSaveListener
-import com.cosmos.unreddit.util.extension.setSortingListener
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -47,7 +51,8 @@ class UserFragment : BaseFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        viewModel.setUser(args.user.removeSuffix("/"))
+        viewModel.setUser(args.user)
+        viewModel.setService(args.service)
     }
 
     override fun onCreateView(
@@ -81,8 +86,8 @@ class UserFragment : BaseFragment() {
             }
 
             launch {
-                viewModel.sorting.collect {
-                    binding.sortIcon.setSorting(it)
+                viewModel.filtering.collect {
+                    binding.sortIcon.setFiltering(it)
                 }
             }
 
@@ -146,26 +151,25 @@ class UserFragment : BaseFragment() {
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting ->
-            sorting?.let { viewModel.setSorting(sorting) }
-        }
+        setFilteringListener { filtering -> filtering?.let { viewModel.setFiltering(filtering) } }
         setCommentSaveListener { comment -> comment?.let { viewModel.toggleSaveComment(it) } }
     }
 
-    private fun bindInfo(user: User) {
-        if (user.isSuspended) {
-            showUnauthorizedDialog()
-            return
-        }
-
+    private fun bindInfo(user: User2) {
         with(user) {
             binding.user = this
 
-            binding.userImage.load(icon) {
+            binding.userImage.load(icon?.source?.url) {
                 crossfade(true)
                 scale(Scale.FILL)
                 precision(Precision.AUTOMATIC)
             }
+
+            binding.userTitle.text = description
+
+            binding.userLinkKarma.text = score?.formatNumber()
+
+            binding.userCakeDay.text = DateUtil.getFormattedDate(created)
         }
     }
 
@@ -190,7 +194,7 @@ class UserFragment : BaseFragment() {
     }
 
     private fun showSortDialog() {
-        SortFragment.show(childFragmentManager, viewModel.sorting.value)
+        SortFragment.show(childFragmentManager, viewModel.filtering.value)
     }
 
     private fun showNotFoundDialog() {
@@ -211,12 +215,18 @@ class UserFragment : BaseFragment() {
             .show()
     }
 
-    override fun onLongClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post, PostMenuFragment.MenuType.USER)
+    override fun onLongClick(item: FeedItem) {
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item, USER)
+            else -> { /* ignore */ }
+        }
     }
 
-    override fun onMenuClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post, PostMenuFragment.MenuType.USER)
+    override fun onMenuClick(item: FeedItem) {
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item, USER)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onDestroyView() {
@@ -225,7 +235,7 @@ class UserFragment : BaseFragment() {
         // Save header state to restore it in case of fragment recreation
         viewModel.layoutState = binding.layoutRoot.currentState
 
-        clearSortingListener()
+        clearFilteringListener()
         clearCommentSaveListener()
 
         _binding = null

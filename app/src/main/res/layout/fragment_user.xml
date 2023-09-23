@@ -7,7 +7,7 @@
     <data>
         <variable
             name="user"
-            type="com.cosmos.unreddit.data.model.User" />
+            type="com.cosmos.unreddit.data.model.User2" />
     </data>
 
     <androidx.constraintlayout.motion.widget.MotionLayout
@@ -78,7 +78,7 @@
             android:id="@+id/user_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{user.displayName}"
+            android:text="@{user.name}"
             android:textAppearance="@style/TextAppearanceAppBarLabel"
             android:ellipsize="none"
             android:singleLine="true"
@@ -89,10 +89,11 @@
             android:id="@+id/user_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{user.title}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserTitle"
             android:textAlignment="center"
+            android:maxLines="1"
+            android:ellipsize="end"
             app:layout_constrainedWidth="true"
             tools:text="Title"/>
 
@@ -124,25 +125,14 @@
             android:id="@+id/user_link_karma"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{user.getPostKarmaCount()}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserMetrics"
             tools:text="10k"/>
 
         <TextView
-            android:id="@+id/user_comment_karma"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@{user.getCommentKarmaCount()}"
-            android:textColor="@null"
-            android:textAppearance="@style/TextAppearanceUserMetrics"
-            tools:text="950"/>
-
-        <TextView
             android:id="@+id/user_cake_day"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{user.getCakeDay()}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserMetrics"
             tools:text="01/01/01"/>
@@ -151,15 +141,7 @@
             android:id="@+id/user_link_karma_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/user_post_karma"
-            android:textColor="@null"
-            android:textAppearance="@style/TextAppearanceUserMetricsLabel"/>
-
-        <TextView
-            android:id="@+id/user_comment_karma_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/user_comment_karma"
+            android:text="@string/user_score"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserMetricsLabel"/>
 
@@ -167,7 +149,7 @@
             android:id="@+id/user_cake_day_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/user_cake_day"
+            android:text="@string/user_created"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceUserMetricsLabel"/>
 

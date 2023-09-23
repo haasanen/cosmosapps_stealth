@@ -23,6 +23,9 @@
         <argument
             android:name="user"
             app:argType="string" />
+        <argument
+            android:name="service"
+            app:argType="com.cosmos.unreddit.data.model.Service" />
     </fragment>
 
 </navigation>

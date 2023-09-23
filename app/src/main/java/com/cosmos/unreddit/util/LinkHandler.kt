@@ -40,7 +40,8 @@ class LinkHandler @Inject constructor(
 
             MediaType.REDDIT_USER -> {
                 val user = link.removePrefix("/u/")
-                baseFragment?.openUser(user)
+                // TODO: Migration V3
+                //baseFragment?.openUser(user)
             }
 
             MediaType.REDDIT_LINK -> baseFragment?.openRedditLink(link)

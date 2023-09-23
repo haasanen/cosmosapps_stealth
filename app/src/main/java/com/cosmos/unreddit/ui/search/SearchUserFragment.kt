@@ -32,6 +32,9 @@ class SearchUserFragment : PagingListFragment<SearchUserAdapter, User>() {
     }
 
     override fun createPagingAdapter(): SearchUserAdapter {
-        return SearchUserAdapter { openUser(it) }
+        return SearchUserAdapter {
+            // TODO: Migration V3
+            //openUser(it)
+        }
     }
 }

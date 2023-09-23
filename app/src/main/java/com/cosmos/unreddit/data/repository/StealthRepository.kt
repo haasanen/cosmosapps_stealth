@@ -7,7 +7,9 @@ import com.cosmos.stealth.sdk.Stealth
 import com.cosmos.stealth.sdk.data.model.api.Appendable
 import com.cosmos.stealth.sdk.data.model.api.CommunityInfo
 import com.cosmos.stealth.sdk.data.model.api.Feedable
+import com.cosmos.stealth.sdk.data.model.api.FeedableType
 import com.cosmos.stealth.sdk.data.model.api.Post
+import com.cosmos.stealth.sdk.data.model.api.UserInfo
 import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.Query
@@ -16,6 +18,7 @@ import com.cosmos.unreddit.data.model.ServiceQuery
 import com.cosmos.unreddit.data.remote.datasource.CommunityDataSource
 import com.cosmos.unreddit.data.remote.datasource.FeedDataSource
 import com.cosmos.unreddit.data.remote.datasource.SearchDataSource.FeedableSearchDataSource
+import com.cosmos.unreddit.data.remote.datasource.UserDataSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
@@ -53,11 +56,41 @@ class StealthRepository @Inject constructor() {
         }.flow
     }
 
-    fun getCommunityInfo(community: String, service: Service): Flow<Resource<CommunityInfo>> =
-        flow {
-            val response = Stealth.getCommunityInfo(community, service.asSupportedService())
-            emit(response)
-        }
+    fun getCommunityInfo(
+        community: String,
+        service: Service
+    ): Flow<Resource<CommunityInfo>> = flow {
+        val response = Stealth.getCommunityInfo(community, service.asSupportedService())
+        emit(response)
+    }
+
+    fun getUserPosts(
+        query: Query,
+        filtering: Filtering,
+        pageSize: Int = DEFAULT_LIMIT
+    ): Flow<PagingData<Feedable>> {
+        return Pager(PagingConfig(pageSize = pageSize)) {
+            UserDataSource(query, filtering, FeedableType.post, pageSize)
+        }.flow
+    }
+
+    fun getUserComments(
+        query: Query,
+        filtering: Filtering,
+        pageSize: Int = DEFAULT_LIMIT
+    ): Flow<PagingData<Feedable>> {
+        return Pager(PagingConfig(pageSize = pageSize)) {
+            UserDataSource(query, filtering, FeedableType.comment, pageSize)
+        }.flow
+    }
+
+    fun getUserInfo(
+        user: String,
+        service: Service,
+    ): Flow<Resource<UserInfo>> = flow {
+        val response = Stealth.getUserInfo(user, service.asSupportedService())
+        emit(response)
+    }
 
     fun searchInCommunity(
         query: Query,

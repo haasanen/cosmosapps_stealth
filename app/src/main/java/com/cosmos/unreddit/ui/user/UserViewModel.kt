@@ -4,24 +4,31 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
-import com.cosmos.unreddit.data.local.mapper.CommentMapper2
-import com.cosmos.unreddit.data.local.mapper.PostMapper2
-import com.cosmos.unreddit.data.local.mapper.UserMapper2
-import com.cosmos.unreddit.data.model.Comment
+import com.cosmos.stealth.sdk.data.model.api.Order
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.stealth.sdk.data.model.api.Sort
+import com.cosmos.stealth.sdk.util.Resource.Error
+import com.cosmos.stealth.sdk.util.Resource.Exception
+import com.cosmos.stealth.sdk.util.Resource.Success
+import com.cosmos.unreddit.data.local.mapper.FeedableMapper
+import com.cosmos.unreddit.data.local.mapper.UserMapper
 import com.cosmos.unreddit.data.model.Data
+import com.cosmos.unreddit.data.model.Filtering
+import com.cosmos.unreddit.data.model.Query
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
-import com.cosmos.unreddit.data.model.User
+import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.User2
+import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.data.model.db.FeedItem
-import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
+import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
-import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.updateValue
+import com.cosmos.unreddit.util.mapFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -29,12 +36,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -42,34 +48,35 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import retrofit2.HttpException
-import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
 class UserViewModel @Inject constructor(
     private val repository: PostListRepository,
+    private val stealthRepository: StealthRepository,
     preferencesRepository: PreferencesRepository,
-    private val postMapper: PostMapper2,
-    private val commentMapper: CommentMapper2,
-    private val userMapper: UserMapper2,
-    @DispatchersModule.DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+    private val feedableMapper: FeedableMapper,
+    private val userMapper: UserMapper,
+    @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : BaseViewModel(preferencesRepository, repository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()
 
-    private val _sorting: MutableStateFlow<Sorting> = MutableStateFlow(DEFAULT_SORTING)
-    val sorting: StateFlow<Sorting> = _sorting
+    private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
+    val filtering: StateFlow<Filtering> = _filtering.asStateFlow()
 
     private val _user: MutableStateFlow<String> = MutableStateFlow("")
     val user: StateFlow<String> = _user
 
+    private val _service: MutableStateFlow<Service?> = MutableStateFlow(null)
+    val service: StateFlow<Service?> = _service.asStateFlow()
+
     private val _page: MutableStateFlow<Int> = MutableStateFlow(0)
     val page: StateFlow<Int> get() = _page
 
-    private val _about: MutableStateFlow<Resource<User>> = MutableStateFlow(Resource.Loading())
-    val about: StateFlow<Resource<User>> = _about
+    private val _about: MutableStateFlow<Resource<User2>> = MutableStateFlow(Resource.Loading())
+    val about: StateFlow<Resource<User2>> = _about
 
     var layoutState: Int? = null
 
@@ -85,18 +92,19 @@ class UserViewModel @Inject constructor(
         MutableStateFlow(System.currentTimeMillis())
     val lastRefreshComment: StateFlow<Long> = _lastRefreshComment.asStateFlow()
 
-    val postDataFlow: Flow<PagingData<PostEntity>>
+    val postDataFlow: Flow<PagingData<FeedItem>>
     val commentDataFlow: Flow<PagingData<FeedItem>>
 
-    private val searchData: StateFlow<Data.Fetch> = combine(
+    private val searchData: StateFlow<Data.FetchSingle> = combine(
         user,
-        sorting
-    ) { user, sorting ->
-        Data.Fetch(user, sorting)
-    }.stateIn(
+        service,
+        filtering
+    ) { user, service, filtering ->
+        service?.run { Data.FetchSingle(Query(service, user), filtering) }
+    }.filterNotNull().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        Data.Fetch("", DEFAULT_SORTING)
+        Data.FetchSingle(Query(Service(ServiceName.reddit), ""), DEFAULT_FILTERING)
     )
 
     private var latestUser: Data.User? = null
@@ -114,8 +122,8 @@ class UserViewModel @Inject constructor(
         it.contentPreferences
     }
 
-    val data: Flow<Pair<Data.Fetch, Data.User>> = searchData
-        .dropWhile { it.query.isBlank() }
+    val data: Flow<Pair<Data.FetchSingle, Data.User>> = searchData
+        .dropWhile { it.query.query.isBlank() }
         .flatMapLatest { searchData -> userData.map { searchData to it } }
 
     init {
@@ -124,36 +132,32 @@ class UserViewModel @Inject constructor(
             .onEach { _lastRefreshPost.value = System.currentTimeMillis() }
             .cachedIn(viewModelScope)
 
-        // TODO: Migration V3
-//        commentDataFlow = data
-//            .flatMapLatest { data -> getComments(data.first, data.second) }
-//            .onEach { _lastRefreshComment.value = System.currentTimeMillis() }
-//            .cachedIn(viewModelScope)
-        commentDataFlow = flow {  }
+        commentDataFlow = data
+            .flatMapLatest { data -> getComments(data.first, data.second) }
+            .onEach { _lastRefreshComment.value = System.currentTimeMillis() }
+            .cachedIn(viewModelScope)
     }
 
     private fun getPosts(
-        data: Data.Fetch,
+        data: Data.FetchSingle,
         user: Data.User
-    ): Flow<PagingData<PostEntity>> {
-        return repository.getUserPosts(data.query, data.sorting)
-            .map { pagingData ->
-                PostUtil.filterPosts(pagingData, latestUser ?: user, postMapper, defaultDispatcher)
-            }
+    ): Flow<PagingData<FeedItem>> {
+        return stealthRepository.getUserPosts(data.query, data.filtering)
+            .map { it.mapFilter(latestUser ?: user, feedableMapper, defaultDispatcher) }
     }
 
     private fun getComments(
-        data: Data.Fetch,
+        data: Data.FetchSingle,
         user: Data.User
-    ): Flow<PagingData<Comment>> {
-        return repository.getUserComments(data.query, data.sorting)
+    ): Flow<PagingData<FeedItem>> {
+        return stealthRepository.getUserComments(data.query, data.filtering)
             .map { pagingData ->
                 pagingData
-                    .map { commentMapper.dataToEntity(it, null) }
+                    .map { feedableMapper.dataToEntity(it) }
                     .map { comment ->
                         comment.apply {
-                            (this as? Comment.CommentEntity)?.saved =
-                                (latestUser ?: user).savedComments?.contains(this.name) ?: false
+                            (this as? CommentItem)?.saved =
+                                (latestUser ?: user).savedComments?.contains(this.id) ?: false
                         }
                     }
             }
@@ -161,35 +165,50 @@ class UserViewModel @Inject constructor(
     }
 
     fun loadUserInfo(forceUpdate: Boolean) {
-        if (_user.value.isNotBlank()) {
+        val service = _service.value
+        val user = _user.value
+
+        if (user.isNotBlank() && service != null) {
             if (_about.value !is Resource.Success || forceUpdate) {
-                loadUserInfo(_user.value)
+                loadUserInfo(user, service)
             }
         } else {
             _about.value = Resource.Error()
         }
     }
 
-    private fun loadUserInfo(user: String) {
+    private fun loadUserInfo(user: String, service: Service) {
         viewModelScope.launch {
-            repository.getUserInfo(user).onStart {
-                _about.value = Resource.Loading()
-            }.catch {
-                when (it) {
-                    is IOException -> _about.value = Resource.Error(message = it.message)
-                    is HttpException -> _about.value = Resource.Error(it.code(), it.message())
-                    else -> _about.value = Resource.Error()
+            stealthRepository.getUserInfo(user, service)
+                .onStart {
+                    _about.value = Resource.Loading()
                 }
-            }.map {
-                userMapper.dataToEntity(it.data)
-            }.collect {
-                _about.value = Resource.Success(it)
-            }
+                .collect { response ->
+                    when (response) {
+                        is Success -> {
+                            _about.value = Resource.Success(
+                                userMapper.dataToEntity(response.data)
+                            )
+                        }
+
+                        is Error -> {
+                            _about.value = Resource.Error(response.code, response.message)
+                        }
+
+                        is Exception -> {
+                            _about.value = Resource.Error(throwable = response.throwable)
+                        }
+                    }
+                }
         }
     }
 
-    fun setSorting(sorting: Sorting) {
-        _sorting.updateValue(sorting)
+    fun setService(service: Service) {
+        _service.updateValue(service)
+    }
+
+    fun setFiltering(filtering: Filtering) {
+        _filtering.updateValue(filtering)
     }
 
     fun setUser(user: String) {
@@ -201,6 +220,6 @@ class UserViewModel @Inject constructor(
     }
 
     companion object {
-        private val DEFAULT_SORTING = Sorting(Sort.NEW)
+        private val DEFAULT_FILTERING = Filtering(Sort.date, Order.desc)
     }
 }

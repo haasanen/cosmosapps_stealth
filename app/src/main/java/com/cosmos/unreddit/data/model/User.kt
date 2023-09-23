@@ -3,6 +3,7 @@ package com.cosmos.unreddit.data.model
 import com.cosmos.unreddit.util.DateUtil
 import com.cosmos.unreddit.util.extension.formatNumber
 
+@Deprecated("Legacy entity")
 data class User(
     val isSuspended: Boolean,
 
