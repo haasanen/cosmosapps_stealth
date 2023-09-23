@@ -147,11 +147,11 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onLongClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post)
+        throw UnsupportedOperationException("Deprecated")
     }
 
     override fun onMenuClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post)
+        throw UnsupportedOperationException("Deprecated")
     }
 
     override fun onImageClick(post: PostEntity) {

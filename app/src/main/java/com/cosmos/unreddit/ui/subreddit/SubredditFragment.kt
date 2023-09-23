@@ -19,36 +19,37 @@ import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
+import com.cosmos.unreddit.data.model.Community
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.data.model.db.SubredditEntity
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.model.db.FeedItem
+import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.databinding.FragmentSubredditBinding
 import com.cosmos.unreddit.databinding.LayoutSubredditAboutBinding
 import com.cosmos.unreddit.databinding.LayoutSubredditContentBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.ui.common.adapter.FeedItemListAdapter
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshView
 import com.cosmos.unreddit.ui.loadstate.NetworkLoadStateAdapter
-import com.cosmos.unreddit.ui.postlist.PostListAdapter
 import com.cosmos.unreddit.ui.postmenu.PostMenuFragment
+import com.cosmos.unreddit.ui.postmenu.PostMenuFragment.MenuType.SUBREDDIT
 import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.DateUtil
 import com.cosmos.unreddit.util.extension.addLoadStateListener
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
-import com.cosmos.unreddit.util.extension.clearSortingListener
+import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
+import com.cosmos.unreddit.util.extension.formatNumber
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.loadSubredditIcon
 import com.cosmos.unreddit.util.extension.onRefreshFromNetwork
-import com.cosmos.unreddit.util.extension.setSortingListener
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import com.cosmos.unreddit.util.extension.toPixels
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
@@ -67,7 +68,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
 
     private val args: SubredditFragmentArgs by navArgs()
 
-    private lateinit var postListAdapter: PostListAdapter
+    private lateinit var feedItemListAdapter: FeedItemListAdapter
 
     private var isSubscribeEnabled: Boolean
         get() = bindingAbout.subredditSubscribeButton.isEnabled
@@ -75,12 +76,10 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             bindingAbout.subredditSubscribeButton.isEnabled = value
         }
 
-    @Inject
-    lateinit var repository: PostListRepository
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        viewModel.setSubreddit(args.subreddit.removeSuffix("/"))
+        viewModel.setSubreddit(args.community)
+        viewModel.setService(args.service)
     }
 
     override fun onCreateView(
@@ -134,7 +133,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         launchRepeat(Lifecycle.State.STARTED) {
             launch {
                 viewModel.contentPreferences.collect {
-                    postListAdapter.contentPreferences = it
+                    feedItemListAdapter.contentPreferences = it
                 }
             }
 
@@ -153,14 +152,14 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             }
 
             launch {
-                viewModel.sorting.collect {
-                    bindingContent.sortIcon.setSorting(it)
+                viewModel.filtering.collect {
+                    bindingContent.sortIcon.setFiltering(it)
                 }
             }
 
             launch {
-                viewModel.postDataFlow.collectLatest {
-                    postListAdapter.submitData(it)
+                viewModel.feedItemDataFlow.collectLatest {
+                    feedItemListAdapter.submitData(it)
                 }
             }
 
@@ -216,7 +215,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
     }
 
     private fun initRecyclerView() {
-        postListAdapter = PostListAdapter(repository, this, this).apply {
+        feedItemListAdapter = FeedItemListAdapter(this, this).apply {
             addLoadStateListener(
                 bindingContent.listPost,
                 bindingContent.loadingState,
@@ -228,16 +227,16 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         bindingContent.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
             layoutManager = LinearLayoutManager(requireContext())
-            adapter = postListAdapter.withLoadStateHeaderAndFooter(
-                header = NetworkLoadStateAdapter { postListAdapter.retry() },
-                footer = NetworkLoadStateAdapter { postListAdapter.retry() }
+            adapter = feedItemListAdapter.withLoadStateHeaderAndFooter(
+                header = NetworkLoadStateAdapter { feedItemListAdapter.retry() },
+                footer = NetworkLoadStateAdapter { feedItemListAdapter.retry() }
             )
         }
 
         bindingContent.pullRefresh.setOnRefreshListener(this)
 
         launchRepeat(Lifecycle.State.STARTED) {
-            postListAdapter.onRefreshFromNetwork {
+            feedItemListAdapter.onRefreshFromNetwork {
                 scrollToTop()
             }
         }
@@ -264,27 +263,35 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting -> sorting?.let { viewModel.setSorting(it) } }
+        setFilteringListener { filtering -> filtering?.let { viewModel.setFiltering(it) } }
     }
 
-    private fun bindInfo(about: SubredditEntity) {
+    private fun bindInfo(community: Community) {
         viewModel.isSubredditReachable = true
-        with(about) {
-            bindingContent.subreddit = this
-            bindingAbout.subreddit = this
+        with(community) {
+            bindingContent.community = this
+            bindingAbout.community = this
 
-            bindingContent.subredditImage.loadSubredditIcon(icon)
+            val membersString = members?.formatNumber()
+            val activeString = active?.formatNumber()
 
-            if (publicDescription.isNotEmpty()) {
+            bindingContent.subredditImage.loadSubredditIcon(icon?.source?.url)
+            bindingContent.subredditSubscribers.text = membersString
+            bindingContent.subredditActiveUsers.text = activeString
+
+            bindingAbout.subredditSubscribers.text = membersString
+            bindingAbout.subredditActiveUsers.text = activeString
+
+            if (shortDescription != null && shortDescription.isNotEmpty()) {
                 bindingAbout.subredditPublicDescription.apply {
-                    setText(publicDescription)
+                    setText(shortDescription)
                     setOnLinkClickListener(this@SubredditFragment)
                 }
             } else {
                 bindingAbout.subredditPublicDescription.visibility = View.GONE
             }
 
-            if (description.isNotEmpty()) {
+            if (description != null && description.isNotEmpty()) {
                 bindingAbout.subredditDescription.apply {
                     setText(description)
                     setOnLinkClickListener(this@SubredditFragment)
@@ -315,7 +322,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             viewModel.loadSubredditInfo(true)
         }
 
-        postListAdapter.retry() // TODO: Don't retry if not necessary
+        feedItemListAdapter.retry() // TODO: Don't retry if not necessary
     }
 
     private fun showRetryBar() {
@@ -332,13 +339,14 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         navigate(
             SubredditFragmentDirections.openSearch(
                 viewModel.subreddit.value,
-                viewModel.about.value.dataValue?.icon
+                viewModel.service.value ?: args.service,
+                viewModel.about.value.dataValue?.icon?.source?.url
             )
         )
     }
 
     private fun showSortDialog() {
-        SortFragment.show(childFragmentManager, viewModel.sorting.value)
+        SortFragment.show(childFragmentManager, viewModel.filtering.value)
     }
 
     private fun showNotFoundDialog() {
@@ -400,7 +408,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
     }
 
     override fun onRefresh() {
-        postListAdapter.refresh()
+        feedItemListAdapter.refresh()
     }
 
     override fun onBackPressed() {
@@ -422,19 +430,25 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         viewModel.contentLayoutProgress = bindingContent.layoutRoot.progress
         viewModel.drawerContentLayoutProgress = binding.drawerContent.progress
 
-        clearSortingListener()
+        clearFilteringListener()
 
         _binding = null
         _bindingContent = null
         _bindingAbout = null
     }
 
-    override fun onLongClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post, PostMenuFragment.MenuType.SUBREDDIT)
+    override fun onLongClick(item: FeedItem) {
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item, SUBREDDIT)
+            else -> { /* ignore */ }
+        }
     }
 
-    override fun onMenuClick(post: PostEntity) {
-        PostMenuFragment.show(parentFragmentManager, post, PostMenuFragment.MenuType.SUBREDDIT)
+    override fun onMenuClick(item: FeedItem) {
+        when (item) {
+            is PostItem -> PostMenuFragment.show(parentFragmentManager, item, SUBREDDIT)
+            else -> { /* ignore */ }
+        }
     }
 
     companion object {

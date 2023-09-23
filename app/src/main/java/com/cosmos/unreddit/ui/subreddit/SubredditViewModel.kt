@@ -3,22 +3,29 @@ package com.cosmos.unreddit.ui.subreddit
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.cosmos.unreddit.data.local.mapper.PostMapper2
-import com.cosmos.unreddit.data.local.mapper.SubredditMapper2
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.stealth.sdk.data.model.api.Sort
+import com.cosmos.stealth.sdk.util.Resource.Error
+import com.cosmos.stealth.sdk.util.Resource.Exception
+import com.cosmos.stealth.sdk.util.Resource.Success
+import com.cosmos.unreddit.data.local.mapper.CommunityMapper
+import com.cosmos.unreddit.data.local.mapper.FeedableMapper
+import com.cosmos.unreddit.data.model.Community
 import com.cosmos.unreddit.data.model.Data
+import com.cosmos.unreddit.data.model.Filtering
+import com.cosmos.unreddit.data.model.Query
 import com.cosmos.unreddit.data.model.Resource
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
-import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.data.model.db.SubredditEntity
+import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
+import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
-import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.latest
 import com.cosmos.unreddit.util.extension.updateValue
+import com.cosmos.unreddit.util.mapFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -26,10 +33,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -37,31 +44,33 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import retrofit2.HttpException
-import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
 class SubredditViewModel @Inject constructor(
     private val repository: PostListRepository,
+    private val stealthRepository: StealthRepository,
     preferencesRepository: PreferencesRepository,
-    private val postMapper: PostMapper2,
-    private val subredditMapper: SubredditMapper2,
+    private val feedableMapper: FeedableMapper,
+    private val communityMapper: CommunityMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : BaseViewModel(preferencesRepository, repository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()
 
-    private val _sorting: MutableStateFlow<Sorting> = MutableStateFlow(DEFAULT_SORTING)
-    val sorting: StateFlow<Sorting> = _sorting
+    private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
+    val filtering: StateFlow<Filtering> = _filtering.asStateFlow()
 
     private val _subreddit: MutableStateFlow<String> = MutableStateFlow("")
     val subreddit: StateFlow<String> = _subreddit
 
-    private val _about: MutableStateFlow<Resource<SubredditEntity>> =
+    private val _service: MutableStateFlow<Service?> = MutableStateFlow(null)
+    val service: StateFlow<Service?> = _service.asStateFlow()
+
+    private val _about: MutableStateFlow<Resource<Community>> =
         MutableStateFlow(Resource.Loading())
-    val about: StateFlow<Resource<SubredditEntity>> = _about
+    val about: StateFlow<Resource<Community>> = _about
 
     private val _isDescriptionCollapsed = MutableStateFlow(true)
     val isDescriptionCollapsed: StateFlow<Boolean> = _isDescriptionCollapsed
@@ -85,22 +94,23 @@ class SubredditViewModel @Inject constructor(
     )
 
     private val subredditName: String
-        get() = about.value.dataValue?.displayName ?: subreddit.value
+        get() = about.value.dataValue?.name ?: subreddit.value
 
     private val icon: String?
-        get() = about.value.dataValue?.icon
+        get() = about.value.dataValue?.icon?.source?.url
 
-    val postDataFlow: Flow<PagingData<PostEntity>>
+    val feedItemDataFlow: Flow<PagingData<FeedItem>>
 
-    val searchData: StateFlow<Data.Fetch> = combine(
+    val searchData: StateFlow<Data.FetchSingle> = combine(
         subreddit,
-        sorting
-    ) { subreddit, sorting ->
-        Data.Fetch(subreddit, sorting)
-    }.stateIn(
+        service,
+        filtering
+    ) { subreddit, service, filtering ->
+        if (service != null) Data.FetchSingle(Query(service, subreddit), filtering) else null
+    }.filterNotNull().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        Data.Fetch("", DEFAULT_SORTING)
+        Data.FetchSingle(Query(Service(ServiceName.reddit), ""), DEFAULT_FILTERING)
     )
 
     private var latestUser: Data.User? = null
@@ -119,8 +129,9 @@ class SubredditViewModel @Inject constructor(
     val lastRefresh: StateFlow<Long> = _lastRefresh.asStateFlow()
 
     init {
-        postDataFlow = searchData
-            .dropWhile { it.query.isBlank() }
+        feedItemDataFlow = searchData
+            .onEach { println(it) }
+            .dropWhile { it.query.query.isBlank() }
             .flatMapLatest { searchData -> userData.map { searchData to it } }
             .flatMapLatest { data -> getPosts(data.first, data.second) }
             .onEach { _lastRefresh.value = System.currentTimeMillis() }
@@ -128,43 +139,48 @@ class SubredditViewModel @Inject constructor(
     }
 
     private fun getPosts(
-        data: Data.Fetch,
+        data: Data.FetchSingle,
         user: Data.User
-    ): Flow<PagingData<PostEntity>> {
-        return repository.getPosts(data.query, data.sorting)
-            .map { pagingData ->
-                PostUtil.filterPosts(pagingData, latestUser ?: user, postMapper, defaultDispatcher)
-            }
+    ): Flow<PagingData<FeedItem>> {
+        return stealthRepository.getCommunity(data.query, data.filtering)
+            .map { it.mapFilter(latestUser ?: user, feedableMapper, defaultDispatcher) }
     }
 
     fun loadSubredditInfo(forceUpdate: Boolean) {
-        if (_subreddit.value.isNotBlank()) {
+        val service = _service.value
+        val community = _subreddit.value
+
+        if (community.isNotBlank() && service != null) {
             if (_about.value !is Resource.Success || forceUpdate) {
-                loadSubredditInfo(_subreddit.value)
+                loadSubredditInfo(community, service)
             }
         } else {
             _about.value = Resource.Error()
         }
     }
 
-    private fun loadSubredditInfo(subreddit: String) {
+    private fun loadSubredditInfo(subreddit: String, service: Service) {
         viewModelScope.launch {
-            repository.getSubredditInfo(subreddit)
+            stealthRepository.getCommunityInfo(subreddit, service)
                 .onStart {
                     _about.value = Resource.Loading()
                 }
-                .catch {
-                    when (it) {
-                        is IOException -> _about.value = Resource.Error(message = it.message)
-                        is HttpException -> _about.value = Resource.Error(it.code(), it.message())
-                        else -> _about.value = Resource.Error()
+                .collect { response ->
+                    when (response) {
+                        is Success -> {
+                            _about.value = Resource.Success(
+                                communityMapper.dataToEntity(response.data)
+                            )
+                        }
+
+                        is Error -> {
+                            _about.value = Resource.Error(response.code, response.message)
+                        }
+
+                        is Exception -> {
+                            _about.value = Resource.Error(throwable = response.throwable)
+                        }
                     }
-                }
-                .map {
-                    subredditMapper.dataToEntity(it.data)
-                }
-                .collect {
-                    _about.value = Resource.Success(it)
                 }
         }
     }
@@ -173,8 +189,12 @@ class SubredditViewModel @Inject constructor(
         _subreddit.updateValue(subreddit)
     }
 
-    fun setSorting(sorting: Sorting) {
-        _sorting.updateValue(sorting)
+    fun setService(service: Service) {
+        _service.updateValue(service)
+    }
+
+    fun setFiltering(filtering: Filtering) {
+        _filtering.updateValue(filtering)
     }
 
     fun toggleDescriptionCollapsed() {
@@ -194,6 +214,6 @@ class SubredditViewModel @Inject constructor(
     }
 
     companion object {
-        private val DEFAULT_SORTING = Sorting(Sort.HOT)
+        private val DEFAULT_FILTERING = Filtering(Sort.trending)
     }
 }

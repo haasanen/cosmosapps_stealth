@@ -10,29 +10,27 @@ import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.databinding.FragmentSubredditSearchBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.ui.common.adapter.FeedItemListAdapter
 import com.cosmos.unreddit.ui.loadstate.NetworkLoadStateAdapter
-import com.cosmos.unreddit.ui.postlist.PostListAdapter
 import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.SearchUtil
 import com.cosmos.unreddit.util.extension.addLoadStateListener
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
-import com.cosmos.unreddit.util.extension.clearSortingListener
+import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.hideSoftKeyboard
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.loadSubredditIcon
 import com.cosmos.unreddit.util.extension.onRefreshFromNetwork
-import com.cosmos.unreddit.util.extension.setSortingListener
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
-class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListener {
+class SubredditSearchFragment : BaseFragment() {
 
     private var _binding: FragmentSubredditSearchBinding? = null
     private val binding get() = _binding!!
@@ -41,14 +39,12 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
 
     private val args: SubredditSearchFragmentArgs by navArgs()
 
-    private lateinit var postListAdapter: PostListAdapter
-
-    @Inject
-    lateinit var repository: PostListRepository
+    private lateinit var feedItemListAdapter: FeedItemListAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        viewModel.setSubreddit(args.subreddit)
+        viewModel.setSubreddit(args.community)
+        viewModel.setService(args.service)
     }
 
     override fun onCreateView(
@@ -66,7 +62,7 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
         initAppBar()
         initRecyclerView()
         bindViewModel()
-        binding.loadingState.infoRetry.setActionClickListener { postListAdapter.retry() }
+        binding.loadingState.infoRetry.setActionClickListener { feedItemListAdapter.retry() }
     }
 
     override fun onResume() {
@@ -108,26 +104,26 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
 
             launch {
                 viewModel.contentPreferences.collect {
-                    postListAdapter.contentPreferences = it
+                    feedItemListAdapter.contentPreferences = it
                 }
             }
 
             launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
+                viewModel.filtering.collect {
+                    binding.appBar.sortIcon.setFiltering(it)
                 }
             }
 
             launch {
-                viewModel.postDataFlow.collectLatest {
-                    postListAdapter.submitData(it)
+                viewModel.feedItemDataFlow.collectLatest {
+                    feedItemListAdapter.submitData(it)
                 }
             }
         }
     }
 
     private fun initRecyclerView() {
-        postListAdapter = PostListAdapter(repository, this, this).apply {
+        feedItemListAdapter = FeedItemListAdapter(this, this).apply {
             addLoadStateListener(binding.listPost, binding.loadingState) {
                 showRetryBar()
             }
@@ -136,14 +132,14 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
         binding.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
             layoutManager = LinearLayoutManager(requireContext())
-            adapter = postListAdapter.withLoadStateHeaderAndFooter(
-                header = NetworkLoadStateAdapter { postListAdapter.retry() },
-                footer = NetworkLoadStateAdapter { postListAdapter.retry() }
+            adapter = feedItemListAdapter.withLoadStateHeaderAndFooter(
+                header = NetworkLoadStateAdapter { feedItemListAdapter.retry() },
+                footer = NetworkLoadStateAdapter { feedItemListAdapter.retry() }
             )
         }
 
         launchRepeat(Lifecycle.State.STARTED) {
-            postListAdapter.onRefreshFromNetwork {
+            feedItemListAdapter.onRefreshFromNetwork {
                 scrollToTop()
             }
         }
@@ -172,7 +168,7 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting -> sorting?.let { viewModel.setSorting(it) } }
+        setFilteringListener { filtering -> filtering?.let { viewModel.setFiltering(it) } }
     }
 
     private fun scrollToTop() {
@@ -195,7 +191,7 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     private fun showSortDialog() {
         SortFragment.show(
             childFragmentManager,
-            viewModel.sorting.value,
+            viewModel.filtering.value,
             SortFragment.SortType.SEARCH
         )
     }
@@ -232,7 +228,7 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
 
     override fun onDestroyView() {
         super.onDestroyView()
-        clearSortingListener()
+        clearFilteringListener()
         _binding = null
     }
 

@@ -45,6 +45,17 @@
     </action>
 
     <action
+        android:id="@+id/openCommunity"
+        app:destination="@id/subreddit">
+        <argument
+            android:name="community"
+            app:argType="string" />
+        <argument
+            android:name="service"
+            app:argType="com.cosmos.unreddit.data.model.Service" />
+    </action>
+
+    <action
         android:id="@+id/openUser"
         app:destination="@id/user">
         <argument

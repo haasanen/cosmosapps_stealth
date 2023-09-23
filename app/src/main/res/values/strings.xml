@@ -74,6 +74,9 @@
     <string name="subreddit_subscribers">Subscribers</string>
     <string name="subreddit_active_users">Online</string>
 
+    <string name="community_members">Members</string>
+    <string name="community_active">Active</string>
+
     <string name="user_post_karma">Post Karma</string>
     <string name="user_comment_karma">Comment Karma</string>
     <string name="user_cake_day">Cake Day</string>

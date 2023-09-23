@@ -55,9 +55,9 @@ class PostMenuFragment : BottomSheetDialogFragment() {
 
             buttonSubreddit.setOnClickListener {
                 doAndDismiss {
-                    // TODO: Migration V3
-                    //  Deprecate openSubreddit destination
-                    findNavController().navigate(NavigationGraphDirections.openSubreddit(post.community))
+                    findNavController().navigate(
+                        NavigationGraphDirections.openCommunity(post.community, post.service)
+                    )
                 }
             }
 

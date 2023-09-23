@@ -6,8 +6,8 @@
 
     <data>
         <variable
-            name="subreddit"
-            type="com.cosmos.unreddit.data.model.db.SubredditEntity" />
+            name="community"
+            type="com.cosmos.unreddit.data.model.Community" />
     </data>
 
     <androidx.constraintlayout.motion.widget.MotionLayout
@@ -46,7 +46,7 @@
             android:id="@+id/subreddit_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{subreddit.displayName}"
+            android:text="@{community.name}"
             android:textAppearance="@style/TextAppearanceAppBarLabel"
             android:ellipsize="none"
             android:singleLine="true"
@@ -57,7 +57,7 @@
             android:id="@+id/subreddit_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{subreddit.title}"
+            android:text="@{community.title}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceSubredditTitle"
             android:textAlignment="center"
@@ -135,7 +135,6 @@
             android:id="@+id/subreddit_subscribers"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{subreddit.getSubscribersCount()}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceSubredditMetricsMain"
             tools:text="12.5m"/>
@@ -144,7 +143,7 @@
             android:id="@+id/subreddit_subscribers_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/subreddit_subscribers"
+            android:text="@string/community_members"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceSubredditMetricsMainLabel"/>
 
@@ -152,7 +151,6 @@
             android:id="@+id/subreddit_active_users"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@{subreddit.getActiveUsers()}"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceSubredditMetricsMain"
             tools:text="14.6k"/>
@@ -161,7 +159,7 @@
             android:id="@+id/subreddit_active_users_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/subreddit_active_users"
+            android:text="@string/community_active"
             android:textColor="@null"
             android:textAppearance="@style/TextAppearanceSubredditMetricsMainLabel"/>
 

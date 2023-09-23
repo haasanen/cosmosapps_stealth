@@ -21,15 +21,22 @@
             app:uri=".*.reddit.com/r/{subreddit}/" />
 
         <argument
-            android:name="subreddit"
+            android:name="community"
             app:argType="string" />
+
+        <argument
+            android:name="service"
+            app:argType="com.cosmos.unreddit.data.model.Service" />
 
         <action
             android:id="@+id/openSearch"
             app:destination="@id/subredditSearchFragment">
             <argument
-                android:name="subreddit"
+                android:name="community"
                 app:argType="string" />
+            <argument
+                android:name="service"
+                app:argType="com.cosmos.unreddit.data.model.Service" />
             <argument
                 android:name="icon"
                 app:argType="string"
@@ -43,8 +50,11 @@
         android:label="SubredditSearchFragment"
         tools:layout="@layout/fragment_subreddit_search">
         <argument
-            android:name="subreddit"
-            app:argType="string"/>
+            android:name="community"
+            app:argType="string" />
+        <argument
+            android:name="service"
+            app:argType="com.cosmos.unreddit.data.model.Service" />
         <argument
             android:name="icon"
             app:argType="string"
