@@ -14,9 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.databinding.FragmentSubscriptionsBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
-import com.cosmos.unreddit.util.SearchUtil
 import com.cosmos.unreddit.util.extension.applyWindowInsets
-import com.cosmos.unreddit.util.extension.hideSoftKeyboard
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
@@ -90,9 +88,6 @@ class SubscriptionsFragment : BaseFragment() {
                 doOnTextChanged { text, _, _, _ ->
                     viewModel.setSearchQuery(text.toString())
                 }
-                setSearchActionListener {
-                    handleSearchAction(it)
-                }
             }
         }
     }
@@ -107,22 +102,8 @@ class SubscriptionsFragment : BaseFragment() {
         }
     }
 
-    private fun showSearchFragment(query: String) {
-        binding.appBar.searchInput.hideSoftKeyboard()
-
-        navigate(SubscriptionsFragmentDirections.openSearch(query))
-
-        binding.appBar.searchInput.clear()
-    }
-
     private fun onClick(subreddit: String) {
         navigate(NavigationGraphDirections.openSubreddit(subreddit))
-    }
-
-    private fun handleSearchAction(query: String) {
-        if (SearchUtil.isQueryValid(query)) {
-            showSearchFragment(query)
-        }
     }
 
     override fun onBackPressed() {

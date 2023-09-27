@@ -4,6 +4,8 @@
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorSecondary">@color/colorPrimaryLight</item>
+        <item name="colorOnSecondary">@color/white</item>
 
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -479,6 +481,17 @@
 
     <style name="Widget.App.SnackbarTextView" parent="Widget.MaterialComponents.Snackbar.TextView">
         <item name="android:textColor">@color/white</item>
+    </style>
+
+    <style name="Widget.FloatingActionButton" parent="Widget.MaterialComponents.FloatingActionButton">
+        <item name="fabCustomSize">48dp</item>
+        <item name="elevation">@dimen/fab_elevation</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.FloatingActionButton</item>
+    </style>
+
+    <style name="ShapeAppearance.FloatingActionButton" parent="ShapeAppearance.MaterialComponents.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
     </style>
 
 </resources>

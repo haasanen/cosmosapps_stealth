@@ -5,8 +5,8 @@
 
     <data>
         <variable
-            name="subreddit"
-            type="com.cosmos.unreddit.data.model.db.SubredditEntity" />
+            name="community"
+            type="com.cosmos.unreddit.data.model.Community" />
     </data>
 
     <com.google.android.material.card.MaterialCardView
@@ -40,7 +40,7 @@
                 android:layout_marginStart="@dimen/search_subreddit_margin_horizontal"
                 android:scrollbars="none"
                 android:textAppearance="@style/TextAppearanceSearchSubreddit"
-                android:text="@{subreddit.displayName}"
+                android:text="@{community.name}"
                 tools:text="Subreddit"/>
 
             <TextView
@@ -58,7 +58,7 @@
                 android:scrollbars="none"
                 android:textColor="@null"
                 android:textAppearance="@style/TextAppearanceSearchSubredditTitle"
-                android:text="@{subreddit.title}"
+                android:text="@{community.title}"
                 tools:text="Title"/>
 
             <TextView
@@ -70,7 +70,6 @@
                 android:scrollbars="none"
                 android:textColor="@null"
                 android:textAppearance="@style/TextAppearanceSearchSubredditSubscribers"
-                android:text="@{subreddit.getSubscribersCount()}"
                 tools:text="12.5m"/>
 
         </androidx.constraintlayout.widget.ConstraintLayout>

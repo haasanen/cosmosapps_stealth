@@ -18,7 +18,7 @@ data class Service(
 ) : Parcelable {
 
     fun asSupportedService(): SupportedService = when (name) {
-        ServiceName.reddit -> RedditService()
+        ServiceName.reddit -> RedditService() // TODO: Migration V3 - Instance
         ServiceName.teddit -> instance?.let { TedditService(it) } ?: TedditService()
         ServiceName.lemmy -> instance?.let { LemmyService(it) } ?: error("Instance is null")
     }

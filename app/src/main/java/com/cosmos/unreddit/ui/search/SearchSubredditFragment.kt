@@ -6,18 +6,18 @@ import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.paging.PagingData
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.db.SubredditEntity
+import com.cosmos.unreddit.data.model.Community
 import com.cosmos.unreddit.ui.common.fragment.PagingListFragment
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class SearchSubredditFragment : PagingListFragment<SearchSubredditAdapter, SubredditEntity>() {
+class SearchSubredditFragment : PagingListFragment<SearchCommunityAdapter, Community>() {
 
     override val viewModel: SearchViewModel by hiltNavGraphViewModels(R.id.search)
 
-    override val flow: Flow<PagingData<SubredditEntity>>
+    override val flow: Flow<PagingData<Community>>
         get() = viewModel.subredditDataFlow
 
     override fun bindViewModel() {
@@ -31,7 +31,7 @@ class SearchSubredditFragment : PagingListFragment<SearchSubredditAdapter, Subre
         }
     }
 
-    override fun createPagingAdapter(): SearchSubredditAdapter {
-        return SearchSubredditAdapter { openSubreddit(it) }
+    override fun createPagingAdapter(): SearchCommunityAdapter {
+        return SearchCommunityAdapter { openCommunity(it.name, it.service) }
     }
 }

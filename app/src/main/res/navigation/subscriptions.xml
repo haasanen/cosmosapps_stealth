@@ -5,19 +5,10 @@
     android:id="@+id/subscriptions"
     app:startDestination="@id/subscriptionsFragment">
 
-    <include app:graph="@navigation/search" />
-
     <fragment
         android:id="@+id/subscriptionsFragment"
         android:name="com.cosmos.unreddit.ui.subscriptions.SubscriptionsFragment"
         tools:layout="@layout/fragment_subscriptions">
-        <action
-            android:id="@+id/openSearch"
-            app:destination="@id/search">
-            <argument
-                android:name="query"
-                app:argType="string"/>
-        </action>
     </fragment>
 
 </navigation>

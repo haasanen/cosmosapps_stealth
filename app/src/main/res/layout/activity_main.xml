@@ -27,6 +27,17 @@
             app:labelVisibilityMode="unlabeled"
             app:menu="@menu/navigation_menu"/>
 
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab"
+            style="@style/Widget.FloatingActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:layout_anchor="@id/bottom_navigation"
+            app:useCompatPadding="true"
+            android:layout_gravity="top"
+            android:layout_margin="@dimen/fab_margin"
+            android:src="@drawable/ic_search"/>
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

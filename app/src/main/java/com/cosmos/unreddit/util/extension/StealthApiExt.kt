@@ -69,6 +69,6 @@ fun RemotePosterType.toPosterType(): PosterType {
         RemotePosterType.regular -> PosterType.REGULAR
         RemotePosterType.moderator -> PosterType.MODERATOR
         RemotePosterType.admin -> PosterType.ADMIN
-        RemotePosterType.bot -> TODO()
+        RemotePosterType.bot -> PosterType.BOT
     }
 }

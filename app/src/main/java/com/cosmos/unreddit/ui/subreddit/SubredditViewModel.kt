@@ -81,10 +81,18 @@ class SubredditViewModel @Inject constructor(
     var isSubredditReachable: Boolean = false
 
     val isSubscribed: StateFlow<Boolean> = combine(
-        _subreddit,
-        subscriptionsNames
-    ) { _subreddit, names ->
-        names.any { it.equals(_subreddit, ignoreCase = true) }
+        subreddit,
+        service,
+        subscriptions
+    ) { subreddit, service, subscriptions ->
+        subscriptions.any {
+            val fromService = it.name == subreddit && it.service == service?.name
+            when (service?.name) {
+                ServiceName.reddit, ServiceName.teddit -> fromService
+                ServiceName.lemmy -> fromService && it.instance == service.instance
+                null -> false
+            }
+        }
     }.flowOn(
         defaultDispatcher
     ).stateIn(

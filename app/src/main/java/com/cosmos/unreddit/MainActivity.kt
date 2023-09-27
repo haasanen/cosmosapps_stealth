@@ -14,6 +14,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
+import androidx.navigation.findNavController
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.LEFT_HANDED
@@ -22,6 +23,8 @@ import com.cosmos.unreddit.MainActivity.BottomNavigationState.RIGHT_HANDED
 import com.cosmos.unreddit.databinding.ActivityMainBinding
 import com.cosmos.unreddit.ui.policydisclaimer.PolicyDisclaimerDialogFragment
 import com.cosmos.unreddit.ui.postlist.PostListFragment
+import com.cosmos.unreddit.ui.searchquery.SearchQueryFragment
+import com.cosmos.unreddit.ui.searchquery.SearchQueryFragmentDirections
 import com.cosmos.unreddit.util.HideBottomViewBehavior
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
 import com.cosmos.unreddit.util.extension.currentNavigationFragment
@@ -32,6 +35,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.shape.CornerFamily
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.transition.MaterialElevationScale
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
@@ -90,6 +94,8 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
                 }
             }
         }
+
+        binding.fab.setOnClickListener { openSearch() }
     }
 
     private fun initNavigation() {
@@ -135,6 +141,10 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
                 Gravity.BOTTOM or Gravity.END
             }
             behavior = HideBottomViewBehavior<BottomNavigationView>(leftHandedMode)
+        }
+
+        binding.fab.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            anchorGravity = (if (leftHandedMode) Gravity.START else Gravity.END)
         }
 
         val radius = resources.getDimension(R.dimen.bottom_navigation_radius)
@@ -208,6 +218,29 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
             .apply { show() }
     }
 
+    private fun openSearch() {
+        val proceed = when (val currentFragment = currentNavigationFragment) {
+            is SearchQueryFragment -> currentFragment.validate()
+            else -> false
+        }
+
+        if (!proceed) return
+
+        val motionDuration = resources.getInteger(R.integer.motion_duration_medium).toLong()
+
+        currentNavigationFragment?.apply {
+            exitTransition = MaterialElevationScale(false).apply {
+                duration = motionDuration
+            }
+            reenterTransition = MaterialElevationScale(true).apply {
+                duration = motionDuration
+            }
+        }
+
+        val directions = SearchQueryFragmentDirections.openSearch()
+        findNavController(R.id.fragment_container).navigate(directions)
+    }
+
     override fun onDestinationChanged(
         controller: NavController,
         destination: NavDestination,
@@ -218,10 +251,19 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
             R.id.subscriptionsFragment,
             R.id.profileFragment,
             R.id.preferencesFragment -> {
+                binding.fab.hide()
                 viewModel.setNavigationVisibility(true)
             }
 
-            else -> viewModel.setNavigationVisibility(false)
+            R.id.searchQueryFragment -> {
+                binding.fab.show()
+                viewModel.setNavigationVisibility(true)
+            }
+
+            else -> {
+                binding.fab.hide()
+                viewModel.setNavigationVisibility(false)
+            }
         }
     }
 

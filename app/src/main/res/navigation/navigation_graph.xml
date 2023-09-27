@@ -8,6 +8,7 @@
     <include app:graph="@navigation/home" />
     <include app:graph="@navigation/subscriptions" />
     <include app:graph="@navigation/profile" />
+    <include app:graph="@navigation/search" />
     <include app:graph="@navigation/settings" />
 
     <!-- Global Destinations -->

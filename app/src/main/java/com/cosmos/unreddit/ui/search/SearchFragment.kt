@@ -4,23 +4,26 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
 import androidx.hilt.navigation.fragment.hiltNavGraphViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.RecyclerView
+import androidx.transition.Slide
 import com.cosmos.unreddit.R
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.databinding.FragmentSearchBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.adapter.FragmentAdapter
+import com.cosmos.unreddit.ui.searchquery.SearchQueryViewModel
 import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.SearchUtil
-import com.cosmos.unreddit.util.extension.clearSortingListener
+import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.getRecyclerView
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.scrollToTop
-import com.cosmos.unreddit.util.extension.setSortingListener
+import com.cosmos.unreddit.util.extension.setFilteringListener
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import dagger.hilt.android.AndroidEntryPoint
@@ -34,15 +37,18 @@ class SearchFragment : BaseFragment() {
     private val binding get() = _binding!!
 
     override val viewModel: SearchViewModel by hiltNavGraphViewModels(R.id.search)
-
-    private val args: SearchFragmentArgs by navArgs()
+    private val searchQueryViewModel: SearchQueryViewModel by hiltNavGraphViewModels(R.id.search)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) {
-            val query = args.query
-
-            viewModel.setQuery(query)
+            val service = Service(
+                searchQueryViewModel.serviceName.value,
+                searchQueryViewModel.instance
+            ) // TODO
+            viewModel.setService(service)
+            viewModel.setFiltering(searchQueryViewModel.filtering.value)
+            viewModel.setQuery(searchQueryViewModel.query)
         }
     }
 
@@ -57,7 +63,13 @@ class SearchFragment : BaseFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val query = viewModel.query.value.takeIf { it.isNotBlank() } ?: args.query
+
+        postponeEnterTransition()
+        view.doOnPreDraw { startPostponedEnterTransition() }
+
+        initAnimations()
+
+        val query = viewModel.query.value.takeIf { it.isNotBlank() }
 
         binding.appBar.searchInput.setText(query)
 
@@ -72,6 +84,17 @@ class SearchFragment : BaseFragment() {
         }
     }
 
+    private fun initAnimations() {
+        enterTransition = Slide().apply {
+            duration = resources.getInteger(R.integer.motion_duration_medium).toLong()
+            addTarget(binding.root)
+        }
+        returnTransition = Slide().apply {
+            duration = resources.getInteger(R.integer.motion_duration_medium).toLong()
+            addTarget(binding.root)
+        }
+    }
+
     private fun bindViewModel() {
         launchRepeat(Lifecycle.State.STARTED) {
             launch {
@@ -83,8 +106,8 @@ class SearchFragment : BaseFragment() {
             }
 
             launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
+                viewModel.filtering.collect {
+                    binding.appBar.sortIcon.setFiltering(it)
                 }
             }
         }
@@ -148,7 +171,7 @@ class SearchFragment : BaseFragment() {
     }
 
     private fun initResultListener() {
-        setSortingListener { sorting -> sorting?.let { viewModel.setSorting(it) } }
+        setFilteringListener { filtering -> filtering?.let { viewModel.setFiltering(it) } }
     }
 
     private fun showSearchInput(show: Boolean) {
@@ -176,14 +199,14 @@ class SearchFragment : BaseFragment() {
     private fun showSortDialog() {
         SortFragment.show(
             childFragmentManager,
-            viewModel.sorting.value,
+            viewModel.filtering.value,
             SortFragment.SortType.SEARCH
         )
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        clearSortingListener()
+        clearFilteringListener()
         _binding = null
     }
 

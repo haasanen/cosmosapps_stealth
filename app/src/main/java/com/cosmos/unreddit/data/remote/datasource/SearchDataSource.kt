@@ -4,10 +4,14 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.cosmos.stealth.sdk.Stealth
 import com.cosmos.stealth.sdk.data.model.api.AfterKey
+import com.cosmos.stealth.sdk.data.model.api.CommunityInfo
+import com.cosmos.stealth.sdk.data.model.api.CommunityResults
 import com.cosmos.stealth.sdk.data.model.api.Feedable
 import com.cosmos.stealth.sdk.data.model.api.FeedableResults
 import com.cosmos.stealth.sdk.data.model.api.SearchResults
 import com.cosmos.stealth.sdk.data.model.api.SearchType
+import com.cosmos.stealth.sdk.data.model.api.UserInfo
+import com.cosmos.stealth.sdk.data.model.api.UserResults
 import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.NetworkException
@@ -86,6 +90,40 @@ abstract class SearchDataSource<Value : Any>(
 
         override fun getPage(searchResults: SearchResults): LoadResult.Page<AfterKey, Feedable> {
             val results = searchResults as FeedableResults
+            return LoadResult.Page(results.results, null, results.after)
+        }
+    }
+
+    class CommunitySearchDataSource(
+        query: Query,
+        filtering: Filtering,
+        community: String?,
+        user: String?,
+        pageSize: Int
+    ) : SearchDataSource<CommunityInfo>(query, filtering, community, user, pageSize) {
+
+        override val type: SearchType
+            get() = SearchType.community
+
+        override fun getPage(searchResults: SearchResults): LoadResult.Page<AfterKey, CommunityInfo> {
+            val results = searchResults as CommunityResults
+            return LoadResult.Page(results.results, null, results.after)
+        }
+    }
+
+    class UserSearchDataSource(
+        query: Query,
+        filtering: Filtering,
+        community: String?,
+        user: String?,
+        pageSize: Int
+    ) : SearchDataSource<UserInfo>(query, filtering, community, user, pageSize) {
+
+        override val type: SearchType
+            get() = SearchType.user
+
+        override fun getPage(searchResults: SearchResults): LoadResult.Page<AfterKey, UserInfo> {
+            val results = searchResults as UserResults
             return LoadResult.Page(results.results, null, results.after)
         }
     }

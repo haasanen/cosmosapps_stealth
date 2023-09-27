@@ -181,8 +181,8 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
         throw UnsupportedOperationException("Deprecated")
     }
 
-    open fun openSubreddit(subreddit: String) {
-        navigate(NavigationGraphDirections.openSubreddit(subreddit))
+    open fun openCommunity(community: String, service: Service) {
+        navigate(NavigationGraphDirections.openCommunity(community, service))
     }
 
     open fun openUser(user: String, service: Service) {

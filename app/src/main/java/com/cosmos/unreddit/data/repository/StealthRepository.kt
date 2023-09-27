@@ -17,7 +17,9 @@ import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.ServiceQuery
 import com.cosmos.unreddit.data.remote.datasource.CommunityDataSource
 import com.cosmos.unreddit.data.remote.datasource.FeedDataSource
+import com.cosmos.unreddit.data.remote.datasource.SearchDataSource.CommunitySearchDataSource
 import com.cosmos.unreddit.data.remote.datasource.SearchDataSource.FeedableSearchDataSource
+import com.cosmos.unreddit.data.remote.datasource.SearchDataSource.UserSearchDataSource
 import com.cosmos.unreddit.data.remote.datasource.UserDataSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -100,6 +102,36 @@ class StealthRepository @Inject constructor() {
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
             FeedableSearchDataSource(query, filtering, community, null, pageSize)
+        }.flow
+    }
+
+    fun searchPosts(
+        query: Query,
+        filtering: Filtering,
+        pageSize: Int = DEFAULT_LIMIT
+    ): Flow<PagingData<Feedable>> {
+        return Pager(PagingConfig(pageSize = pageSize)) {
+            FeedableSearchDataSource(query, filtering, null, null, pageSize)
+        }.flow
+    }
+
+    fun searchCommunities(
+        query: Query,
+        filtering: Filtering,
+        pageSize: Int = DEFAULT_LIMIT
+    ): Flow<PagingData<CommunityInfo>> {
+        return Pager(PagingConfig(pageSize = pageSize)) {
+            CommunitySearchDataSource(query, filtering, null, null, pageSize)
+        }.flow
+    }
+
+    fun searchUsers(
+        query: Query,
+        filtering: Filtering,
+        pageSize: Int = DEFAULT_LIMIT
+    ): Flow<PagingData<UserInfo>> {
+        return Pager(PagingConfig(pageSize = pageSize)) {
+            UserSearchDataSource(query, filtering, null, null, pageSize)
         }.flow
     }
 

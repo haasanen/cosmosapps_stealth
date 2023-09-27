@@ -11,6 +11,11 @@
         android:title="@string/navigation_label_subscriptions" />
 
     <item
+        android:id="@+id/search"
+        android:icon="@drawable/ic_search"
+        android:title="Search" />
+
+    <item
         android:id="@+id/profile"
         android:icon="@drawable/ic_outline_profile"
         android:title="@string/navigation_label_profile" />

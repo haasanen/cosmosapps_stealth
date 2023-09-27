@@ -4,29 +4,24 @@ import androidx.hilt.navigation.fragment.hiltNavGraphViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.paging.PagingData
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.db.PostEntity
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.model.db.FeedItem
+import com.cosmos.unreddit.ui.common.adapter.FeedItemListAdapter
 import com.cosmos.unreddit.ui.common.fragment.PagingListFragment
-import com.cosmos.unreddit.ui.postlist.PostListAdapter
 import com.cosmos.unreddit.util.extension.launchRepeat
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
-class SearchPostFragment : PagingListFragment<PostListAdapter, PostEntity>() {
+class SearchPostFragment : PagingListFragment<FeedItemListAdapter, FeedItem>() {
 
     override val viewModel: SearchViewModel by hiltNavGraphViewModels(R.id.search)
 
-    override val flow: Flow<PagingData<PostEntity>>
+    override val flow: Flow<PagingData<FeedItem>>
         get() = viewModel.postDataFlow
 
     override val showItemDecoration: Boolean
         get() = true
-
-    @Inject
-    lateinit var repository: PostListRepository
 
     override fun bindViewModel() {
         super.bindViewModel()
@@ -45,7 +40,7 @@ class SearchPostFragment : PagingListFragment<PostListAdapter, PostEntity>() {
         }
     }
 
-    override fun createPagingAdapter(): PostListAdapter {
-        return PostListAdapter(repository, this, this)
+    override fun createPagingAdapter(): FeedItemListAdapter {
+        return FeedItemListAdapter(this, this)
     }
 }

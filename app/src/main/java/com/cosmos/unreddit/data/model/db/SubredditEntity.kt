@@ -3,6 +3,7 @@ package com.cosmos.unreddit.data.model.db
 import com.cosmos.unreddit.data.model.RedditText
 import kotlin.math.round
 
+@Deprecated("Legacy entity")
 data class SubredditEntity(
     val wikiEnabled: Boolean,
 

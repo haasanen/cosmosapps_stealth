@@ -50,6 +50,8 @@
     <color name="moderator_gradient_end">#76D275</color>
     <color name="moderator_color">#4CAF50</color>
 
+    <color name="bot_color">#00BCD4</color>
+
     <color name="nsfw_gradient_start">#F06292</color>
     <color name="nsfw_gradient_end">#F8BBD0</color>
 

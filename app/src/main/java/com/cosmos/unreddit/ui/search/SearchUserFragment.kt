@@ -6,18 +6,18 @@ import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.paging.PagingData
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.User
+import com.cosmos.unreddit.data.model.User2
 import com.cosmos.unreddit.ui.common.fragment.PagingListFragment
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class SearchUserFragment : PagingListFragment<SearchUserAdapter, User>() {
+class SearchUserFragment : PagingListFragment<SearchUserAdapter, User2>() {
 
     override val viewModel: SearchViewModel by hiltNavGraphViewModels(R.id.search)
 
-    override val flow: Flow<PagingData<User>>
+    override val flow: Flow<PagingData<User2>>
         get() = viewModel.userDataFlow
 
     override fun bindViewModel() {
@@ -32,9 +32,6 @@ class SearchUserFragment : PagingListFragment<SearchUserAdapter, User>() {
     }
 
     override fun createPagingAdapter(): SearchUserAdapter {
-        return SearchUserAdapter {
-            // TODO: Migration V3
-            //openUser(it)
-        }
+        return SearchUserAdapter { openUser(it.name, it.service) }
     }
 }

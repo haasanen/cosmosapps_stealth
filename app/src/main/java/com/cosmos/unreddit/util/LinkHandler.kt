@@ -35,7 +35,8 @@ class LinkHandler @Inject constructor(
         when (mediaType) {
             MediaType.REDDIT_SUBREDDIT -> {
                 val subreddit = link.removePrefix("/r/")
-                baseFragment?.openSubreddit(subreddit)
+                // TODO: Migration V3
+                //baseFragment?.openSubreddit(subreddit)
             }
 
             MediaType.REDDIT_USER -> {
