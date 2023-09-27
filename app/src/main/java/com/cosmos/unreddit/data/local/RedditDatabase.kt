@@ -436,7 +436,7 @@ abstract class RedditDatabase : RoomDatabase() {
                     do {
                         val comment = CommentItem(
                             Service(ServiceName.reddit, "www.reddit.com"),
-                            cursor.getString(cursor.getColumnIndex("id")),
+                            cursor.getString(cursor.getColumnIndex("name")),
                             cursor.getString(cursor.getColumnIndex("link_id")),
                             cursor.getString(cursor.getColumnIndex("subreddit")).removePrefix("r/"),
                             cursor.getString(cursor.getColumnIndex("body_html")),
