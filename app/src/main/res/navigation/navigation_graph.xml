@@ -38,14 +38,6 @@
     </action>
 
     <action
-        android:id="@+id/openSubreddit"
-        app:destination="@id/subreddit">
-        <argument
-            android:name="subreddit"
-            app:argType="string" />
-    </action>
-
-    <action
         android:id="@+id/openCommunity"
         app:destination="@id/subreddit">
         <argument

@@ -12,6 +12,8 @@ import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.NavigationGraphDirections
+import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.db.Subscription
 import com.cosmos.unreddit.databinding.FragmentSubscriptionsBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
@@ -102,8 +104,13 @@ class SubscriptionsFragment : BaseFragment() {
         }
     }
 
-    private fun onClick(subreddit: String) {
-        navigate(NavigationGraphDirections.openSubreddit(subreddit))
+    private fun onClick(subscription: Subscription) {
+        navigate(
+            NavigationGraphDirections.openCommunity(
+                subscription.name,
+                Service(subscription.service, subscription.instance)
+            )
+        )
     }
 
     override fun onBackPressed() {
