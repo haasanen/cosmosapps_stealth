@@ -74,7 +74,7 @@ class PostListViewModel
                         )
                     }
             } else {
-                listOf(DEFAULT_QUERY)
+                DEFAULT_QUERY
             }
         }
         .flowOn(defaultDispatcher)
@@ -89,7 +89,7 @@ class PostListViewModel
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        Data.FetchMultiple(listOf(DEFAULT_QUERY), DEFAULT_FILTERING)
+        Data.FetchMultiple(DEFAULT_QUERY, DEFAULT_FILTERING)
     )
 
     private var latestUser: Data.User? = null
@@ -137,9 +137,16 @@ class PostListViewModel
     }
 
     companion object {
-        private const val DEFAULT_COMMUNITY = "popular"
-        private val DEFAULT_QUERY =
-            ServiceQuery(Service(ServiceName.reddit), listOf(DEFAULT_COMMUNITY))
+        private const val DEFAULT_LEMMY_INSTANCE = "lemmy.world"
+
+        // Pass empty lists to fetch default feed of each service
+        // Reddit -> popular
+        // Lemmy -> front page
+        private val DEFAULT_QUERY = buildList {
+            add(ServiceQuery(Service(ServiceName.reddit), emptyList()))
+            add(ServiceQuery(Service(ServiceName.lemmy, DEFAULT_LEMMY_INSTANCE), emptyList()))
+        }
+
         private val DEFAULT_FILTERING = Filtering(Sort.trending)
     }
 }
