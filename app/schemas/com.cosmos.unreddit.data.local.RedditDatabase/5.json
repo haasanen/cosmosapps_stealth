@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "fa59e1aad9f2042da3ba80ae608244b4",
+    "identityHash": "d61630a187ab7f8b507235bfd14f2998",
     "entities": [
       {
         "tableName": "subscription",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL COLLATE NOCASE, `time` INTEGER NOT NULL, `icon` TEXT, `service` TEXT NOT NULL, `instance` TEXT, `profile_id` INTEGER NOT NULL, PRIMARY KEY(`name`, `profile_id`), FOREIGN KEY(`profile_id`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL COLLATE NOCASE, `time` INTEGER NOT NULL, `icon` TEXT, `service` TEXT NOT NULL, `instance` TEXT NOT NULL COLLATE NOCASE, `profile_id` INTEGER NOT NULL, PRIMARY KEY(`name`, `service`, `instance`, `profile_id`), FOREIGN KEY(`profile_id`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "name",
@@ -36,7 +36,7 @@
             "fieldPath": "instance",
             "columnName": "instance",
             "affinity": "TEXT",
-            "notNull": false
+            "notNull": true
           },
           {
             "fieldPath": "profileId",
@@ -49,6 +49,8 @@
           "autoGenerate": false,
           "columnNames": [
             "name",
+            "service",
+            "instance",
             "profile_id"
           ]
         },
@@ -562,7 +564,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fa59e1aad9f2042da3ba80ae608244b4')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd61630a187ab7f8b507235bfd14f2998')"
     ]
   }
 }

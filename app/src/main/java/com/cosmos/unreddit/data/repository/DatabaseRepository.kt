@@ -1,6 +1,8 @@
 package com.cosmos.unreddit.data.repository
 
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
 import com.cosmos.unreddit.data.local.RedditDatabase
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.data.model.db.History
 import com.cosmos.unreddit.data.model.db.PostItem
@@ -25,11 +27,17 @@ class DatabaseRepository @Inject constructor(
         return redditDatabase.subscriptionDao().getSubscriptionsNamesFromProfile(profileId)
     }
 
-    // TODO: Migration V3
-    //  Add service to Subscription
-    suspend fun subscribe(name: String, profileId: Int, icon: String? = null) {
-        redditDatabase.subscriptionDao().insert(
-            Subscription(name, System.currentTimeMillis(), icon, profileId = profileId)
+    suspend fun subscribe(name: String, profileId: Int, service: Service, icon: String? = null) {
+        // Instance for Reddit/Teddit is irrelevant (it's managed locally anyway), so it is set to
+        // an empty string to avoid duplicate subscriptions (as instance is part of the primary
+        // keys)
+        val instance = when (service.name) {
+            ServiceName.reddit, ServiceName.teddit -> ""
+            ServiceName.lemmy -> service.instance.orEmpty()
+        }
+
+        redditDatabase.subscriptionDao().upsert(
+            Subscription(name, System.currentTimeMillis(), icon, service.name, instance, profileId)
         )
     }
 

@@ -7,7 +7,7 @@ import com.cosmos.stealth.sdk.data.model.api.ServiceName
 
 @Entity(
     tableName = "subscription",
-    primaryKeys = ["name", "profile_id"],
+    primaryKeys = ["name", "service", "instance", "profile_id"],
     foreignKeys = [
         ForeignKey(
             entity = Profile::class,
@@ -30,8 +30,8 @@ data class Subscription (
     @ColumnInfo(name = "service")
     var service: ServiceName = ServiceName.reddit,
 
-    @ColumnInfo(name = "instance")
-    val instance: String? = null,
+    @ColumnInfo(name = "instance", collate = ColumnInfo.NOCASE)
+    val instance: String,
 
     @ColumnInfo(name = "profile_id", index = true)
     var profileId: Int = 1

@@ -211,11 +211,14 @@ class SubredditViewModel @Inject constructor(
 
     fun toggleSubscription() {
         viewModelScope.launch {
-            currentProfile.latest?.let {
+            val profile = currentProfile.latest
+            val service = _service.value
+
+            if (profile != null && service != null) {
                 if (isSubscribed.value) {
-                    databaseRepository.unsubscribe(subredditName, it.id)
+                    databaseRepository.unsubscribe(subredditName, profile.id)
                 } else {
-                    databaseRepository.subscribe(subredditName, it.id, icon)
+                    databaseRepository.subscribe(subredditName, profile.id, service, icon)
                 }
             }
         }

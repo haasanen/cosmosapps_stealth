@@ -22,7 +22,7 @@ class SubscriptionMapper @Inject constructor(
 
     override suspend fun fromEntity(from: SubscriptionBackup): Subscription {
         return with(from) {
-            Subscription(name, time, icon)
+            Subscription(name, time, icon, instance = "")
         }
     }
 }
