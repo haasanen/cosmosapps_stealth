@@ -13,7 +13,7 @@ import com.cosmos.unreddit.data.model.Query
 import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule
@@ -39,12 +39,12 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SubredditSearchViewModel @Inject constructor(
-    private val repository: PostListRepository,
+    databaseRepository: DatabaseRepository,
     private val stealthRepository: StealthRepository,
     preferencesRepository: PreferencesRepository,
     private val feedableMapper: FeedableMapper,
     @DispatchersModule.DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()

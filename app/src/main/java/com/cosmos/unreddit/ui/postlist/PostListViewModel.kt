@@ -14,7 +14,6 @@ import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.DatabaseRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
@@ -43,17 +42,16 @@ import javax.inject.Inject
 class PostListViewModel
 @Inject constructor(
     databaseRepository: DatabaseRepository,
-    private val repository: PostListRepository,
     private val stealthRepository: StealthRepository,
     private val preferencesRepository: PreferencesRepository,
     private val feedableMapper: FeedableMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()
 
-    val profiles: Flow<List<Profile>> = repository.getAllProfiles()
+    val profiles: Flow<List<Profile>> = databaseRepository.getAllProfiles()
 
     private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
     val filtering: StateFlow<Filtering> = _filtering

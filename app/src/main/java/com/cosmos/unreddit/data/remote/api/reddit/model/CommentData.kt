@@ -2,8 +2,6 @@ package com.cosmos.unreddit.data.remote.api.reddit.model
 
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.Edited
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.Replies
-import com.cosmos.unreddit.util.extension.formatNumber
-import com.cosmos.unreddit.util.extension.toMillis
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
@@ -82,10 +80,4 @@ class CommentData(
 
     @Json(name = "link_author")
     val linkAuthor: String?
-) {
-    val scoreString: String
-        get() = if (scoreHidden) "12345" else score.formatNumber()
-
-    val editedMillis: Long
-        get() = if (edited > -1) edited.toMillis() else edited
-}
+)

@@ -13,7 +13,6 @@ import com.cosmos.stealth.sdk.data.model.api.Order
 import com.cosmos.stealth.sdk.data.model.api.Sort
 import com.cosmos.stealth.sdk.data.model.api.Time
 import com.cosmos.unreddit.data.model.Filtering
-import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.databinding.FragmentSortBinding
 import com.cosmos.unreddit.util.extension.parcelable
 import com.cosmos.unreddit.util.extension.serializable
@@ -181,20 +180,6 @@ class SortFragment : BottomSheetDialogFragment() {
 
         const val BUNDLE_KEY_SORTING = "BUNDLE_KEY_SORTING"
         const val BUNDLE_KEY_TYPE = "BUNDLE_KEY_TYPE"
-
-        @Deprecated("Legacy function")
-        fun show(
-            fragmentManager: FragmentManager,
-            sorting: Sorting,
-            type: SortType = SortType.GENERAL
-        ) {
-            SortFragment().apply {
-                arguments = bundleOf(
-                    BUNDLE_KEY_SORTING to sorting,
-                    BUNDLE_KEY_TYPE to type
-                )
-            }.show(fragmentManager, TAG)
-        }
 
         fun show(
             fragmentManager: FragmentManager,

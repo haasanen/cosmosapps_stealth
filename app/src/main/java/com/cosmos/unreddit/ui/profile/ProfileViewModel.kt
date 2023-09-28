@@ -7,7 +7,6 @@ import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.repository.DatabaseRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
@@ -30,11 +29,10 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
-    repository: PostListRepository,
     databaseRepository: DatabaseRepository,
     private val savedMapper: SavedMapper2,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> = preferencesRepository.getContentPreferences()
 
@@ -53,7 +51,7 @@ class ProfileViewModel @Inject constructor(
 
     val selectedProfile: Flow<Profile> = combine(
         currentProfile,
-        repository.getAllProfiles()
+        databaseRepository.getAllProfiles()
     ) { currentProfile, profiles ->
         // Update current profile when any profile is updated
         profiles.find { it.id == currentProfile.id } ?: currentProfile

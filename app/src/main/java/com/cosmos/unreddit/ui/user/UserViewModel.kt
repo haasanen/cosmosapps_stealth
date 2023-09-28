@@ -21,10 +21,9 @@ import com.cosmos.unreddit.data.model.User2
 import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
-import com.cosmos.unreddit.di.DispatchersModule
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
 import com.cosmos.unreddit.util.extension.updateValue
@@ -52,13 +51,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class UserViewModel @Inject constructor(
-    private val repository: PostListRepository,
+    private val databaseRepository: DatabaseRepository,
     private val stealthRepository: StealthRepository,
     preferencesRepository: PreferencesRepository,
     private val feedableMapper: FeedableMapper,
     private val userMapper: UserMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()
@@ -81,7 +80,7 @@ class UserViewModel @Inject constructor(
     var layoutState: Int? = null
 
     private val savedCommentIds: Flow<List<String>> = currentProfile.flatMapLatest {
-        repository.getSavedCommentIds(it.id)
+        databaseRepository.getSavedCommentIds(it.id)
     }.shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
 
     private val _lastRefreshPost: MutableStateFlow<Long> =

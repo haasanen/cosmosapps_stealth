@@ -5,9 +5,6 @@ import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.PosterType
 import com.cosmos.unreddit.data.model.Service
-import com.cosmos.unreddit.data.model.Sort
-import com.cosmos.unreddit.data.model.Sorting
-import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.model.db.Redirect
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -32,24 +29,6 @@ class Converters {
     @TypeConverter
     fun toPosterTypeInt(posterType: PosterType?): Int? {
         return posterType?.value
-    }
-
-    @TypeConverter
-    fun fromSortingString(string: String?): Sorting? {
-        return string?.let {
-            val values = it.split(";")
-            Sorting(
-                Sort.fromName(values.getOrNull(0)),
-                TimeSorting.fromName(values.getOrNull(1))
-            )
-        }
-    }
-
-    @TypeConverter
-    fun toSortingString(sorting: Sorting?): String? {
-        return sorting?.let {
-            listOfNotNull(it.generalSorting.name, it.timeSorting?.name).joinToString(";")
-        }
     }
 
     @TypeConverter

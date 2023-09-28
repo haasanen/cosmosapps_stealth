@@ -8,7 +8,6 @@ import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
 import androidx.navigation.fragment.findNavController
 import com.cosmos.unreddit.NavigationGraphDirections
-import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.databinding.FragmentPostMenuBinding
 import com.cosmos.unreddit.util.extension.doAndDismiss
@@ -91,15 +90,6 @@ class PostMenuFragment : BottomSheetDialogFragment() {
 
         private const val BUNDLE_KEY_POST = "BUNDLE_KEY_POST"
         private const val BUNDLE_KEY_TYPE = "BUNDLE_KEY_TYPE"
-
-        @Deprecated("Legacy function")
-        fun show(
-            fragmentManager: FragmentManager,
-            post: PostEntity,
-            type: MenuType = MenuType.GENERAL
-        ) {
-            // ignore
-        }
 
         fun show(
             fragmentManager: FragmentManager,

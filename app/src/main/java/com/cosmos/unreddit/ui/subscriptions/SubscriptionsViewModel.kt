@@ -1,7 +1,7 @@
 package com.cosmos.unreddit.ui.subscriptions
 
 import com.cosmos.unreddit.data.model.db.Subscription
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
@@ -17,9 +17,9 @@ import javax.inject.Inject
 @HiltViewModel
 class SubscriptionsViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
-    repository: PostListRepository,
+    databaseRepository: DatabaseRepository,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     private val _searchQuery: MutableStateFlow<String> = MutableStateFlow("")
 

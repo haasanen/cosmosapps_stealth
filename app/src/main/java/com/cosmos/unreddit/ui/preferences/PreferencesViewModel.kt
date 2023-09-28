@@ -2,7 +2,6 @@ package com.cosmos.unreddit.ui.preferences
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cosmos.unreddit.data.remote.api.reddit.source.CurrentSource
 import com.cosmos.unreddit.data.repository.AssetsRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
@@ -21,7 +20,6 @@ import javax.inject.Inject
 class PreferencesViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val assetsRepository: AssetsRepository,
-    private val currentSource: CurrentSource,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -101,7 +99,6 @@ class PreferencesViewModel @Inject constructor(
     fun setRedditSource(source: Int, instance: String?) {
         viewModelScope.launch {
             preferencesRepository.setRedditSource(source)
-            currentSource.setRedditSource(source)
             instance?.let { preferencesRepository.setRedditSourceInstance(it) }
         }
     }

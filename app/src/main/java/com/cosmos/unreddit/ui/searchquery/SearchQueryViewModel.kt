@@ -8,7 +8,6 @@ import com.cosmos.stealth.sdk.data.model.service.RedditService
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.repository.AssetsRepository
 import com.cosmos.unreddit.data.repository.DatabaseRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
@@ -25,11 +24,10 @@ import javax.inject.Inject
 @HiltViewModel
 class SearchQueryViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
-    repository: PostListRepository,
     databaseRepository: DatabaseRepository,
     private val assetsRepository: AssetsRepository,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
     val filtering: StateFlow<Filtering> = _filtering

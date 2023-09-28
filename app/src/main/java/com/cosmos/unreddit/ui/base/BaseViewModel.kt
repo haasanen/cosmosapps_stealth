@@ -7,7 +7,6 @@ import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.db.Subscription
 import com.cosmos.unreddit.data.repository.DatabaseRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.util.extension.latest
 import kotlinx.coroutines.flow.Flow
@@ -18,39 +17,35 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 
-// TODO: Migration V3
-//  Remove PostListRepository
-//  Remove nullability for DatabaseRepository
 open class BaseViewModel(
     preferencesRepository: PreferencesRepository,
-    private val postListRepository: PostListRepository,
-    private val databaseRepository: DatabaseRepository? = null
+    private val databaseRepository: DatabaseRepository
 ) : ViewModel() {
 
     val currentProfile: SharedFlow<Profile> = preferencesRepository.getCurrentProfile().map {
-        postListRepository.getProfile(it)
+        databaseRepository.getProfile(it)
     }.shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
 
     protected val historyIds: Flow<List<String>> = currentProfile.flatMapLatest {
-        postListRepository.getHistoryIds(it.id)
+        databaseRepository.getHistoryIds(it.id)
     }
 
     protected val subscriptions: Flow<List<Subscription>> = currentProfile.flatMapLatest {
-        postListRepository.getSubscriptions(it.id)
+        databaseRepository.getSubscriptions(it.id)
     }
 
     protected val subscriptionsNames: Flow<List<String>> = currentProfile.flatMapLatest {
-        postListRepository.getSubscriptionsNames(it.id)
+        databaseRepository.getSubscriptionsNames(it.id)
     }
 
     protected val savedPostIds: Flow<List<String>> = currentProfile.flatMapLatest {
-        postListRepository.getSavedPostIds(it.id)
+        databaseRepository.getSavedPostIds(it.id)
     }
 
     fun insertPostInHistory(postId: String) {
         viewModelScope.launch {
             currentProfile.latest?.let {
-                postListRepository.insertPostInHistory(postId, it.id)
+                databaseRepository.insertPostInHistory(postId, it.id)
             }
         }
     }
@@ -59,9 +54,9 @@ open class BaseViewModel(
         viewModelScope.launch {
             currentProfile.latest?.let {
                 if (post.saved) {
-                    databaseRepository?.unsavePost(post, it.id)
+                    databaseRepository.unsavePost(post, it.id)
                 } else {
-                    databaseRepository?.savePost(post, it.id)
+                    databaseRepository.savePost(post, it.id)
                 }
             }
         }
@@ -71,9 +66,9 @@ open class BaseViewModel(
         viewModelScope.launch {
             currentProfile.latest?.let {
                 if (comment.saved) {
-                    databaseRepository?.unsaveComment(comment, it.id)
+                    databaseRepository.unsaveComment(comment, it.id)
                 } else {
-                    databaseRepository?.saveComment(comment, it.id)
+                    databaseRepository.saveComment(comment, it.id)
                 }
             }
         }

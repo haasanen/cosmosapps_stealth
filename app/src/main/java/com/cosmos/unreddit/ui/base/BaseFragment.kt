@@ -14,13 +14,11 @@ import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.FeedItem
-import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.ui.common.listener.ItemClickListener
 import com.cosmos.unreddit.ui.common.widget.RedditView
 import com.cosmos.unreddit.ui.linkmenu.LinkMenuFragment
 import com.cosmos.unreddit.ui.postdetails.PostDetailsFragment
-import com.cosmos.unreddit.ui.postlist.PostListAdapter
 import com.cosmos.unreddit.ui.postmenu.PostMenuFragment
 import com.cosmos.unreddit.util.LinkHandler
 import com.cosmos.unreddit.util.extension.applyWindowInsets
@@ -28,8 +26,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostClickListener,
-    RedditView.OnLinkClickListener {
+open class BaseFragment : Fragment(), ItemClickListener, RedditView.OnLinkClickListener {
 
     protected open val viewModel: BaseViewModel? = null
 
@@ -74,14 +71,6 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
 
     protected fun navigate(deepLink: Uri, navOptions: NavOptions = this.navOptions) {
         findNavController().navigate(deepLink, navOptions)
-    }
-
-    override fun onClick(post: PostEntity) {
-        onClick(parentFragmentManager, post)
-    }
-
-    protected open fun onClick(fragmentManager: FragmentManager, post: PostEntity) {
-        throw UnsupportedOperationException("Deprecated")
     }
 
     protected open fun onClick(fragmentManager: FragmentManager, post: PostItem) {
@@ -137,7 +126,11 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
     }
 
     override fun onLinkClick(item: FeedItem) {
-        //TODO("Not yet implemented")
+        viewModel?.insertPostInHistory(item.id)
+        when (item) {
+            is PostItem -> onLinkClick(item.url)
+            else -> { /* ignore */ }
+        }
     }
 
     override fun onSaveClick(item: FeedItem) {
@@ -147,38 +140,12 @@ open class BaseFragment : Fragment(), ItemClickListener, PostListAdapter.PostCli
         }
     }
 
-    override fun onLongClick(post: PostEntity) {
-        throw UnsupportedOperationException("Deprecated")
-    }
-
-    override fun onMenuClick(post: PostEntity) {
-        throw UnsupportedOperationException("Deprecated")
-    }
-
-    override fun onImageClick(post: PostEntity) {
-        throw UnsupportedOperationException("Deprecated")
-    }
-
-    override fun onVideoClick(post: PostEntity) {
-        viewModel?.insertPostInHistory(post.id)
-        linkHandler.openMedia(post.mediaUrl, post.mediaType)
-    }
-
-    override fun onLinkClick(post: PostEntity) {
-        viewModel?.insertPostInHistory(post.id)
-        onLinkClick(post.url)
-    }
-
     override fun onLinkClick(link: String) {
         linkHandler.handleLink(link)
     }
 
     override fun onLinkLongClick(link: String) {
         LinkMenuFragment.show(parentFragmentManager, link)
-    }
-
-    override fun onSaveClick(post: PostEntity) {
-        throw UnsupportedOperationException("Deprecated")
     }
 
     open fun openCommunity(community: String, service: Service) {

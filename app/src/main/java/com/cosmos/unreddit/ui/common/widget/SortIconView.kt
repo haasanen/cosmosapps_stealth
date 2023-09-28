@@ -14,7 +14,6 @@ import com.cosmos.stealth.sdk.data.model.api.Sort
 import com.cosmos.stealth.sdk.data.model.api.Time
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Filtering
-import com.cosmos.unreddit.data.model.Sorting
 
 class SortIconView @JvmOverloads constructor(
     context: Context,
@@ -91,9 +90,6 @@ class SortIconView @JvmOverloads constructor(
             startAnimation(popInAnimation)
         }
     }
-
-    @Deprecated("Legacy function")
-    fun setSorting(sorting: Sorting) { /* ignore */ }
 
     @DrawableRes
     private fun getIconResDrawable(filtering: Filtering): Int {

@@ -28,14 +28,10 @@ import coil.load
 import coil.size.Precision
 import coil.size.Scale
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.model.Comment
-import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.databinding.IncludeLoadingStateBinding
 import com.cosmos.unreddit.databinding.ItemListContentBinding
-import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
 import com.cosmos.unreddit.ui.postdetails.PostDetailsFragment
-import com.cosmos.unreddit.ui.sort.SortFragment
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
@@ -63,40 +59,6 @@ fun ImageView.loadSubredditIcon(uri: String?) {
         error(R.drawable.icon_reddit_placeholder)
         fallback(R.drawable.icon_reddit_placeholder)
     }
-}
-
-@Deprecated("Legacy listener")
-fun Fragment.setSortingListener(result: (Sorting?) -> Unit) {
-    childFragmentManager.setFragmentResultListener(
-        SortFragment.REQUEST_KEY_SORTING,
-        viewLifecycleOwner
-    ) { _, bundle ->
-        val sorting = bundle.parcelable<Sorting>(SortFragment.BUNDLE_KEY_SORTING)
-        result(sorting)
-    }
-}
-
-@Deprecated("Legacy listener")
-fun Fragment.clearSortingListener() {
-    childFragmentManager.clearFragmentResultListener(SortFragment.REQUEST_KEY_SORTING)
-}
-
-@Deprecated("Legacy listener")
-fun Fragment.setCommentListener(result: (Comment.CommentEntity?) -> Unit) {
-    childFragmentManager.setFragmentResultListener(
-        CommentMenuFragment.REQUEST_KEY_COMMENT,
-        viewLifecycleOwner
-    ) { _, bundle ->
-        val comment = bundle.parcelable<Comment.CommentEntity>(
-            CommentMenuFragment.BUNDLE_KEY_COMMENT
-        )
-        result(comment)
-    }
-}
-
-@Deprecated("Legacy listener")
-fun Fragment.clearCommentListener() {
-    childFragmentManager.clearFragmentResultListener(CommentMenuFragment.REQUEST_KEY_COMMENT)
 }
 
 fun Fragment.setNavigationListener(result: (Boolean) -> Unit) {

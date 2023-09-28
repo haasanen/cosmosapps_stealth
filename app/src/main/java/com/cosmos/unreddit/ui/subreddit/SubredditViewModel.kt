@@ -18,7 +18,7 @@ import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
@@ -48,13 +48,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SubredditViewModel @Inject constructor(
-    private val repository: PostListRepository,
+    private val databaseRepository: DatabaseRepository,
     private val stealthRepository: StealthRepository,
     preferencesRepository: PreferencesRepository,
     private val feedableMapper: FeedableMapper,
     private val communityMapper: CommunityMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     val contentPreferences: Flow<ContentPreferences> =
         preferencesRepository.getContentPreferences()
@@ -213,9 +213,9 @@ class SubredditViewModel @Inject constructor(
         viewModelScope.launch {
             currentProfile.latest?.let {
                 if (isSubscribed.value) {
-                    repository.unsubscribe(subredditName, it.id)
+                    databaseRepository.unsubscribe(subredditName, it.id)
                 } else {
-                    repository.subscribe(subredditName, it.id, icon)
+                    databaseRepository.subscribe(subredditName, it.id, icon)
                 }
             }
         }

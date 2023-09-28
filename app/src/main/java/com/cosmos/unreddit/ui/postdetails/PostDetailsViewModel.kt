@@ -12,7 +12,6 @@ import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.data.model.db.FeedItem
 import com.cosmos.unreddit.data.repository.DatabaseRepository
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
@@ -38,11 +37,10 @@ import javax.inject.Inject
 class PostDetailsViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
     databaseRepository: DatabaseRepository,
-    private val repository: PostListRepository,
     private val stealthRepository: StealthRepository,
     private val feedableMapper: FeedableMapper,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository, databaseRepository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
     private val _filtering: MutableStateFlow<Filtering> = MutableStateFlow(DEFAULT_FILTERING)
     val filtering: StateFlow<Filtering> = _filtering.asStateFlow()
@@ -57,7 +55,7 @@ class PostDetailsViewModel @Inject constructor(
     val singleThread: StateFlow<Boolean> = _singleThread.asStateFlow()
 
     val savedCommentIds: Flow<List<String>> = currentProfile.flatMapLatest {
-        repository.getSavedCommentIds(it.id)
+        databaseRepository.getSavedCommentIds(it.id)
     }
 
     private val _post: MutableStateFlow<Resource<FeedItem>> =

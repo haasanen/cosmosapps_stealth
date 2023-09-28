@@ -3,7 +3,7 @@ package com.cosmos.unreddit.ui.profilemanager
 import androidx.lifecycle.viewModelScope
 import com.cosmos.unreddit.data.model.ProfileItem
 import com.cosmos.unreddit.data.model.db.Profile
-import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.DatabaseRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
@@ -18,11 +18,11 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileManagerViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
-    private val repository: PostListRepository,
+    private val databaseRepository: DatabaseRepository,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
-) : BaseViewModel(preferencesRepository, repository) {
+) : BaseViewModel(preferencesRepository, databaseRepository) {
 
-    val profiles: Flow<List<ProfileItem>> = repository.getAllProfiles()
+    val profiles: Flow<List<ProfileItem>> = databaseRepository.getAllProfiles()
         .map { list ->
             list.map {
                 ProfileItem.UserProfile(it.apply { canDelete = list.size > 1 })
@@ -44,20 +44,20 @@ class ProfileManagerViewModel @Inject constructor(
 
     fun addProfile(name: String) {
         viewModelScope.launch {
-            repository.addProfile(name)
+            databaseRepository.addProfile(name)
         }
     }
 
     fun deleteProfile(profile: Profile) {
         viewModelScope.launch {
-            repository.deleteProfile(profile.id)
+            databaseRepository.deleteProfile(profile.id)
         }
     }
 
     fun renameProfile(profile: Profile, newName: String) {
         viewModelScope.launch {
             val updatedProfile = profile.copy(name = newName)
-            repository.updateProfile(updatedProfile)
+            databaseRepository.updateProfile(updatedProfile)
         }
     }
 }

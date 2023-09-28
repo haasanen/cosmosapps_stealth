@@ -9,7 +9,7 @@
     android:layout_marginVertical="@dimen/post_margin_vertical">
 
     <include
-        android:id="@id/include_post_info"
+        android:id="@+id/include_post_info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         app:layout_constraintStart_toStartOf="parent"
