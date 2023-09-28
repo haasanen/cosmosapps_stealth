@@ -9,6 +9,7 @@ import androidx.core.widget.doOnTextChanged
 import androidx.hilt.navigation.fragment.hiltNavGraphViewModels
 import androidx.lifecycle.Lifecycle
 import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.stealth.sdk.data.model.service.RedditService
 import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.OLD
 import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.REGULAR
 import com.cosmos.unreddit.R
@@ -146,8 +147,14 @@ class SearchQueryFragment : BaseFragment() {
             launch {
                 viewModel.redditInstance.collect {
                     when (it) {
-                        REGULAR -> binding.chipOfficial.isChecked = true
-                        OLD -> binding.chipScraping.isChecked = true
+                        REGULAR -> {
+                            binding.chipOfficial.isChecked = true
+                            viewModel.instance = RedditService.Instance.REGULAR.url
+                        }
+                        OLD -> {
+                            binding.chipScraping.isChecked = true
+                            viewModel.instance = RedditService.Instance.OLD.url
+                        }
                     }
                 }
             }

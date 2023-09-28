@@ -45,7 +45,7 @@ class SearchFragment : BaseFragment() {
             val service = Service(
                 searchQueryViewModel.serviceName.value,
                 searchQueryViewModel.instance
-            ) // TODO
+            )
             viewModel.setService(service)
             viewModel.setFiltering(searchQueryViewModel.filtering.value)
             viewModel.setQuery(searchQueryViewModel.query)
