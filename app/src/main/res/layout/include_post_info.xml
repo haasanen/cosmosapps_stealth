@@ -20,6 +20,7 @@
             android:id="@+id/text_post_author"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:maxWidth="200dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toStartOf="@id/post_badge"
             app:layout_constraintTop_toTopOf="parent"
@@ -27,6 +28,9 @@
             app:layout_constraintHorizontal_bias="0"
             android:textAppearance="@style/TextAppearancePostAuthor"
             android:textColor="@color/colorPrimary"
+            android:singleLine="true"
+            android:ellipsize="none"
+            android:requiresFadingEdge="horizontal"
             tools:text="author"/>
 
         <com.cosmos.unreddit.ui.common.widget.BadgeView
