@@ -78,6 +78,8 @@
     <string name="service_teddit">Teddit</string>
     <string name="service_lemmy">Lemmy</string>
 
+    <string name="service_instance_display">%1$s (%2$s)</string>
+
     <string name="fragment_preferences_label">Preferences</string>
 
     <string name="tab_search_post">Posts</string>

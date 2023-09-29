@@ -8,9 +8,12 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import coil.size.Precision
 import coil.size.Scale
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.db.Subscription
 import com.cosmos.unreddit.databinding.ItemSubscriptionBinding
+import com.cosmos.unreddit.util.extension.color
+import com.cosmos.unreddit.util.extension.setTint
 
 class SubscriptionsAdapter(
     private val listener: (Subscription) -> Unit
@@ -41,6 +44,21 @@ class SubscriptionsAdapter(
                 placeholder(R.drawable.icon_reddit_placeholder)
                 error(R.drawable.icon_reddit_placeholder)
                 fallback(R.drawable.icon_reddit_placeholder)
+            }
+
+            binding.imageLabel.setTint(subscription.service.color)
+
+            binding.textService.run {
+                text = when (subscription.service) {
+                    ServiceName.reddit, ServiceName.teddit -> subscription.service.value
+                    ServiceName.lemmy -> {
+                        context.getString(
+                            R.string.service_instance_display,
+                            subscription.service.value,
+                            subscription.instance
+                        )
+                    }
+                }
             }
 
             itemView.setOnClickListener {

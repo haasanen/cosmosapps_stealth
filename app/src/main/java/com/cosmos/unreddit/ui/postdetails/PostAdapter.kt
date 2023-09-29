@@ -16,6 +16,7 @@ import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.databinding.ItemPostHeaderBinding
 import com.cosmos.unreddit.ui.common.listener.ItemClickListener
 import com.cosmos.unreddit.ui.common.widget.RedditView
+import com.cosmos.unreddit.util.extension.color
 import com.cosmos.unreddit.util.extension.formatNumber
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.orFalse
@@ -77,7 +78,7 @@ class PostAdapter(
                 this.post = post
                 textPostAuthor.text = post.author
                 textSubreddit.text = post.community
-                imageLabel.setTint(post.service.color)
+                imageLabel.setTint(post.service.name.color)
             }
 
             binding.textPostTitle.text = post.title

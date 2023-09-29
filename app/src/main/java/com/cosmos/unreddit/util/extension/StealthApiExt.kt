@@ -1,5 +1,7 @@
 package com.cosmos.unreddit.util.extension
 
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Badge
 import com.cosmos.unreddit.data.model.BadgeData
 import com.cosmos.unreddit.data.model.Media
@@ -72,3 +74,9 @@ fun RemotePosterType.toPosterType(): PosterType {
         RemotePosterType.bot -> PosterType.BOT
     }
 }
+
+val ServiceName.color: Int
+    get() = when (this) {
+        ServiceName.reddit, ServiceName.teddit -> R.color.service_reddit
+        ServiceName.lemmy -> R.color.service_lemmy
+    }
