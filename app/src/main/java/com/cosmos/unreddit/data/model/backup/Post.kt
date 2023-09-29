@@ -3,7 +3,6 @@ package com.cosmos.unreddit.data.model.backup
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.PosterType
-import com.cosmos.unreddit.data.model.Sorting
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
@@ -41,9 +40,6 @@ data class Post(
 
     @Json(name = "self_text_html")
     val selfTextHtml: String?,
-
-    @Json(name = "suggested_sorting")
-    val suggestedSorting: Sorting,
 
     @Json(name = "nsfw")
     val isOver18: Boolean,
