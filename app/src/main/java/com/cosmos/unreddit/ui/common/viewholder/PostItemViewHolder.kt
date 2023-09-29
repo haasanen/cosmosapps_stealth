@@ -159,7 +159,10 @@ abstract class PostItemViewHolder(
 
             binding.buttonTypeIndicator.apply {
                 when (post.mediaType) {
-                    MediaType.REDDIT_GALLERY, MediaType.IMGUR_ALBUM, MediaType.IMGUR_GALLERY -> {
+                    MediaType.REDDIT_GALLERY,
+                    MediaType.IMGUR_ALBUM,
+                    MediaType.IMGUR_GALLERY,
+                    MediaType.GALLERY -> {
                         visibility = View.VISIBLE
                         setIcon(R.drawable.ic_gallery)
                     }
