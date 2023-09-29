@@ -14,6 +14,12 @@ data class Profile(
     @Json(name = "saved_posts")
     val savedPosts: List<Post>? = null,
 
+    @Json(name = "posts")
+    val posts: List<Post2>? = null,
+
     @Json(name = "saved_comments")
     val savedComments: List<Comment>? = null,
+
+    @Json(name = "comments")
+    val comments: List<Comment2>? = null
 )

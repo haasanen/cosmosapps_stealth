@@ -30,6 +30,7 @@ import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.db.Redirect
 import com.cosmos.unreddit.data.model.db.Subscription
+import com.cosmos.unreddit.util.extension.empty
 import com.cosmos.unreddit.util.extension.mimeType
 
 @Suppress("MagicNumber")
@@ -346,7 +347,7 @@ abstract class RedditDatabase : RoomDatabase() {
                         }
 
                         val post = PostItem(
-                            Service(ServiceName.reddit, "www.reddit.com"),
+                            Service(ServiceName.reddit, String.empty),
                             cursor.getString(cursor.getColumnIndex("id")),
                             PostType.toType(cursor.getInt(cursor.getColumnIndex("type"))),
                             cursor.getString(cursor.getColumnIndex("subreddit")).removePrefix("r/"),
@@ -435,7 +436,7 @@ abstract class RedditDatabase : RoomDatabase() {
                 if (cursor.moveToFirst()) {
                     do {
                         val comment = CommentItem(
-                            Service(ServiceName.reddit, "www.reddit.com"),
+                            Service(ServiceName.reddit, String.empty),
                             cursor.getString(cursor.getColumnIndex("name")),
                             cursor.getString(cursor.getColumnIndex("link_id")),
                             cursor.getString(cursor.getColumnIndex("subreddit")).removePrefix("r/"),

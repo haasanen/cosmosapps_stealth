@@ -7,11 +7,13 @@ import com.cosmos.stealth.sdk.data.model.service.RedditService
 import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.OLD
 import com.cosmos.stealth.sdk.data.model.service.SupportedService
 import com.cosmos.stealth.sdk.data.model.service.TedditService
+import com.squareup.moshi.JsonClass
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
 
 @Parcelize
 @Serializable
+@JsonClass(generateAdapter = true)
 data class Service(
     val name: ServiceName,
 

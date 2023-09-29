@@ -1,68 +1,122 @@
 package com.cosmos.unreddit.data.local.mapper
 
-import com.cosmos.unreddit.data.model.Comment.CommentEntity
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.unreddit.data.model.RedditText
+import com.cosmos.unreddit.data.model.Service
+import com.cosmos.unreddit.data.model.backup.Comment
+import com.cosmos.unreddit.data.model.backup.Comment2
+import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.util.extension.empty
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-
-typealias CommentBackup = com.cosmos.unreddit.data.model.backup.Comment
 
 @Singleton
 class BackupCommentMapper @Inject constructor(
     @DispatchersModule.DefaultDispatcher defaultDispatcher: CoroutineDispatcher
-) : Mapper<CommentEntity, CommentBackup>(defaultDispatcher) {
+) : Mapper<CommentItem, Comment2>(defaultDispatcher) {
 
-    override suspend fun toEntity(from: CommentEntity): CommentBackup {
+    override suspend fun toEntity(from: CommentItem): Comment2 {
         return with(from) {
-            CommentBackup(
-                totalAwards,
-                linkId,
+            Comment2(
+                service,
+                id,
+                postId,
+                community,
+                body,
                 author,
                 score,
-                bodyHtml,
-                edited,
-                isSubmitter,
-                stickied,
-                scoreHidden,
-                permalink,
-                id,
+                refLink,
                 created,
-                controversiality,
+                depth,
+                edited,
+                pinned,
+                controversial,
+                submitter,
+                postAuthor,
+                postTitle,
+                postRefLink,
                 posterType,
-                linkTitle,
-                linkPermalink,
-                linkAuthor,
-                subreddit,
-                name,
                 time
             )
         }
     }
 
-    override suspend fun fromEntity(from: CommentBackup): CommentEntity {
+    suspend fun dataFromLegacyEntities(
+        from: List<Comment>
+    ): List<CommentItem> = withContext(defaultDispatcher) {
+        supervisorScope {
+            from.map { async { fromEntity(it) } }.awaitAll()
+        }
+    }
+
+    private fun fromEntity(from: Comment): CommentItem {
         return with(from) {
-            CommentEntity(
-                totalAwards,
+            CommentItem(
+                Service(ServiceName.reddit, String.empty),
+                id,
                 linkId,
-                author = author,
-                score = score,
-                bodyHtml = bodyHtml,
-                edited = edited,
-                isSubmitter = isSubmitter,
-                stickied = stickied,
-                scoreHidden = scoreHidden,
-                permalink = permalink,
-                id = id,
-                created = created,
-                controversiality = controversiality,
-                posterType = posterType,
-                linkTitle = linkTitle,
-                linkPermalink = linkPermalink,
-                linkAuthor = linkAuthor,
-                subreddit = subreddit,
-                name = name,
-                time = time
+                subreddit.removePrefix("r/"),
+                bodyHtml,
+                RedditText(),
+                author,
+                score.toIntOrNull() ?: 0,
+                permalink.run { "https://www.reddit.com$this" },
+                created,
+                null,
+                mutableListOf(),
+                edited.takeIf { it > -1 },
+                stickied,
+                controversiality > 0,
+                null,
+                null,
+                isSubmitter,
+                linkAuthor,
+                linkTitle,
+                linkPermalink?.run { "https://www.reddit.com$this" },
+                posterType,
+                null,
+                seen = true,
+                saved = true,
+                time
+            )
+        }
+    }
+
+    override suspend fun fromEntity(from: Comment2): CommentItem {
+        return with(from) {
+            CommentItem(
+                service,
+                id,
+                postId,
+                community,
+                body,
+                RedditText(),
+                author,
+                score,
+                refLink,
+                created,
+                depth,
+                mutableListOf(),
+                edited,
+                pinned,
+                controversial,
+                null,
+                null,
+                submitter,
+                postAuthor,
+                postTitle,
+                postRefLink,
+                posterType,
+                null,
+                seen = true,
+                saved = true,
+                time
             )
         }
     }

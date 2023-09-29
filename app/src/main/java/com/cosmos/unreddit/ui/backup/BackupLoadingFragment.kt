@@ -10,15 +10,14 @@ import androidx.lifecycle.Lifecycle
 import coil.load
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Resource
+import com.cosmos.unreddit.data.model.backup.Backup
 import com.cosmos.unreddit.data.model.backup.BackupType
-import com.cosmos.unreddit.data.model.backup.Profile
 import com.cosmos.unreddit.databinding.FragmentBackupLoadingBinding
 import com.cosmos.unreddit.ui.backup.BackupFragment.Operation.BACKUP
 import com.cosmos.unreddit.ui.backup.BackupFragment.Operation.RESTORE
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.util.extension.launchRepeat
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -53,7 +52,7 @@ class BackupLoadingFragment : BaseFragment() {
         }
     }
 
-    private fun handleStatus(status: Resource<List<Profile>>) {
+    private fun handleStatus(status: Resource<Backup>) {
         binding.loadingCradle.isVisible = status is Resource.Loading
         when (status) {
             is Resource.Success -> {

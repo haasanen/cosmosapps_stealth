@@ -2,12 +2,14 @@ package com.cosmos.unreddit.data.model
 
 import android.os.Parcelable
 import androidx.annotation.Keep
+import com.squareup.moshi.JsonClass
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
 
 @Keep
 @Parcelize
 @Serializable
+@JsonClass(generateAdapter = true)
 data class Media(
     val mime: String,
 

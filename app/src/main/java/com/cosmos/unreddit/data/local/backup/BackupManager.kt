@@ -6,14 +6,14 @@ import com.cosmos.unreddit.data.local.mapper.BackupCommentMapper
 import com.cosmos.unreddit.data.local.mapper.BackupPostMapper
 import com.cosmos.unreddit.data.local.mapper.ProfileMapper
 import com.cosmos.unreddit.data.local.mapper.SubscriptionMapper
+import com.cosmos.unreddit.data.model.backup.Backup
 import com.cosmos.unreddit.data.model.backup.Profile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-
-typealias SubscriptionBackup = com.cosmos.unreddit.data.model.backup.Subscription
+import com.cosmos.unreddit.data.model.db.Profile as ProfileDb
 
 sealed class BackupManager(
-    protected val redditDatabase: RedditDatabase,
+    private val redditDatabase: RedditDatabase,
     private val profileMapper: ProfileMapper,
     private val subscriptionMapper: SubscriptionMapper,
     private val backupPostMapper: BackupPostMapper,
@@ -55,30 +55,48 @@ sealed class BackupManager(
 
                 profile.savedPosts?.let { savedPosts ->
                     backupPostMapper
+                        .dataFromLegacyEntities(savedPosts)
+                        .map { post -> post.apply { profileId = id } }
+                        .toTypedArray()
+                        .let { posts ->
+                            postDao.insert(*posts)
+                        }
+                }
+
+                profile.posts?.let { savedPosts ->
+                    backupPostMapper
                         .dataFromEntities(savedPosts)
                         .map { post -> post.apply { profileId = id } }
                         .toTypedArray()
                         .let { posts ->
-                            // TODO
-                            //postDao.insert(*posts)
+                            postDao.insert(*posts)
                         }
                 }
 
                 profile.savedComments?.let { savedComments ->
                     backupCommentMapper
+                        .dataFromLegacyEntities(savedComments)
+                        .map { comment -> comment.apply { profileId = id } }
+                        .toTypedArray()
+                        .let { comments ->
+                            commentDao.insert(*comments)
+                        }
+                }
+
+                profile.comments?.let { savedComments ->
+                    backupCommentMapper
                         .dataFromEntities(savedComments)
                         .map { comment -> comment.apply { profileId = id } }
                         .toTypedArray()
                         .let { comments ->
-                            // TODO
-                            //commentDao.insert(*comments)
+                            commentDao.insert(*comments)
                         }
                 }
             }
         }
     }
 
-    abstract suspend fun import(uri: Uri): Result<List<Profile>>
+    abstract suspend fun import(uri: Uri): Result<Backup>
 
-    abstract suspend fun export(uri: Uri): Result<List<Profile>>
+    abstract suspend fun export(uri: Uri): Result<Backup>
 }

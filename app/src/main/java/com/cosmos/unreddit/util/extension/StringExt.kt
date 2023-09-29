@@ -16,3 +16,6 @@ val String.titlecase: String
     get() = replaceFirstChar {
         if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
     }
+
+val String.Companion.empty: String
+    get() = ""

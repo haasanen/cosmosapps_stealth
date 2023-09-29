@@ -17,15 +17,6 @@
     <include app:graph="@navigation/user" />
     <include app:graph="@navigation/viewer" />
 
-    <!-- Global Actions -->
-    <action
-        android:id="@+id/openGallery"
-        app:destination="@id/viewer">
-        <argument
-            android:name="images"
-            app:argType="com.cosmos.unreddit.data.model.GalleryMedia[]"/>
-    </action>
-
     <action
         android:id="@+id/openMedia"
         app:destination="@id/viewer">

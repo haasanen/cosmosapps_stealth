@@ -4,8 +4,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cosmos.unreddit.data.model.Resource
+import com.cosmos.unreddit.data.model.backup.Backup
 import com.cosmos.unreddit.data.model.backup.BackupType
-import com.cosmos.unreddit.data.model.backup.Profile
 import com.cosmos.unreddit.data.repository.BackupRepository
 import com.cosmos.unreddit.ui.backup.BackupFragment.Operation.BACKUP
 import com.cosmos.unreddit.util.Util
@@ -15,7 +15,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -36,9 +35,9 @@ class BackupViewModel @Inject constructor(
     private val _chosenUri: MutableStateFlow<Uri?> = MutableStateFlow(null)
     val chosenUri: StateFlow<Uri?> get() = _chosenUri.asStateFlow()
 
-    private val _operationStatus: MutableStateFlow<Resource<List<Profile>>> =
+    private val _operationStatus: MutableStateFlow<Resource<Backup>> =
         MutableStateFlow(Resource.Loading())
-    val operationStatus: StateFlow<Resource<List<Profile>>> get() = _operationStatus.asStateFlow()
+    val operationStatus: StateFlow<Resource<Backup>> get() = _operationStatus.asStateFlow()
 
     private var operationJob: Job? = null
 

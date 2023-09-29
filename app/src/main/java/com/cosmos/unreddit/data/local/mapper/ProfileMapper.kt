@@ -1,8 +1,7 @@
 package com.cosmos.unreddit.data.local.mapper
 
-import com.cosmos.unreddit.data.model.db.ProfileWithDetails
 import com.cosmos.unreddit.data.model.backup.Profile
-import com.cosmos.unreddit.data.model.backup.Subscription
+import com.cosmos.unreddit.data.model.db.ProfileWithDetails
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import javax.inject.Inject
@@ -21,8 +20,8 @@ class ProfileMapper @Inject constructor(
             Profile(
                 profile.name,
                 subscriptionMapper.dataToEntities(subscription),
-                //backupPostMapper.dataToEntities(savedPosts), // TODO
-                //backupCommentMapper.dataToEntities(savedComments) // TODO
+                posts = backupPostMapper.dataToEntities(savedPosts),
+                comments = backupCommentMapper.dataToEntities(savedComments)
             )
         }
     }

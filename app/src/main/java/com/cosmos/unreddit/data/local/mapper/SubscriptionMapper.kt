@@ -1,13 +1,11 @@
 package com.cosmos.unreddit.data.local.mapper
 
-import com.cosmos.unreddit.data.local.backup.SubscriptionBackup
 import com.cosmos.unreddit.data.model.db.Subscription
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import javax.inject.Inject
 import javax.inject.Singleton
-
-typealias SubscriptionBackup = com.cosmos.unreddit.data.model.backup.Subscription
+import com.cosmos.unreddit.data.model.backup.Subscription as SubscriptionBackup
 
 @Singleton
 class SubscriptionMapper @Inject constructor(
@@ -16,7 +14,7 @@ class SubscriptionMapper @Inject constructor(
 
     override suspend fun toEntity(from: Subscription): SubscriptionBackup {
         return with(from) {
-            SubscriptionBackup(name, time, icon)
+            SubscriptionBackup(name, time, icon, service, instance)
         }
     }
 

@@ -7,12 +7,11 @@ import com.cosmos.unreddit.data.local.mapper.BackupCommentMapper
 import com.cosmos.unreddit.data.local.mapper.BackupPostMapper
 import com.cosmos.unreddit.data.local.mapper.ProfileMapper
 import com.cosmos.unreddit.data.local.mapper.SubscriptionMapper
-import com.cosmos.unreddit.data.model.backup.Profile
+import com.cosmos.unreddit.data.model.backup.Backup
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
-import com.cosmos.unreddit.di.NetworkModule.BasicMoshi
+import com.cosmos.unreddit.di.NetworkModule.BackupMoshi
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -23,8 +22,6 @@ import okio.use
 import javax.inject.Inject
 import javax.inject.Singleton
 
-typealias ProfileDb = com.cosmos.unreddit.data.model.db.Profile
-
 @Singleton
 class StealthBackupManager @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -33,7 +30,7 @@ class StealthBackupManager @Inject constructor(
     subscriptionMapper: SubscriptionMapper,
     backupPostMapper: BackupPostMapper,
     backupCommentMapper: BackupCommentMapper,
-    @BasicMoshi private val moshi: Moshi,
+    @BackupMoshi private val moshi: Moshi,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : BackupManager(
@@ -45,10 +42,8 @@ class StealthBackupManager @Inject constructor(
     defaultDispatcher
 ) {
 
-    override suspend fun import(uri: Uri): Result<List<Profile>> {
-        val adapter = moshi.adapter<List<Profile>>(
-            Types.newParameterizedType(List::class.java, Profile::class.java)
-        )
+    override suspend fun import(uri: Uri): Result<Backup> {
+        val adapter = moshi.adapter(Backup::class.java)
 
         return runCatching {
             withContext(ioDispatcher) {
@@ -56,29 +51,27 @@ class StealthBackupManager @Inject constructor(
                     inputStream.source().buffer().use { bufferedSource ->
                         adapter.fromJson(bufferedSource)
                     }
-                } ?: emptyList()
+                } ?: Backup()
             }
-        }.onSuccess { profiles ->
-            insertProfiles(profiles)
+        }.onSuccess { backup ->
+            insertProfiles(backup.profiles)
         }
     }
 
-    override suspend fun export(uri: Uri): Result<List<Profile>> {
-        val profiles = getProfiles()
+    override suspend fun export(uri: Uri): Result<Backup> {
+        val backup = Backup(profiles = getProfiles())
 
-        val adapter = moshi.adapter<List<Profile>>(
-            Types.newParameterizedType(List::class.java, Profile::class.java)
-        ).indent("  ")
+        val adapter = moshi.adapter(Backup::class.java).indent("  ")
 
         return runCatching {
             withContext(ioDispatcher) {
                 appContext.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     outputStream.sink().buffer().use { bufferedSink ->
-                        adapter.toJson(bufferedSink, profiles)
+                        adapter.toJson(bufferedSink, backup)
                     }
                 }
             }
-            profiles
+            backup
         }
     }
 }

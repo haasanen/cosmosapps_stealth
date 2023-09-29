@@ -8,6 +8,7 @@ import com.cosmos.unreddit.data.model.db.History
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.db.Subscription
+import com.cosmos.unreddit.util.extension.empty
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject
@@ -32,7 +33,7 @@ class DatabaseRepository @Inject constructor(
         // an empty string to avoid duplicate subscriptions (as instance is part of the primary
         // keys)
         val instance = when (service.name) {
-            ServiceName.reddit, ServiceName.teddit -> ""
+            ServiceName.reddit, ServiceName.teddit -> String.empty
             ServiceName.lemmy -> service.instance.orEmpty()
         }
 

@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.di
 
+import com.cosmos.unreddit.data.local.adapter.BackupAdapter
 import com.cosmos.unreddit.data.remote.api.gfycat.GfycatApi
 import com.cosmos.unreddit.data.remote.api.imgur.ImgurApi
 import com.cosmos.unreddit.data.remote.api.imgur.adapter.AlbumDataAdapter
@@ -49,6 +50,10 @@ object NetworkModule {
 
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
+    annotation class BackupMoshi
+
+    @Qualifier
+    @Retention(AnnotationRetention.BINARY)
     annotation class GenericOkHttp
 
     @RedditMoshi
@@ -85,6 +90,15 @@ object NetworkModule {
     fun provideImgurMoshi(): Moshi {
         return Moshi.Builder()
             .add(AlbumDataAdapter())
+            .build()
+    }
+
+    @BackupMoshi
+    @Provides
+    @Singleton
+    fun provideBackupMoshi(): Moshi {
+        return Moshi.Builder()
+            .add(BackupAdapter.Factory)
             .build()
     }
 

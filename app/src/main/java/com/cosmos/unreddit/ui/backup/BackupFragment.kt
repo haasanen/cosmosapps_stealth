@@ -12,8 +12,8 @@ import androidx.navigation.fragment.findNavController
 import androidx.viewpager2.widget.ViewPager2
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Resource
+import com.cosmos.unreddit.data.model.backup.Backup
 import com.cosmos.unreddit.data.model.backup.BackupType
-import com.cosmos.unreddit.data.model.backup.Profile
 import com.cosmos.unreddit.databinding.FragmentBackupBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
@@ -112,7 +112,7 @@ class BackupFragment : BaseFragment() {
         operation: Operation?,
         backupType: BackupType?,
         uri: Uri?,
-        status: Resource<List<Profile>>
+        status: Resource<Backup>
     ) {
         val step = currentStep
 
@@ -133,7 +133,7 @@ class BackupFragment : BaseFragment() {
         operation: Operation?,
         backupType: BackupType?,
         uri: Uri?,
-        status: Resource<List<Profile>>
+        status: Resource<Backup>
     ): Boolean {
         if (operation == null) return false
 
