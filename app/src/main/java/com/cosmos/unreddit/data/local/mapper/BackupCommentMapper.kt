@@ -7,7 +7,9 @@ import com.cosmos.unreddit.data.model.backup.Comment
 import com.cosmos.unreddit.data.model.backup.Comment2
 import com.cosmos.unreddit.data.model.db.CommentItem
 import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.util.addInstancePrefix
 import com.cosmos.unreddit.util.extension.empty
+import com.cosmos.unreddit.util.removeSubredditPrefix
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,12 +63,12 @@ class BackupCommentMapper @Inject constructor(
                 Service(ServiceName.reddit, String.empty),
                 id,
                 linkId,
-                subreddit.removePrefix("r/"),
+                subreddit.removeSubredditPrefix(),
                 bodyHtml,
                 RedditText(),
                 author,
                 score.toIntOrNull() ?: 0,
-                permalink.run { "https://www.reddit.com$this" },
+                permalink.addInstancePrefix(),
                 created,
                 null,
                 mutableListOf(),
@@ -78,7 +80,7 @@ class BackupCommentMapper @Inject constructor(
                 isSubmitter,
                 linkAuthor,
                 linkTitle,
-                linkPermalink?.run { "https://www.reddit.com$this" },
+                linkPermalink?.addInstancePrefix(),
                 posterType,
                 null,
                 seen = true,

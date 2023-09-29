@@ -17,8 +17,6 @@ import com.cosmos.unreddit.data.local.dao.PostDao
 import com.cosmos.unreddit.data.local.dao.ProfileDao
 import com.cosmos.unreddit.data.local.dao.RedirectDao
 import com.cosmos.unreddit.data.local.dao.SubscriptionDao
-import com.cosmos.unreddit.data.model.Media
-import com.cosmos.unreddit.data.model.MediaSource
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.PosterType
@@ -30,8 +28,12 @@ import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.db.Redirect
 import com.cosmos.unreddit.data.model.db.Subscription
+import com.cosmos.unreddit.util.addInstancePrefix
+import com.cosmos.unreddit.util.asMedia
+import com.cosmos.unreddit.util.asPreviewMedia
 import com.cosmos.unreddit.util.extension.empty
-import com.cosmos.unreddit.util.extension.mimeType
+import com.cosmos.unreddit.util.removeSubredditPrefix
+import com.cosmos.unreddit.util.toRatio
 
 @Suppress("MagicNumber")
 @Database(
@@ -327,44 +329,26 @@ abstract class RedditDatabase : RoomDatabase() {
                 if (cursor.moveToFirst()) {
                     do {
                         val preview = cursor.getStringOrNull(cursor.getColumnIndex("preview"))
-                        val mediaPreview = preview?.run {
-                            val mime = mimeType
-                            if (mime.startsWith("image")) {
-                                Media(mime, MediaSource(this), Media.Type.IMAGE)
-                            } else {
-                                null
-                            }
-                        }
 
                         val mediaUrl = cursor.getString(cursor.getColumnIndex("media_url"))
-                        val media = mediaUrl.run {
-                            val mime = mimeType
-                            if (mime.startsWith("image") || mime.startsWith("video")) {
-                                Media(mime, MediaSource(this), Media.Type.fromMime(mime))
-                            } else {
-                                null
-                            }
-                        }
 
                         val post = PostItem(
                             Service(ServiceName.reddit, String.empty),
                             cursor.getString(cursor.getColumnIndex("id")),
                             PostType.toType(cursor.getInt(cursor.getColumnIndex("type"))),
-                            cursor.getString(cursor.getColumnIndex("subreddit")).removePrefix("r/"),
+                            cursor.getString(cursor.getColumnIndex("subreddit")).removeSubredditPrefix(),
                             cursor.getString(cursor.getColumnIndex("title")),
                             cursor.getString(cursor.getColumnIndex("author")),
                             cursor.getString(cursor.getColumnIndex("score")).toIntOrNull() ?: 0,
                             cursor.getString(cursor.getColumnIndex("comments_number")).toIntOrNull()
                                 ?: 0,
                             cursor.getString(cursor.getColumnIndex("url")),
-                            cursor.getString(cursor.getColumnIndex("permalink"))
-                                .run { "https://www.reddit.com$this" },
+                            cursor.getString(cursor.getColumnIndex("permalink")).addInstancePrefix(),
                             cursor.getLong(cursor.getColumnIndex("created")),
                             cursor.getStringOrNull(cursor.getColumnIndex("selfTextHtml")),
                             RedditText(),
                             null,
-                            (cursor.getInt(cursor.getColumnIndex("ratio"))
-                                .toDouble() / 100).takeIf { it >= 0.0 },
+                            cursor.getInt(cursor.getColumnIndex("ratio")).toRatio(),
                             cursor.getString(cursor.getColumnIndex("domain")),
                             null,
                             cursor.getInt(cursor.getColumnIndex("oc")) > 0,
@@ -376,8 +360,8 @@ abstract class RedditDatabase : RoomDatabase() {
                             cursor.getInt(cursor.getColumnIndex("stickied")) > 0,
                             null,
                             MediaType.toMediaType(cursor.getString(cursor.getColumnIndex("media_type"))),
-                            mediaPreview,
-                            media?.run { listOf(this) },
+                            preview?.asPreviewMedia(),
+                            mediaUrl?.asMedia()?.run { listOf(this) },
                             null,
                             null,
                             PosterType.toType(cursor.getInt(cursor.getColumnIndex("poster_type"))),
@@ -439,13 +423,12 @@ abstract class RedditDatabase : RoomDatabase() {
                             Service(ServiceName.reddit, String.empty),
                             cursor.getString(cursor.getColumnIndex("name")),
                             cursor.getString(cursor.getColumnIndex("link_id")),
-                            cursor.getString(cursor.getColumnIndex("subreddit")).removePrefix("r/"),
+                            cursor.getString(cursor.getColumnIndex("subreddit")).removeSubredditPrefix(),
                             cursor.getString(cursor.getColumnIndex("body_html")),
                             RedditText(),
                             cursor.getString(cursor.getColumnIndex("author")),
                             cursor.getString(cursor.getColumnIndex("score")).toIntOrNull() ?: 0,
-                            cursor.getString(cursor.getColumnIndex("permalink"))
-                                .run { "https://www.reddit.com$this" },
+                            cursor.getString(cursor.getColumnIndex("permalink")).addInstancePrefix(),
                             cursor.getLong(cursor.getColumnIndex("created")),
                             null,
                             mutableListOf(),
@@ -457,8 +440,7 @@ abstract class RedditDatabase : RoomDatabase() {
                             cursor.getInt(cursor.getColumnIndex("submitter")) > 0,
                             cursor.getStringOrNull(cursor.getColumnIndex("link_author")),
                             cursor.getStringOrNull(cursor.getColumnIndex("link_title")),
-                            cursor.getStringOrNull(cursor.getColumnIndex("link_permalink"))
-                                ?.run { "https://www.reddit.com$this" },
+                            cursor.getStringOrNull(cursor.getColumnIndex("link_permalink"))?.addInstancePrefix(),
                             PosterType.toType(cursor.getInt(cursor.getColumnIndex("poster_type"))),
                             null,
                             seen = true,

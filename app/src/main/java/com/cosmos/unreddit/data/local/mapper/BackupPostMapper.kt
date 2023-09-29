@@ -1,16 +1,18 @@
 package com.cosmos.unreddit.data.local.mapper
 
 import com.cosmos.stealth.sdk.data.model.api.ServiceName
-import com.cosmos.unreddit.data.model.Media
-import com.cosmos.unreddit.data.model.MediaSource
 import com.cosmos.unreddit.data.model.RedditText
 import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.backup.Post
 import com.cosmos.unreddit.data.model.backup.Post2
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.util.addInstancePrefix
+import com.cosmos.unreddit.util.asMedia
+import com.cosmos.unreddit.util.asPreviewMedia
 import com.cosmos.unreddit.util.extension.empty
-import com.cosmos.unreddit.util.extension.mimeType
+import com.cosmos.unreddit.util.removeSubredditPrefix
+import com.cosmos.unreddit.util.toRatio
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -68,40 +70,22 @@ class BackupPostMapper @Inject constructor(
 
     private fun fromEntity(from: Post): PostItem {
         return with(from) {
-            val mediaPreview = preview?.run {
-                val mime = mimeType
-                if (mime.startsWith("image")) {
-                    Media(mime, MediaSource(this), Media.Type.IMAGE)
-                } else {
-                    null
-                }
-            }
-
-            val media = mediaUrl.run {
-                val mime = mimeType
-                if (mime.startsWith("image") || mime.startsWith("video")) {
-                    Media(mime, MediaSource(this), Media.Type.fromMime(mime))
-                } else {
-                    null
-                }
-            }
-
             PostItem(
                 Service(ServiceName.reddit, String.empty),
                 id,
                 type,
-                subreddit.removePrefix("r/"),
+                subreddit.removeSubredditPrefix(),
                 title,
                 author,
                 score.toIntOrNull() ?: 0,
                 commentsNumber.toIntOrNull() ?: 0,
                 url,
-                permalink.run { "https://www.reddit.com$this" },
+                permalink.addInstancePrefix(),
                 created,
                 selfTextHtml,
                 RedditText(),
                 null,
-                (ratio.toDouble() / 100).takeIf { it >= 0.0 },
+                ratio.toRatio(),
                 domain,
                 null,
                 isOC,
@@ -113,8 +97,8 @@ class BackupPostMapper @Inject constructor(
                 isStickied,
                 null,
                 mediaType,
-                mediaPreview,
-                media?.run { listOf(this) },
+                preview?.asPreviewMedia(),
+                mediaUrl.asMedia()?.run { listOf(this) },
                 null,
                 null,
                 posterType,
