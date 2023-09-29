@@ -7,6 +7,7 @@ import com.cosmos.stealth.sdk.data.model.service.RedditService
 import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.OLD
 import com.cosmos.stealth.sdk.data.model.service.SupportedService
 import com.cosmos.stealth.sdk.data.model.service.TedditService
+import com.cosmos.unreddit.R
 import com.squareup.moshi.JsonClass
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
@@ -19,6 +20,12 @@ data class Service(
 
     val instance: String? = null
 ) : Parcelable {
+
+    val color: Int
+        get() = when (name) {
+            ServiceName.reddit, ServiceName.teddit -> R.color.service_reddit
+            ServiceName.lemmy -> R.color.service_lemmy
+        }
 
     fun asSupportedService(): SupportedService = when (name) {
         ServiceName.reddit -> if (instance == OLD.url) RedditService(OLD) else RedditService()

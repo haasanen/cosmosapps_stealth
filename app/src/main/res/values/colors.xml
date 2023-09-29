@@ -95,4 +95,7 @@
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="black_25">#40000000</color>
+
+    <color name="service_reddit">#FF4500</color>
+    <color name="service_lemmy">#14854F</color>
 </resources>

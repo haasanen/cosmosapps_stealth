@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.util.extension
 
+import android.content.res.ColorStateList
 import android.graphics.BlurMaskFilter
 import android.graphics.LinearGradient
 import android.graphics.Shader
@@ -8,6 +9,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.ColorInt
+import androidx.annotation.ColorRes
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
@@ -68,6 +71,10 @@ fun ImageView.load(
         }
         .build()
     context.imageLoader.enqueue(request)
+}
+
+fun ImageView.setTint(@ColorRes tint: Int) {
+    imageTintList = ColorStateList.valueOf(ContextCompat.getColor(context, tint))
 }
 
 fun TextInputLayout.text(): String? {
