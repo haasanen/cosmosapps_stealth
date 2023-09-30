@@ -47,7 +47,7 @@ class UserCommentFragment : PagingListFragment<UserCommentsAdapter, FeedItem>(),
             .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
             .add(
                 R.id.fragment_container,
-                PostDetailsFragment.newInstance(comment.refLink),
+                PostDetailsFragment.newInstance(comment.postId, comment.service),
                 PostDetailsFragment.TAG
             )
             .addToBackStack(null)

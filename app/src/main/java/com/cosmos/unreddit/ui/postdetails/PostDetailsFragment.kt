@@ -22,6 +22,7 @@ import androidx.transition.TransitionManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.local.mapper.FeedableMapper
 import com.cosmos.unreddit.data.model.Resource
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.PostItem
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.data.repository.StealthRepository
@@ -38,6 +39,7 @@ import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
 import com.cosmos.unreddit.util.extension.clearCommentSaveListener
 import com.cosmos.unreddit.util.extension.clearFilteringListener
 import com.cosmos.unreddit.util.extension.launchRepeat
+import com.cosmos.unreddit.util.extension.orFalse
 import com.cosmos.unreddit.util.extension.parcelable
 import com.cosmos.unreddit.util.extension.setCommentSaveListener
 import com.cosmos.unreddit.util.extension.setFilteringListener
@@ -258,20 +260,23 @@ class PostDetailsFragment : BaseFragment(),
         if (args.id != null) {
             viewModel.setPostId(args.id!!)
         } else {
-            if (arguments?.containsKey(KEY_POST_ENTITY) == true) {
-                val post = arguments?.parcelable<PostItem>(KEY_POST_ENTITY)
-                post?.let {
-                    // TODO
-                    //viewModel.setSorting(it.suggestedSorting)
-                    viewModel.setPostId(it.id)
-                    viewModel.setService(it.service)
+            when {
+                arguments?.containsKey(KEY_POST_ENTITY).orFalse() -> {
+                    val post = arguments?.parcelable<PostItem>(KEY_POST_ENTITY)
+
+                    post?.let {
+                        viewModel.setPostId(it.id)
+                        viewModel.setService(it.service)
+                    }
                 }
-            } else if (arguments?.containsKey(KEY_THREAD_PERMALINK) == true) {
-                // TODO: Parse permalink
-                val threadPermalink = arguments?.getString(KEY_THREAD_PERMALINK)
-                threadPermalink?.let {
-                    viewModel.setPostId(it)
-                    viewModel.setSingleThread(true)
+                arguments?.containsKey(KEY_POST_ID).orFalse() -> {
+                    val postId = arguments?.getString(KEY_POST_ID)
+                    val service = arguments?.parcelable<Service>(KEY_SERVICE)
+
+                    if (postId != null && service != null) {
+                        viewModel.setPostId(postId)
+                        viewModel.setService(service)
+                    }
                 }
             }
         }
@@ -372,7 +377,8 @@ class PostDetailsFragment : BaseFragment(),
 
         private const val KEY_POST_ENTITY = "KEY_POST_ENTITY"
 
-        private const val KEY_THREAD_PERMALINK = "KEY_THREAD_PERMALINK"
+        private const val KEY_POST_ID = "KEY_POST_ID"
+        private const val KEY_SERVICE = "KEY_SERVICE"
 
         fun newInstance(post: PostItem) = PostDetailsFragment().apply {
             arguments = bundleOf(
@@ -380,9 +386,10 @@ class PostDetailsFragment : BaseFragment(),
             )
         }
 
-        fun newInstance(threadPermalink: String) = PostDetailsFragment().apply {
+        fun newInstance(postId: String, service: Service) = PostDetailsFragment().apply {
             arguments = bundleOf(
-                KEY_THREAD_PERMALINK to threadPermalink
+                KEY_POST_ID to postId,
+                KEY_SERVICE to service
             )
         }
     }

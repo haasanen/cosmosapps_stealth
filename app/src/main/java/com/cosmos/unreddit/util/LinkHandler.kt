@@ -3,9 +3,11 @@ package com.cosmos.unreddit.util
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.fragment.app.Fragment
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Media
 import com.cosmos.unreddit.data.model.MediaType
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.Redirect
 import com.cosmos.unreddit.data.model.db.Redirect.RedirectMode.ALWAYS_ASK
 import com.cosmos.unreddit.data.model.db.Redirect.RedirectMode.OFF
@@ -35,14 +37,12 @@ class LinkHandler @Inject constructor(
         when (mediaType) {
             MediaType.REDDIT_SUBREDDIT -> {
                 val subreddit = link.removePrefix("/r/")
-                // TODO: Migration V3
-                //baseFragment?.openSubreddit(subreddit)
+                baseFragment?.openCommunity(subreddit, Service(ServiceName.reddit))
             }
 
             MediaType.REDDIT_USER -> {
                 val user = link.removePrefix("/u/")
-                // TODO: Migration V3
-                //baseFragment?.openUser(user)
+                baseFragment?.openUser(user, Service(ServiceName.reddit))
             }
 
             MediaType.REDDIT_LINK -> baseFragment?.openRedditLink(link)
