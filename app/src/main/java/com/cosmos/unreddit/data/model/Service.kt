@@ -20,6 +20,16 @@ data class Service(
     val instance: String? = null
 ) : Parcelable {
 
+    /**
+     * Map Reddit/Teddit to the preferred source/instance; otherwise use service as is
+     */
+    fun mapService(redditSource: Service): Service {
+        return when (name) {
+            ServiceName.reddit, ServiceName.teddit -> redditSource
+            ServiceName.lemmy -> this
+        }
+    }
+
     fun asSupportedService(): SupportedService = when (name) {
         ServiceName.reddit -> if (instance == OLD.url) RedditService(OLD) else RedditService()
         ServiceName.teddit -> instance?.run { TedditService(this) } ?: TedditService()

@@ -16,6 +16,7 @@ import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.NetworkException
 import com.cosmos.unreddit.data.model.Query
+import com.cosmos.unreddit.data.model.Service
 import com.squareup.moshi.JsonDataException
 import retrofit2.HttpException
 import java.io.IOException
@@ -25,6 +26,7 @@ abstract class SearchDataSource<Value : Any>(
     private val filtering: Filtering,
     private val community: String?,
     private val user: String?,
+    private val redditSource: Service?,
     private val pageSize: Int
 ) : PagingSource<AfterKey, Value>() {
 
@@ -34,7 +36,8 @@ abstract class SearchDataSource<Value : Any>(
 
     override suspend fun load(params: LoadParams<AfterKey>): LoadResult<AfterKey, Value> {
         return try {
-            val response = Stealth.search(query.query, query.service.asSupportedService()) {
+            val service = redditSource?.run { query.service.mapService(this) } ?: query.service
+            val response = Stealth.search(query.query, service.asSupportedService()) {
                 params.key?.let { after(it) }
 
                 filtering.sort?.let { sort = it }
@@ -82,8 +85,9 @@ abstract class SearchDataSource<Value : Any>(
         filtering: Filtering,
         community: String?,
         user: String?,
+        redditSource: Service?,
         pageSize: Int
-    ) : SearchDataSource<Feedable>(query, filtering, community, user, pageSize) {
+    ) : SearchDataSource<Feedable>(query, filtering, community, user, redditSource, pageSize) {
 
         override val type: SearchType
             get() = SearchType.feedable
@@ -99,8 +103,9 @@ abstract class SearchDataSource<Value : Any>(
         filtering: Filtering,
         community: String?,
         user: String?,
+        redditSource: Service?,
         pageSize: Int
-    ) : SearchDataSource<CommunityInfo>(query, filtering, community, user, pageSize) {
+    ) : SearchDataSource<CommunityInfo>(query, filtering, community, user, redditSource, pageSize) {
 
         override val type: SearchType
             get() = SearchType.community
@@ -116,8 +121,9 @@ abstract class SearchDataSource<Value : Any>(
         filtering: Filtering,
         community: String?,
         user: String?,
+        redditSource: Service?,
         pageSize: Int
-    ) : SearchDataSource<UserInfo>(query, filtering, community, user, pageSize) {
+    ) : SearchDataSource<UserInfo>(query, filtering, community, user, redditSource, pageSize) {
 
         override val type: SearchType
             get() = SearchType.user

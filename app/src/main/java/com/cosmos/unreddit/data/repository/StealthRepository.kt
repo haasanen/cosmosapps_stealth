@@ -27,10 +27,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class StealthRepository @Inject constructor() {
+class StealthRepository @Inject constructor(
+    private val preferencesRepository: PreferencesRepository
+) {
+
+    private val redditSource: Service
+        get() = preferencesRepository.redditSource.value
 
     fun getPost(post: String, service: Service, filtering: Filtering): Flow<Resource<Post>> = flow {
-        val response = Stealth.getPost(post, service.asSupportedService()) {
+        val response = Stealth.getPost(
+            post,
+            service.mapService(redditSource).asSupportedService()
+        ) {
             filtering.sort?.let { sort = it }
             filtering.order?.let { order = it }
         }
@@ -44,7 +52,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            FeedDataSource(query, filtering, pageSize)
+            FeedDataSource(query, filtering, redditSource, pageSize)
         }.flow
     }
 
@@ -54,7 +62,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            CommunityDataSource(query, filtering, pageSize)
+            CommunityDataSource(query, filtering, redditSource, pageSize)
         }.flow
     }
 
@@ -62,7 +70,10 @@ class StealthRepository @Inject constructor() {
         community: String,
         service: Service
     ): Flow<Resource<CommunityInfo>> = flow {
-        val response = Stealth.getCommunityInfo(community, service.asSupportedService())
+        val response = Stealth.getCommunityInfo(
+            community,
+            service.mapService(redditSource).asSupportedService()
+        )
         emit(response)
     }
 
@@ -72,7 +83,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            UserDataSource(query, filtering, FeedableType.post, pageSize)
+            UserDataSource(query, filtering, FeedableType.post, redditSource, pageSize)
         }.flow
     }
 
@@ -82,7 +93,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            UserDataSource(query, filtering, FeedableType.comment, pageSize)
+            UserDataSource(query, filtering, FeedableType.comment, redditSource, pageSize)
         }.flow
     }
 
@@ -90,7 +101,10 @@ class StealthRepository @Inject constructor() {
         user: String,
         service: Service,
     ): Flow<Resource<UserInfo>> = flow {
-        val response = Stealth.getUserInfo(user, service.asSupportedService())
+        val response = Stealth.getUserInfo(
+            user,
+            service.mapService(redditSource).asSupportedService()
+        )
         emit(response)
     }
 
@@ -101,7 +115,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            FeedableSearchDataSource(query, filtering, community, null, pageSize)
+            FeedableSearchDataSource(query, filtering, community, null, redditSource, pageSize)
         }.flow
     }
 
@@ -111,7 +125,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            FeedableSearchDataSource(query, filtering, null, null, pageSize)
+            FeedableSearchDataSource(query, filtering, null, null, null, pageSize)
         }.flow
     }
 
@@ -121,7 +135,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<CommunityInfo>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            CommunitySearchDataSource(query, filtering, null, null, pageSize)
+            CommunitySearchDataSource(query, filtering, null, null, null, pageSize)
         }.flow
     }
 
@@ -131,7 +145,7 @@ class StealthRepository @Inject constructor() {
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<UserInfo>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            UserSearchDataSource(query, filtering, null, null, pageSize)
+            UserSearchDataSource(query, filtering, null, null, null, pageSize)
         }.flow
     }
 

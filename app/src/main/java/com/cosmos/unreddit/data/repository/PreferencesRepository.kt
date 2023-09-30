@@ -4,19 +4,32 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
+import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.OLD
+import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.REGULAR
 import com.cosmos.unreddit.data.local.RedditDatabase
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.db.Redirect
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.data.model.preferences.DataPreferences
+import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT
+import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT_SCRAP
+import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.TEDDIT
 import com.cosmos.unreddit.data.model.preferences.MediaPreferences
 import com.cosmos.unreddit.data.model.preferences.PolicyDisclaimerPreferences
 import com.cosmos.unreddit.data.model.preferences.ProfilePreferences
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
+import com.cosmos.unreddit.di.CoroutinesScopesModule.ApplicationScope
 import com.cosmos.unreddit.util.extension.getValue
 import com.cosmos.unreddit.util.extension.setValue
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +37,8 @@ import javax.inject.Singleton
 @Singleton
 class PreferencesRepository @Inject constructor(
     private val preferencesDatastore: DataStore<Preferences>,
-    private val redditDatabase: RedditDatabase
+    private val redditDatabase: RedditDatabase,
+    @ApplicationScope appScope: CoroutineScope
 ) {
 
     //region Ui
@@ -54,6 +68,17 @@ class PreferencesRepository @Inject constructor(
     //endregion
 
     //region Content
+
+    val redditSource: StateFlow<Service> = combine(
+        getRedditSource(),
+        getRedditSourceInstance()
+    ) { source, instance ->
+        when (DataPreferences.RedditSource.fromValue(source)) {
+            REDDIT -> Service(ServiceName.reddit, REGULAR.url)
+            REDDIT_SCRAP -> Service(ServiceName.reddit, OLD.url)
+            TEDDIT -> Service(ServiceName.teddit, instance)
+        }
+    }.stateIn(appScope, SharingStarted.Eagerly, DEFAULT_REDDIT_SOURCE)
 
     suspend fun setShowNsfw(showNsfw: Boolean) {
         preferencesDatastore.setValue(ContentPreferences.PreferencesKeys.SHOW_NSFW, showNsfw)
@@ -210,4 +235,8 @@ class PreferencesRepository @Inject constructor(
     }
 
     //endregion
+
+    companion object {
+        private val DEFAULT_REDDIT_SOURCE = Service(ServiceName.reddit, REGULAR.url)
+    }
 }

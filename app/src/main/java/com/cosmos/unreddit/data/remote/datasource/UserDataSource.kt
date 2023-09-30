@@ -10,6 +10,7 @@ import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.NetworkException
 import com.cosmos.unreddit.data.model.Query
+import com.cosmos.unreddit.data.model.Service
 import com.squareup.moshi.JsonDataException
 import retrofit2.HttpException
 import java.io.IOException
@@ -18,6 +19,7 @@ class UserDataSource(
     private val query: Query,
     private val filtering: Filtering,
     private val type: FeedableType,
+    private val redditSource: Service,
     private val pageSize: Int
 ) : PagingSource<After, Feedable>() {
 
@@ -25,7 +27,10 @@ class UserDataSource(
 
     override suspend fun load(params: LoadParams<After>): LoadResult<After, Feedable> {
         return try {
-            val response = Stealth.getUser(query.query, query.service.asSupportedService()) {
+            val response = Stealth.getUser(
+                query.query,
+                query.service.mapService(redditSource).asSupportedService()
+            ) {
                 params.key?.let { after(it) }
 
                 filtering.sort?.let { sort = it }

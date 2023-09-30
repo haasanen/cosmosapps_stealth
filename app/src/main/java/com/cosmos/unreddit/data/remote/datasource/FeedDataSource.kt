@@ -8,6 +8,7 @@ import com.cosmos.stealth.sdk.data.model.api.Feedable
 import com.cosmos.stealth.sdk.util.Resource
 import com.cosmos.unreddit.data.model.Filtering
 import com.cosmos.unreddit.data.model.NetworkException
+import com.cosmos.unreddit.data.model.Service
 import com.cosmos.unreddit.data.model.ServiceQuery
 import com.squareup.moshi.JsonDataException
 import retrofit2.HttpException
@@ -16,6 +17,7 @@ import java.io.IOException
 class FeedDataSource(
     private val query: List<ServiceQuery>,
     private val filtering: Filtering,
+    private val redditSource: Service,
     private val pageSize: Int
 ) : PagingSource<List<After>, Feedable>() {
 
@@ -25,7 +27,7 @@ class FeedDataSource(
         return try {
             val response = Stealth.getFeed {
                 query.forEach {
-                    addService(it.service.asSupportedService()) {
+                    addService(it.service.mapService(redditSource).asSupportedService()) {
                         communities { it.communities }
                     }
                 }

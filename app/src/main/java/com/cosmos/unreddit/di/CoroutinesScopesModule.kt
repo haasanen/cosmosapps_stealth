@@ -1,6 +1,6 @@
 package com.cosmos.unreddit.di
 
-import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
+import com.cosmos.unreddit.di.DispatchersModule.MainImmediateDispatcher
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,8 +23,8 @@ object CoroutinesScopesModule {
     @Provides
     @Singleton
     fun providesCoroutineScope(
-        @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
+        @MainImmediateDispatcher mainImmediateDispatcher: CoroutineDispatcher
     ): CoroutineScope {
-        return CoroutineScope(SupervisorJob() + defaultDispatcher)
+        return CoroutineScope(SupervisorJob() + mainImmediateDispatcher)
     }
 }

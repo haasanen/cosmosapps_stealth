@@ -202,7 +202,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                         R.string.dialog_reddit_source_disclaimer_body,
                         source,
                         instance,
-                        true
+                        false
                     )
                 }
 
