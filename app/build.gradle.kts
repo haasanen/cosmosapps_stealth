@@ -107,6 +107,7 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:${Dependencies.Versions.viewpager2}")
     implementation("androidx.preference:preference-ktx:${Dependencies.Versions.preference}")
 
+    // Frozen to 2.5.3 to support manual FragmentTransaction
     implementation("androidx.navigation:navigation-fragment-ktx:${Dependencies.Versions.navigation}")
     implementation("androidx.navigation:navigation-ui-ktx:${Dependencies.Versions.navigation}")
 
