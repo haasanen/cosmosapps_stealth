@@ -48,7 +48,9 @@ import com.cosmos.unreddit.util.extension.setFilteringListener
 import com.cosmos.unreddit.util.extension.toPixels
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -176,16 +178,22 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             }
 
             launch {
-                viewModel.isSubscribed.collect { isSubscribed ->
-                    with(bindingAbout.subredditSubscribeButton) {
-                        visibility = View.VISIBLE
-                        text = if (isSubscribed) {
+                combine(
+                    viewModel.isSubscribed,
+                    viewModel.isSubscribable
+                ) { subscribed, subscribable ->
+                    bindingAbout.subredditSubscribeButton.run {
+                        isVisible = true
+
+                        text = if (subscribed) {
                             getString(R.string.subreddit_button_unsubscribe)
                         } else {
                             getString(R.string.subreddit_button_subscribe)
                         }
+
+                        isEnabled = subscribable || subscribed
                     }
-                }
+                }.collect()
             }
 
             launch {

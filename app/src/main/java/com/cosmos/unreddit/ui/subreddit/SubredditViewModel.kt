@@ -5,6 +5,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.cosmos.stealth.sdk.data.model.api.ServiceName
 import com.cosmos.stealth.sdk.data.model.api.Sort
+import com.cosmos.stealth.sdk.data.model.service.LemmyService
 import com.cosmos.stealth.sdk.util.Resource.Error
 import com.cosmos.stealth.sdk.util.Resource.Exception
 import com.cosmos.stealth.sdk.util.Resource.Success
@@ -99,6 +100,27 @@ class SubredditViewModel @Inject constructor(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         false
+    )
+
+    val isSubscribable: StateFlow<Boolean> = combine(
+        service,
+        subscriptions
+    ) { service, subscriptions ->
+        when (service?.name) {
+            ServiceName.lemmy -> {
+                subscriptions.count {
+                    it.service == ServiceName.lemmy && it.instance == service.instance
+                } < LemmyService.MAX_COMMUNITIES
+            }
+            null -> false
+            else -> true
+        }
+    }.flowOn(
+        defaultDispatcher
+    ).stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        true
     )
 
     private val subredditName: String
