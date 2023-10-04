@@ -162,6 +162,7 @@ class MediaDownloadWorker @AssistedInject constructor (
             Media.Type.AUDIO -> {
                 MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             }
+            Media.Type.ANY -> return null
         }
 
         withContext(ioDispatcher) {
@@ -228,6 +229,7 @@ class MediaDownloadWorker @AssistedInject constructor (
             Media.Type.AUDIO -> {
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
             }
+            Media.Type.ANY -> return null
         }
 
         val file = File(publicDirectory, name)

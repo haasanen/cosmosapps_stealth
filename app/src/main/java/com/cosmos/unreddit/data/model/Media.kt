@@ -29,7 +29,7 @@ data class Media(
     fun singletonList(): List<Media> = listOf(this)
 
     enum class Type(val value: Int) {
-        IMAGE(0), VIDEO(1), AUDIO(2);
+        IMAGE(0), VIDEO(1), AUDIO(2), ANY(-1);
 
         companion object {
             fun fromMime(mime: String): Type {
@@ -37,7 +37,7 @@ data class Media(
                     mime.startsWith("image") -> IMAGE
                     mime.startsWith("video") -> VIDEO
                     mime.startsWith("audio") -> AUDIO
-                    else -> error("Unknown mime type $mime")
+                    else -> ANY
                 }
             }
 
