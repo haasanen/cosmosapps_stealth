@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
 import androidx.transition.Slide
 import androidx.transition.TransitionManager
+import com.cosmos.stealth.sdk.data.model.api.ServiceName
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.local.mapper.FeedableMapper
 import com.cosmos.unreddit.data.model.Resource
@@ -258,7 +259,9 @@ class PostDetailsFragment : BaseFragment(),
 
     private fun handleArguments() {
         if (args.id != null) {
+            // TODO: Handle other services (only Reddit deep links are set)
             viewModel.setPostId(args.id!!)
+            viewModel.setService(Service(ServiceName.reddit))
         } else {
             when {
                 arguments?.containsKey(KEY_POST_ENTITY).orFalse() -> {
