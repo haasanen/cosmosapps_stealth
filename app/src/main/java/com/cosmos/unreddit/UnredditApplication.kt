@@ -42,9 +42,7 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
     override fun onCreate() {
         super.onCreate()
 
-        Stealth.init {
-            url("http://10.0.2.2:8080/")
-        }
+        Stealth.init()
 
         runBlocking {
             val nightMode = preferencesRepository.getNightMode().first()
