@@ -78,6 +78,14 @@ class MediaViewerViewModel
 
     private suspend fun retrieveMedia(link: String, mediaType: MediaType) {
         when (mediaType) {
+            MediaType.IMGUR_IMAGE, MediaType.IMAGE -> {
+                val media = Media(
+                    ContentType.ANY_IMAGE_TYPE.toString(),
+                    MediaSource(link),
+                    Media.Type.IMAGE
+                )
+                setMedia(media.singletonList())
+            }
             MediaType.IMGUR_LINK -> {
                 val id = LinkUtil.getImageIdFromImgurLink(link)
                 val media = Media(
