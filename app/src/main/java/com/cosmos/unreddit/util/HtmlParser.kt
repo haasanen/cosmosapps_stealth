@@ -44,7 +44,7 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
                 var lastIndex = 0
 
                 for (match in PLACEHOLDER_REGEX.findAll(newHtml)) {
-                    if (match.range.first > 0) {
+                    if (match.range.first > 0 && match.range.first != lastIndex) {
                         val previousBlock = newHtml.substring(lastIndex, match.range.first - 1)
                         redditText.addBlock(getTextBlock(previousBlock), HtmlBlock.BlockType.TEXT)
                     }
