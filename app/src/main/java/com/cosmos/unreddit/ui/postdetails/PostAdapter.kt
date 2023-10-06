@@ -83,21 +83,14 @@ class PostAdapter(
 
             binding.textPostTitle.text = post.title
 
-            binding.includePostMetrics.run {
-                buttonSave.isChecked = post.saved
-
-                setRatio(post.ratio?.toPercentage() ?: -1)
-
-                textPostVote.text = post.score.formatNumber()
-                textPostComments.text = post.commentCount.formatNumber()
-            }
-
             binding.includePostInfo.groupCrosspost.isVisible = false
             binding.includePostInfo.textPostAuthor.apply {
                 setTextColor(ContextCompat.getColor(context, post.posterType.color))
             }
 
             bindText(post)
+
+            bindPostMetrics(post)
 
             bindAwards(post)
 
@@ -178,6 +171,8 @@ class PostAdapter(
 
             bindText(post)
 
+            bindPostMetrics(post)
+
             bindAwards(post)
 
             bindFlairs(post)
@@ -192,6 +187,17 @@ class PostAdapter(
                 } else {
                     visibility = View.GONE
                 }
+            }
+        }
+
+        private fun bindPostMetrics(post: PostItem) {
+            binding.includePostMetrics.run {
+                buttonSave.isChecked = post.saved
+
+                setRatio(post.ratio?.toPercentage() ?: -1)
+
+                textPostVote.text = post.score.formatNumber()
+                textPostComments.text = post.commentCount.formatNumber()
             }
         }
 
