@@ -135,10 +135,10 @@ class PostAdapter(
 
             binding.buttonTypeIndicator.apply {
                 when {
-                    // TODO: Handle generic gallery type
                     post.mediaType == MediaType.REDDIT_GALLERY ||
                             post.mediaType == MediaType.IMGUR_ALBUM ||
-                            post.mediaType == MediaType.IMGUR_GALLERY -> {
+                            post.mediaType == MediaType.IMGUR_GALLERY ||
+                            post.mediaType == MediaType.GALLERY -> {
                         visibility = View.VISIBLE
                         setIcon(R.drawable.ic_gallery)
                     }
