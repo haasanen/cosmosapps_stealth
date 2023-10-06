@@ -9,9 +9,6 @@ import androidx.core.widget.doOnTextChanged
 import androidx.hilt.navigation.fragment.hiltNavGraphViewModels
 import androidx.lifecycle.Lifecycle
 import com.cosmos.stealth.sdk.data.model.api.ServiceName
-import com.cosmos.stealth.sdk.data.model.service.RedditService
-import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.OLD
-import com.cosmos.stealth.sdk.data.model.service.RedditService.Instance.REGULAR
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.databinding.FragmentSearchQueryBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
@@ -80,17 +77,7 @@ class SearchQueryFragment : BaseFragment() {
 
             when (checkedIds.getOrNull(0)) {
                 binding.chipReddit.id -> viewModel.setServiceName(ServiceName.reddit)
-                binding.chipTeddit.id -> viewModel.setServiceName(ServiceName.teddit)
                 binding.chipLemmy.id -> viewModel.setServiceName(ServiceName.lemmy)
-                else -> { /* ignore */
-                }
-            }
-        }
-
-        binding.groupRedditSource.setOnCheckedStateChangeListener { _, checkedIds ->
-            when (checkedIds.getOrNull(0)) {
-                binding.chipOfficial.id -> viewModel.setRedditInstance(REGULAR)
-                binding.chipScraping.id -> viewModel.setRedditInstance(OLD)
                 else -> { /* ignore */
                 }
             }
@@ -118,43 +105,19 @@ class SearchQueryFragment : BaseFragment() {
                         ServiceName.reddit -> {
                             binding.run {
                                 chipReddit.isChecked = true
-                                groupSource.isVisible = true
                                 listInstances.isVisible = false
-                            }
-                        }
-
-                        ServiceName.teddit -> {
-                            binding.run {
-                                chipTeddit.isChecked = true
-                                groupSource.isVisible = false
-                                listInstances.isVisible = true
-                                setSpinnerInstances(viewModel.tedditInstances)
                             }
                         }
 
                         ServiceName.lemmy -> {
                             binding.run {
                                 chipLemmy.isChecked = true
-                                groupSource.isVisible = false
                                 listInstances.isVisible = true
                                 setSpinnerInstances(viewModel.lemmyInstances)
                             }
                         }
-                    }
-                }
-            }
 
-            launch {
-                viewModel.redditInstance.collect {
-                    when (it) {
-                        REGULAR -> {
-                            binding.chipOfficial.isChecked = true
-                            viewModel.instance = RedditService.Instance.REGULAR.url
-                        }
-                        OLD -> {
-                            binding.chipScraping.isChecked = true
-                            viewModel.instance = RedditService.Instance.OLD.url
-                        }
+                        else -> { /* ignore */ }
                     }
                 }
             }

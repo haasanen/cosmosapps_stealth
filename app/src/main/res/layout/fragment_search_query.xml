@@ -67,64 +67,11 @@
                 android:text="@string/service_reddit"/>
 
             <com.google.android.material.chip.Chip
-                android:id="@+id/chip_teddit"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/service_teddit"/>
-
-            <com.google.android.material.chip.Chip
                 android:id="@+id/chip_lemmy"
                 style="@style/ChipChoiceStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/service_lemmy"/>
-        </com.google.android.material.chip.ChipGroup>
-
-        <androidx.constraintlayout.widget.Group
-            android:id="@+id/group_source"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:visibility="gone"
-            tool:visibility="visible"
-            app:constraint_referenced_ids="label_reddit_source,group_reddit_source"/>
-
-        <TextView
-            android:id="@+id/label_reddit_source"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:layout_constraintTop_toBottomOf="@id/group_service"
-            app:layout_constraintStart_toStartOf="parent"
-            android:layout_marginTop="@dimen/sort_margin"
-            android:textAppearance="@style/TextAppearanceSortLabel"
-            android:text="@string/search_source_label" />
-
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/group_reddit_source"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/label_reddit_source"
-            app:singleSelection="true"
-            app:singleLine="true"
-            app:selectionRequired="true"
-            app:checkedChip="@id/chip_official"
-            android:layout_marginTop="@dimen/sort_margin">
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_official"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/search_reddit_source_official"/>
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chip_scraping"
-                style="@style/ChipChoiceStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/search_reddit_source_scraping"/>
         </com.google.android.material.chip.ChipGroup>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -135,7 +82,7 @@
             android:layout_marginTop="16dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/group_reddit_source"
+            app:layout_constraintTop_toBottomOf="@id/group_service"
             android:visibility="gone"
             tool:visibility="visible">
 

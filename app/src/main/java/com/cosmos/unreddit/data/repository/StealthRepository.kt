@@ -125,7 +125,7 @@ class StealthRepository @Inject constructor(
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<Feedable>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            FeedableSearchDataSource(query, filtering, null, null, null, pageSize)
+            FeedableSearchDataSource(query, filtering, null, null, redditSource, pageSize)
         }.flow
     }
 
@@ -135,7 +135,7 @@ class StealthRepository @Inject constructor(
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<CommunityInfo>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            CommunitySearchDataSource(query, filtering, null, null, null, pageSize)
+            CommunitySearchDataSource(query, filtering, null, null, redditSource, pageSize)
         }.flow
     }
 
@@ -145,7 +145,7 @@ class StealthRepository @Inject constructor(
         pageSize: Int = DEFAULT_LIMIT
     ): Flow<PagingData<UserInfo>> {
         return Pager(PagingConfig(pageSize = pageSize)) {
-            UserSearchDataSource(query, filtering, null, null, null, pageSize)
+            UserSearchDataSource(query, filtering, null, null, redditSource, pageSize)
         }.flow
     }
 
