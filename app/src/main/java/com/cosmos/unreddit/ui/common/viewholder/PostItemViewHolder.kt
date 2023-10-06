@@ -22,8 +22,8 @@ import com.cosmos.unreddit.util.extension.color
 import com.cosmos.unreddit.util.extension.formatNumber
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.orFalse
+import com.cosmos.unreddit.util.extension.setBackgroundDrawableColor
 import com.cosmos.unreddit.util.extension.setRatio
-import com.cosmos.unreddit.util.extension.setTint
 import com.cosmos.unreddit.util.extension.toPercentage
 
 abstract class PostItemViewHolder(
@@ -68,7 +68,7 @@ abstract class PostItemViewHolder(
             this.post = post
             textPostAuthor.text = post.author
             textSubreddit.text = post.community
-            imageLabel.setTint(post.service.name.color)
+            textService.setBackgroundDrawableColor(post.service.name.color)
         }
 
         title.run {

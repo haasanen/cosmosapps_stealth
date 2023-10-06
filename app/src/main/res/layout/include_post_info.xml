@@ -53,23 +53,14 @@
             android:layout_height="wrap_content"
             app:layout_constraintTop_toTopOf="@id/text_post_author"
             app:layout_constraintBottom_toBottomOf="@id/text_post_author"
-            app:layout_constraintEnd_toStartOf="@id/image_label"
-            android:layout_marginEnd="4dp"
-            android:textColor="@null"
-            android:textAppearance="@style/TextAppearancePostInfo"
-            android:text="@{post.service.name.value}"
-            tools:text="reddit"/>
-
-        <ImageView
-            android:id="@+id/image_label"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@id/text_post_author"
-            app:layout_constraintBottom_toBottomOf="@id/text_post_author"
-            android:alpha="0.6"
-            app:srcCompat="@drawable/ic_tag"
-            tools:tint="@color/service_reddit"/>
+            android:background="@drawable/text_service_background"
+            android:paddingHorizontal="4dp"
+            android:alpha="0.75"
+            android:textAppearance="@style/TextAppearancePostFlair"
+            android:textColor="@null"
+            android:text="@{post.service.name.value}"
+            tools:text="reddit" />
 
         <TextView
             android:id="@+id/text_subreddit"

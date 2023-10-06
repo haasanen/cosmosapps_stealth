@@ -1,9 +1,9 @@
 package com.cosmos.unreddit.util.extension
 
-import android.content.res.ColorStateList
 import android.graphics.BlurMaskFilter
 import android.graphics.LinearGradient
 import android.graphics.Shader
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -73,8 +73,8 @@ fun ImageView.load(
     context.imageLoader.enqueue(request)
 }
 
-fun ImageView.setTint(@ColorRes tint: Int) {
-    imageTintList = ColorStateList.valueOf(ContextCompat.getColor(context, tint))
+fun View.setBackgroundDrawableColor(@ColorRes color: Int) {
+    (background as? GradientDrawable)?.setColor(ContextCompat.getColor(context, color))
 }
 
 fun TextInputLayout.text(): String? {

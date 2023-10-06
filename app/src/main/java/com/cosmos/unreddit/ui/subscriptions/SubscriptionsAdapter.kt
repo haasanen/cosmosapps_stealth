@@ -2,6 +2,7 @@ package com.cosmos.unreddit.ui.subscriptions
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -13,7 +14,6 @@ import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.db.Subscription
 import com.cosmos.unreddit.databinding.ItemSubscriptionBinding
 import com.cosmos.unreddit.util.extension.color
-import com.cosmos.unreddit.util.extension.setTint
 
 class SubscriptionsAdapter(
     private val listener: (Subscription) -> Unit
@@ -46,7 +46,9 @@ class SubscriptionsAdapter(
                 fallback(R.drawable.icon_reddit_placeholder)
             }
 
-            binding.imageLabel.setTint(subscription.service.color)
+            binding.textService.run {
+                setTextColor(ContextCompat.getColor(context, subscription.service.color))
+            }
 
             binding.textService.run {
                 text = when (subscription.service) {
