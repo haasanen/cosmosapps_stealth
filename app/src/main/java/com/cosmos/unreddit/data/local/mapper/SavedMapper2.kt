@@ -16,8 +16,6 @@ class SavedMapper2 @Inject constructor(
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : Mapper<Any, SavedItem>(defaultDispatcher) {
 
-    private val htmlParser: HtmlParser = HtmlParser(defaultDispatcher)
-
     override suspend fun toEntity(from: Any): SavedItem {
         throw UnsupportedOperationException()
     }
@@ -27,7 +25,7 @@ class SavedMapper2 @Inject constructor(
     }
 
     suspend fun dataToEntity(data: PostItem): SavedItem = withContext(defaultDispatcher) {
-        val redditText = htmlParser.separateHtmlBlocks(data.body)
+        val redditText = HtmlParser(defaultDispatcher).separateHtmlBlocks(data.body)
         SavedItem.Post(
             data.apply {
                 bodyText = redditText
@@ -38,9 +36,7 @@ class SavedMapper2 @Inject constructor(
 
     suspend fun dataToEntity(data: CommentItem): SavedItem = withContext(defaultDispatcher) {
         SavedItem.Comment(
-            data.apply {
-                bodyText = htmlParser.separateHtmlBlocks(body)
-            }
+            data.apply { bodyText = HtmlParser(defaultDispatcher).separateHtmlBlocks(body) }
         )
     }
 

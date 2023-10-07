@@ -14,10 +14,6 @@ import java.util.LinkedList
 
 class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
 
-    private val TABLE_REGEX = Regex("<table>.*?</table>", RegexOption.DOT_MATCHES_ALL)
-    private val CODE_REGEX = Regex("<pre><code>(.*?)</code></pre>", RegexOption.DOT_MATCHES_ALL)
-    private val PLACEHOLDER_REGEX = Regex("<(table|code)_placeholder/>")
-
     private val tagHandler = RedditTagHandler()
 
     suspend fun separateHtmlBlocks(html: String?): RedditText = withContext(defaultDispatcher) {
@@ -131,5 +127,9 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
     companion object {
         private const val TABLE_PLACEHOLDER = "<table_placeholder/>"
         private const val CODE_PLACEHOLDER = "<code_placeholder/>"
+
+        private val TABLE_REGEX = Regex("<table>.*?</table>", RegexOption.DOT_MATCHES_ALL)
+        private val CODE_REGEX = Regex("<pre><code>(.*?)</code></pre>", RegexOption.DOT_MATCHES_ALL)
+        private val PLACEHOLDER_REGEX = Regex("<(table|code)_placeholder/>")
     }
 }

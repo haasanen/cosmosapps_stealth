@@ -14,8 +14,6 @@ class CommunityMapper @Inject constructor(
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : Mapper<CommunityInfo, Community>(defaultDispatcher) {
 
-    private val htmlParser: HtmlParser = HtmlParser(defaultDispatcher)
-
     override suspend fun toEntity(from: CommunityInfo): Community {
         return with (from) {
             val colorInt = color?.run {
@@ -32,8 +30,8 @@ class CommunityMapper @Inject constructor(
                 name,
                 created,
                 title,
-                htmlParser.separateHtmlBlocks(shortDescription),
-                htmlParser.separateHtmlBlocks(description),
+                HtmlParser(defaultDispatcher).separateHtmlBlocks(shortDescription),
+                HtmlParser(defaultDispatcher).separateHtmlBlocks(description),
                 icon?.toMedia(),
                 header?.toMedia(),
                 members,

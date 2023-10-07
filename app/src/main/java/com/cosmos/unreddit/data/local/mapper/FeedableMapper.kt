@@ -32,8 +32,6 @@ class FeedableMapper @Inject constructor(
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : Mapper<Feedable, FeedItem>(defaultDispatcher) {
 
-    private val htmlParser: HtmlParser = HtmlParser(defaultDispatcher)
-
     override suspend fun toEntity(from: Feedable): FeedItem {
         return when (from.type) {
             FeedableType.post -> toPostItem(from as Postable)
@@ -44,7 +42,7 @@ class FeedableMapper @Inject constructor(
 
     private suspend fun toPostItem(from: Postable): PostItem {
         return with(from) {
-            val bodyText = htmlParser.separateHtmlBlocks(body)
+            val bodyText = HtmlParser(defaultDispatcher).separateHtmlBlocks(body)
 
             PostItem(
                 service.toService(),
@@ -92,7 +90,7 @@ class FeedableMapper @Inject constructor(
                 postId,
                 community,
                 body,
-                htmlParser.separateHtmlBlocks(body),
+                HtmlParser(defaultDispatcher).separateHtmlBlocks(body),
                 author,
                 score,
                 refLink,
