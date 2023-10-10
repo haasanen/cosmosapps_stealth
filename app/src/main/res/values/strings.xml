@@ -211,6 +211,7 @@
 
     <string name="navigation_label_home">Home</string>
     <string name="navigation_label_subscriptions">Subscriptions</string>
+    <string name="navigation_label_search">Search</string>
     <string name="navigation_label_settings">Preferences</string>
     <string name="navigation_label_profile">Profile</string>
 
