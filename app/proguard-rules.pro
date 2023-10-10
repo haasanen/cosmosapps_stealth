@@ -29,11 +29,5 @@
 -dontwarn org.slf4j.**
 -dontwarn ch.qos.logback.**
 
--keep class com.cosmos.stealth.sdk.data.model.** { *; }
--keep interface com.cosmos.stealth.sdk.data.network.api.StealthApi { *; }
-
--dontwarn kotlin.**
--keep class kotlin.** { *; }
-
 # https://github.com/square/moshi/issues/1720
 -keepnames class com.squareup.moshi.JsonAdapter
