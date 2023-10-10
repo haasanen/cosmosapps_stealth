@@ -74,11 +74,6 @@
             app:title="@string/preference_about"
             app:persistent="false"/>
 
-        <Preference
-            app:key="policy_disclaimer"
-            app:title="@string/preference_policy_disclaimer"
-            app:persistent="false"/>
-
     </PreferenceCategory>
 
 </PreferenceScreen>

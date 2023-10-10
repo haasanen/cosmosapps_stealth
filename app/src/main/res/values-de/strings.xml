@@ -38,21 +38,16 @@
     <string name="sort_title">Sortieren</string>
     <string name="sort_time_title">Zeit</string>
 
-    <string name="sort_hot">Empfohlen</string>
     <string name="sort_new">Neu</string>
     <string name="sort_top">Top</string>
-    <string name="sort_rising">Aufstrebend</string>
     <string name="sort_controversial">Umstritten</string>
     <string name="sort_relevance">Relevanz</string>
     <string name="sort_comments">Kommentare</string>
-    <string name="sort_best">Beste</string>
     <string name="sort_old">Älteste</string>
-    <string name="sort_qa">Q&amp;A</string>
 
     <string name="fragment_subscriptions_label">Abonnements</string>
     <string name="subscriptions_search_hint">In Reddit suchen</string>
 
-    <string name="search_hint">In Reddit suchen</string>
     <string name="search_hint_subreddit">In %1$s suchen</string>
 
     <string name="fragment_preferences_label">Einstellungen</string>
@@ -63,12 +58,6 @@
 
     <string name="subreddit_button_unsubscribe">Abmelden</string>
     <string name="subreddit_button_subscribe">Anmelden</string>
-    <string name="subreddit_subscribers">Abonnenten</string>
-    <string name="subreddit_active_users">Online</string>
-
-    <string name="user_post_karma">Beitragswertung</string>
-    <string name="user_comment_karma">Kommentarwertung</string>
-    <string name="user_cake_day">Kuchentag</string>
 
     <string name="flair_nsfw">NSFW</string>
     <string name="flair_spoiler">Spoiler</string>
