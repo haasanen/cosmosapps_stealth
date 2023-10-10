@@ -119,6 +119,20 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
+    suspend fun setStealthInstance(stealthInstance: String) {
+        preferencesDatastore.setValue(
+            DataPreferences.PreferencesKeys.STEALTH_INSTANCE,
+            stealthInstance
+        )
+    }
+
+    fun getStealthInstance(defaultValue: String = DEFAULT_STEALTH_INSTANCE): Flow<String> {
+        return preferencesDatastore.getValue(
+            DataPreferences.PreferencesKeys.STEALTH_INSTANCE,
+            defaultValue
+        )
+    }
+
     suspend fun setRedditSource(redditSource: Int) {
         preferencesDatastore.setValue(
             DataPreferences.PreferencesKeys.REDDIT_SOURCE,
@@ -237,6 +251,8 @@ class PreferencesRepository @Inject constructor(
     //endregion
 
     companion object {
+        const val DEFAULT_STEALTH_INSTANCE = "stealth.cosmosapps.org"
+
         private val DEFAULT_REDDIT_SOURCE = Service(ServiceName.reddit, REGULAR.url)
     }
 }

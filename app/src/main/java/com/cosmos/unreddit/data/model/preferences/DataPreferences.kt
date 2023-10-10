@@ -10,6 +10,7 @@ data class DataPreferences(
     val enablePrivacyEnhancer: Boolean
 ) {
     object PreferencesKeys {
+        val STEALTH_INSTANCE = stringPreferencesKey("stealth_instance")
         val REDDIT_SOURCE = intPreferencesKey("reddit_source")
         val REDDIT_SOURCE_INSTANCE = stringPreferencesKey("reddit_source_instance")
         val PRIVACY_ENHANCER = booleanPreferencesKey("privacy_enhancer")

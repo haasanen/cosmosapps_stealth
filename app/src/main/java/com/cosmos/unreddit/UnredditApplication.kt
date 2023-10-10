@@ -42,7 +42,10 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
     override fun onCreate() {
         super.onCreate()
 
-        Stealth.init()
+        runBlocking {
+            val stealthInstance = preferencesRepository.getStealthInstance().first()
+            initStealth(stealthInstance)
+        }
 
         runBlocking {
             val nightMode = preferencesRepository.getNightMode().first()
@@ -50,6 +53,10 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
         }
 
         Thread.setDefaultUncaughtExceptionHandler(FileUncaughtExceptionHandler(this))
+    }
+
+    fun initStealth(instance: String) {
+        Stealth.init { url(instance) }
     }
 
     override fun newImageLoader(): ImageLoader {

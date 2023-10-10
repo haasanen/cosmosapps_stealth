@@ -25,6 +25,7 @@ import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.databinding.LayoutPreferenceListBinding
 import com.cosmos.unreddit.ui.policydisclaimer.PolicyDisclaimerDialogFragment
 import com.cosmos.unreddit.ui.redditsource.RedditSourceDialogFragment
+import com.cosmos.unreddit.ui.stealthinstance.StealthInstanceDialogFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.getNavOptions
 import com.cosmos.unreddit.util.extension.latest
@@ -50,6 +51,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     private var showNsfwPreviewPreference: SwitchPreferenceCompat? = null
     private var showSpoilerPreviewPreference: SwitchPreferenceCompat? = null
     private var backupPreference: Preference? = null
+    private var stealthInstancePreference: Preference? = null
     private var sourcePreference: Preference? = null
     private var privacyEnhancerPreference: Preference? = null
     private var aboutPreference: Preference? = null
@@ -146,6 +148,17 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             }
         }
 
+        stealthInstancePreference = findPreference<Preference?>(
+            DataPreferences.PreferencesKeys.STEALTH_INSTANCE.name
+        )?.apply {
+            setOnPreferenceClickListener {
+                viewModel.stealthInstance.latest?.let { instance ->
+                    showStealthInstanceDialog(instance)
+                }
+                true
+            }
+        }
+
         sourcePreference = findPreference<Preference?>(
             DataPreferences.PreferencesKeys.REDDIT_SOURCE.name
         )?.apply {
@@ -182,6 +195,18 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     }
 
     private fun initResultListener() {
+        childFragmentManager.setFragmentResultListener(
+            StealthInstanceDialogFragment.REQUEST_KEY_STEALTH_INSTANCE,
+            viewLifecycleOwner
+        ) { _, bundle ->
+            val instance = bundle.serializable<String>(StealthInstanceDialogFragment.KEY_INSTANCE)
+
+            instance?.let {
+                viewModel.setStealthInstance(it)
+                unredditApplication?.initStealth(it)
+            }
+        }
+
         childFragmentManager.setFragmentResultListener(
             RedditSourceDialogFragment.REQUEST_KEY_SOURCE,
             viewLifecycleOwner
@@ -255,6 +280,12 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             }
 
             launch {
+                viewModel.stealthInstance.collect { instance ->
+                    stealthInstancePreference?.summary = instance
+                }
+            }
+
+            launch {
                 viewModel.redditSource.collect { value ->
                     DataPreferences.RedditSource.fromValue(value.first).let {
                         val summary = when (it) {
@@ -305,6 +336,14 @@ class PreferencesFragment : PreferenceFragmentCompat() {
         unredditApplication?.appTheme = mode
         activity?.recreate() // Recreate activity to force the change between dark and amoled
         viewModel.setNightMode(mode)
+    }
+
+    private fun showStealthInstanceDialog(instance: String) {
+        StealthInstanceDialogFragment.show(
+            childFragmentManager,
+            instance,
+            viewModel.stealthInstances
+        )
     }
 
     private fun showRedditSourceDialog(source: Int, instance: String) {
@@ -389,6 +428,8 @@ class PreferencesFragment : PreferenceFragmentCompat() {
 
     override fun onStop() {
         super.onStop()
+        childFragmentManager
+            .clearFragmentResultListener(StealthInstanceDialogFragment.REQUEST_KEY_STEALTH_INSTANCE)
         childFragmentManager
             .clearFragmentResultListener(RedditSourceDialogFragment.REQUEST_KEY_SOURCE)
     }

@@ -34,6 +34,9 @@ class PreferencesViewModel @Inject constructor(
 
     val showSpoilerPreview: Flow<Boolean> = preferencesRepository.getShowSpoilerPreview()
 
+    val stealthInstance: SharedFlow<String> = preferencesRepository.getStealthInstance()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
+
     val redditSource: SharedFlow<Pair<Int, String>> = combine(
         preferencesRepository.getRedditSource(),
         preferencesRepository.getRedditSourceInstance("teddit.net")
@@ -44,6 +47,8 @@ class PreferencesViewModel @Inject constructor(
     val privacyEnhancerEnabled: SharedFlow<Boolean> = preferencesRepository
         .getPrivacyEnhancerEnabled()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
+
+    val stealthInstances: List<String> = listOf(PreferencesRepository.DEFAULT_STEALTH_INSTANCE)
 
     var tedditInstances: List<String> = emptyList()
         private set
@@ -93,6 +98,12 @@ class PreferencesViewModel @Inject constructor(
     fun setShowSpoilerPreview(showSpoilerPreview: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setShowSpoilerPreview(showSpoilerPreview)
+        }
+    }
+
+    fun setStealthInstance(instance: String) {
+        viewModelScope.launch {
+            preferencesRepository.setStealthInstance(instance)
         }
     }
 
