@@ -160,7 +160,6 @@ class SubredditViewModel @Inject constructor(
 
     init {
         feedItemDataFlow = searchData
-            .onEach { println(it) }
             .dropWhile { it.query.query.isBlank() }
             .flatMapLatest { searchData -> userData.map { searchData to it } }
             .flatMapLatest { data -> getPosts(data.first, data.second) }
@@ -238,7 +237,7 @@ class SubredditViewModel @Inject constructor(
 
             if (profile != null && service != null) {
                 if (isSubscribed.value) {
-                    databaseRepository.unsubscribe(subredditName, profile.id)
+                    databaseRepository.unsubscribe(subredditName, profile.id, service)
                 } else {
                     databaseRepository.subscribe(subredditName, profile.id, service, icon)
                 }

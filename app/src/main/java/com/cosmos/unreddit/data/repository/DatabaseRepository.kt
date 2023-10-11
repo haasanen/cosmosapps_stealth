@@ -42,8 +42,13 @@ class DatabaseRepository @Inject constructor(
         )
     }
 
-    suspend fun unsubscribe(name: String, profileId: Int) {
-        redditDatabase.subscriptionDao().deleteFromNameAndProfile(name, profileId)
+    suspend fun unsubscribe(name: String, profileId: Int, service: Service) {
+        val instance = when (service.name) {
+            ServiceName.reddit, ServiceName.teddit -> String.empty
+            ServiceName.lemmy -> service.instance.orEmpty()
+        }
+
+        redditDatabase.subscriptionDao().delete(name, profileId, service.name, instance)
     }
 
     //endregion
