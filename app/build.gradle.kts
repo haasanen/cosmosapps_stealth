@@ -86,7 +86,7 @@ ksp {
 }
 
 dependencies {
-    implementation("com.cosmos:stealth-sdk-android:${Dependencies.Versions.stealth}")
+    implementation("org.cosmosapps.stealth:stealth-sdk-android:${Dependencies.Versions.stealth}")
 
     implementation("com.google.dagger:hilt-android:${Dependencies.Versions.hiltGradlePlugin}")
     ksp("com.google.dagger:hilt-android-compiler:${Dependencies.Versions.hiltGradlePlugin}")
