@@ -175,6 +175,20 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
+    suspend fun setProxyModeEnabled(enableProxyMode: Boolean) {
+        preferencesDatastore.setValue(
+            DataPreferences.PreferencesKeys.PROXY_MODE,
+            enableProxyMode
+        )
+    }
+
+    fun getProxyModeEnabled(defaultValue: Boolean = false): Flow<Boolean> {
+        return preferencesDatastore.getValue(
+            DataPreferences.PreferencesKeys.PROXY_MODE,
+            defaultValue
+        )
+    }
+
     fun getAllRedirects(): Flow<List<Redirect>> {
         return redditDatabase.redirectDao().getAllRedirects()
     }

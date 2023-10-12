@@ -29,6 +29,7 @@ import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.getNavOptions
 import com.cosmos.unreddit.util.extension.latest
 import com.cosmos.unreddit.util.extension.launchRepeat
+import com.cosmos.unreddit.util.extension.orFalse
 import com.cosmos.unreddit.util.extension.restart
 import com.cosmos.unreddit.util.extension.serializable
 import com.cosmos.unreddit.util.extension.unredditApplication
@@ -53,6 +54,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     private var stealthInstancePreference: Preference? = null
     private var sourcePreference: Preference? = null
     private var privacyEnhancerPreference: Preference? = null
+    private var proxyModePreference: SwitchPreferenceCompat? = null
     private var aboutPreference: Preference? = null
 
     private val navOptions: NavOptions by lazy { getNavOptions() }
@@ -177,6 +179,18 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             }
         }
 
+        proxyModePreference = findPreference<SwitchPreferenceCompat>(
+            DataPreferences.PreferencesKeys.PROXY_MODE.name
+        )?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                viewModel.setProxyModeEnabled(newValue as Boolean)
+                viewModel.stealthInstance.latest?.let {
+                    unredditApplication?.initStealth(it, newValue)
+                }
+                true
+            }
+        }
+
         aboutPreference = findPreference<Preference>("about")?.apply {
             setOnPreferenceClickListener {
                 openAbout()
@@ -194,7 +208,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
 
             instance?.let {
                 viewModel.setStealthInstance(it)
-                unredditApplication?.initStealth(it)
+                unredditApplication?.initStealth(it, viewModel.proxyModeEnabled.latest.orFalse())
             }
         }
 
@@ -306,6 +320,12 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                     } else {
                         getString(R.string.preference_privacy_enhancer_disabled)
                     }
+                }
+            }
+
+            launch {
+                viewModel.proxyModeEnabled.collect { enabled ->
+                    proxyModePreference?.isChecked = enabled
                 }
             }
         }

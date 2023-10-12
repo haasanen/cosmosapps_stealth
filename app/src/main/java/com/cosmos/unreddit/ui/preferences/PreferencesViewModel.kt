@@ -48,6 +48,10 @@ class PreferencesViewModel @Inject constructor(
         .getPrivacyEnhancerEnabled()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
 
+    val proxyModeEnabled: SharedFlow<Boolean> = preferencesRepository
+        .getProxyModeEnabled()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
+
     val stealthInstances: List<String> = listOf(PreferencesRepository.DEFAULT_STEALTH_INSTANCE)
 
     var tedditInstances: List<String> = emptyList()
@@ -111,6 +115,12 @@ class PreferencesViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesRepository.setRedditSource(source)
             instance?.let { preferencesRepository.setRedditSourceInstance(it) }
+        }
+    }
+
+    fun setProxyModeEnabled(enable: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setProxyModeEnabled(enable)
         }
     }
 }

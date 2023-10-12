@@ -183,6 +183,9 @@
 
     <string name="preference_privacy_enhancer_service_summary">%1$s - %2$s</string>
 
+    <string name="preference_proxy_mode">Proxy Mode</string>
+    <string name="preference_proxy_mode_summary">Hide your IP address by using Stealth instance as a proxy.</string>
+
     <string name="instance_hint">Instance</string>
     <string name="instance_empty_error">Instance cannot be empty</string>
     <string name="instance_invalid_error">Instance URL is invalid</string>

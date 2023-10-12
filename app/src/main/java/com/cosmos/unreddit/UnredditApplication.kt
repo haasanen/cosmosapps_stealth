@@ -44,7 +44,8 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
         runBlocking {
             val stealthInstance = preferencesRepository.getStealthInstance().first()
-            initStealth(stealthInstance)
+            val proxyMode = preferencesRepository.getProxyModeEnabled().first()
+            initStealth(stealthInstance, proxyMode)
         }
 
         runBlocking {
@@ -55,8 +56,11 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
         Thread.setDefaultUncaughtExceptionHandler(FileUncaughtExceptionHandler(this))
     }
 
-    fun initStealth(instance: String) {
-        Stealth.init { url(instance) }
+    fun initStealth(instance: String, proxyMode: Boolean) {
+        Stealth.init {
+            url(instance)
+            if (proxyMode) useProxyMode()
+        }
     }
 
     override fun newImageLoader(): ImageLoader {

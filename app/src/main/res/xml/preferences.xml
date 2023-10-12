@@ -58,6 +58,12 @@
             app:title="@string/preference_privacy_enhancer"
             app:persistent="false"/>
 
+        <SwitchPreferenceCompat
+            app:key="proxy_mode"
+            app:title="@string/preference_proxy_mode"
+            app:summary="@string/preference_proxy_mode_summary"
+            app:persistent="false"/>
+
         <Preference
             app:key="backup"
             app:title="@string/preference_backup"
