@@ -62,7 +62,8 @@
             app:key="proxy_mode"
             app:title="@string/preference_proxy_mode"
             app:summary="@string/preference_proxy_mode_summary"
-            app:persistent="false"/>
+            app:persistent="false"
+            app:enabled="false"/>
 
         <Preference
             app:key="backup"
