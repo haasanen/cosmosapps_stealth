@@ -140,9 +140,7 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
-    fun getRedditSource(
-        defaultValue: Int = DataPreferences.RedditSource.REDDIT_SCRAP.value
-    ): Flow<Int> {
+    fun getRedditSource(defaultValue: Int = DataPreferences.RedditSource.REDDIT.value): Flow<Int> {
         return preferencesDatastore.getValue(
             DataPreferences.PreferencesKeys.REDDIT_SOURCE,
             defaultValue
@@ -269,6 +267,6 @@ class PreferencesRepository @Inject constructor(
     companion object {
         const val DEFAULT_STEALTH_INSTANCE = "stealth.cosmosapps.org"
 
-        private val DEFAULT_REDDIT_SOURCE = Service(ServiceName.reddit, OLD.url)
+        private val DEFAULT_REDDIT_SOURCE = Service(ServiceName.reddit, REGULAR.url)
     }
 }
