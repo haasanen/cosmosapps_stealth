@@ -232,7 +232,7 @@ abstract class RedditDatabase : RoomDatabase() {
                         `time` INTEGER NOT NULL, 
                         `icon` TEXT, 
                         `service` TEXT DEFAULT $DEFAULT_SERVICE_NAME NOT NULL, 
-                        `instance` TEXT NOT NULL COLLATE NOCASE, 
+                        `instance` TEXT DEFAULT '' NOT NULL COLLATE NOCASE, 
                         `profile_id` INTEGER NOT NULL, 
                         PRIMARY KEY(`name`, `service`, `instance`, `profile_id`), 
                         FOREIGN KEY(`profile_id`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
