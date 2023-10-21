@@ -1,3 +1,11 @@
+# 3.0.0-alpha01 - 2023/10/21
+
+First preview version of Stealth's new content aggregation.
+
+### Changed
+- Move to Stealth API for content
+- Various UI improvements
+
 # 2.3.0 - 2023/08/15
 
 This version is only compatible with Android 6.0 onwards.
