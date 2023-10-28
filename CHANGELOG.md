@@ -1,3 +1,8 @@
+# 3.0.0-alpha02 - 2023/10/28
+
+### Fixed
+- Issues on older Android versions
+
 # 3.0.0-alpha01 - 2023/10/21
 
 First preview version of Stealth's new content aggregation.
