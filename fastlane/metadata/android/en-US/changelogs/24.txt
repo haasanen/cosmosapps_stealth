@@ -1,0 +1,2 @@
+Fixed
+- Issues on older Android versions
