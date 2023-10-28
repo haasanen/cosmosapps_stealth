@@ -52,7 +52,7 @@ object Dependencies {
 
         const val jsonSerialization = "1.5.1"
 
-        const val stealth = "0.1.0"
+        const val stealth = "0.1.1"
 
         const val jUnit = "4.13.2"
         const val test = "1.1.5"
