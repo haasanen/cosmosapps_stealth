@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches:
+    - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '11'
+
+    - name: Accept Android SDK licenses
+      run: |
+        yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+    - name: Restore release keystore (secret -> file, never committed)
+      env:
+        STEALTH_KEYSTORE_BASE64: ${{ secrets.STEALTH_KEYSTORE_BASE64 }}
+        STEALTH_KEYSTORE_PASSWORD: ${{ secrets.STEALTH_KEYSTORE_PASSWORD }}
+        STEALTH_KEY_ALIAS: ${{ secrets.STEALTH_KEY_ALIAS }}
+        STEALTH_KEY_PASSWORD: ${{ secrets.STEALTH_KEY_PASSWORD }}
+      run: |
+        set -euo pipefail
+        # The keystore is written to the ephemeral runner workspace only; it
+        # is never echoed and never enters the repository.
+        echo "$STEALTH_KEYSTORE_BASE64" | base64 -d > keystore.jks
+        chmod 600 keystore.jks
+        keytool -list -v -keystore keystore.jks -storetype JKS \
+          -storepass "$STEALTH_KEYSTORE_PASSWORD" > /dev/null
+        echo "keystore loads OK"
+        cat > keystore.properties <<PROPEOF
+        storeFile=keystore.jks
+        storePassword=$STEALTH_KEYSTORE_PASSWORD
+        keyAlias=$STEALTH_KEY_ALIAS
+        keyPassword=$STEALTH_KEY_PASSWORD
+        PROPEOF
+        chmod 600 keystore.properties
+
+    - name: Build release APK
+      run: |
+        set -euo pipefail
+        chmod +x gradlew
+        ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        find app/build/outputs -name "*.apk" -type f
+
+    - name: Publish GitHub Release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        SHA=$(git rev-parse --short=7 HEAD)
+        TAG="build-${SHA}"
+        # ISO build-date stamp, same convention as the armorpaint fork:
+        # v<app version> (<ISO date>) - <sha>
+        APP_VERSION=$(grep -o 'const val versionName = "[^"]*"' buildSrc/src/main/kotlin/Config.kt | cut -d'"' -f2)
+        BUILD_DATE=$(date -u +%F)
+        TITLE="v${APP_VERSION} (${BUILD_DATE}) - ${SHA}"
+        echo "Release title: $TITLE"
+
+        # Changelog: commits pulled in since the previous build tag. Only
+        # tags whose commit is an ANCESTOR of HEAD count. Our own CI commits
+        # (subject starting with "ci:") are excluded - the app commits ARE
+        # the changes.
+        PREV_TAG=""
+        for t in $(git tag -l 'build-*' --sort=-creatordate); do
+          c=$(git rev-list -n1 "$t" 2>/dev/null) || continue
+          git merge-base --is-ancestor "$c" HEAD 2>/dev/null || continue
+          PREV_TAG="$t"
+          break
+        done
+        CHANGELOG=""
+        if [ -n "$PREV_TAG" ]; then
+          CHANGES=$(git log --no-merges --format="  * [%h](https://github.com/${GITHUB_REPOSITORY}/commit/%h) %s" "$PREV_TAG..HEAD" | grep -v 'ci: ' | head -30)
+          NCOMMITS=$(printf '%s\n' "$CHANGES" | grep -c '\*' || true)
+          PL="s"
+          [ "$NCOMMITS" = "1" ] && PL=""
+          MORE=""
+          TOTAL=$(git log --oneline --no-merges "$PREV_TAG..HEAD" | wc -l)
+          [ "$TOTAL" -gt 30 ] && MORE="\n  * ...and $((TOTAL - 30)) more commits"
+          CHANGELOG=$(printf '\n### Changes since the previous build (%s commit%s)\n%s%s\n' "$NCOMMITS" "$PL" "$CHANGES" "$MORE")
+          echo "changelog: $NCOMMITS commit(s) since $PREV_TAG"
+        fi
+
+        NOTES="## $TITLE
+
+        Fork of [cosmosapps/stealth](https://gitlab.com/cosmosapps/stealth) - a privacy-friendly Reddit reader for Android.
+
+        **Versioning** - v<app version> (build date) - <commit>. Compare it with the version shown in the app's About screen to check whether a newer build exists.
+
+        ### Install
+        Install the APK directly (minSdk 23 = Android 6.0+). Updates install over the previous build without uninstall.
+
+        ### Verify integrity
+        - Linux / macOS: sha256sum -c Stealth-*.apk.sha256
+        - Windows: certutil -hashfile Stealth-*.apk SHA256
+
+        $CHANGELOG
+        "
+        echo "$NOTES"
+
+        if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+          gh release delete "$TAG" --yes --cleanup-tag || true
+        fi
+        APK=$(find app/build/outputs -name "*-release.apk" -type f | head -1)
+        APK_NAME="Stealth-${SHA}-android.apk"
+        cp "$APK" "$APK_NAME"
+        sha256sum "$APK_NAME" > "${APK_NAME}.sha256"
+        gh release create "$TAG" --title "$TITLE" --notes "$NOTES" \
+          --target "$SHA" "$APK_NAME" "${APK_NAME}.sha256"
+        echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
