@@ -122,6 +122,8 @@ jobs:
         APK_NAME="Stealth-${SHA}-android.apk"
         cp "$APK" "$APK_NAME"
         sha256sum "$APK_NAME" > "${APK_NAME}.sha256"
+        # No --target: gh tags the current HEAD; --target with a SHORT sha
+        # 422s (API wants the full commitish) — same as the armorpaint fork.
         gh release create "$TAG" --title "$TITLE" --notes "$NOTES" \
-          --target "$SHA" "$APK_NAME" "${APK_NAME}.sha256"
+          "$APK_NAME" "${APK_NAME}.sha256"
         echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
