@@ -37,9 +37,12 @@ jobs:
         set -euo pipefail
         # The keystore is written to the ephemeral runner workspace only; it
         # is never echoed and never enters the repository.
-        echo "$STEALTH_KEYSTORE_BASE64" | base64 -d > keystore.jks
-        chmod 600 keystore.jks
-        keytool -list -v -keystore keystore.jks -storetype JKS \
+        # NOTE: storeFile resolves against the Gradle project dir (app/), so
+        # the file MUST live at app/keystore.jks, not the repo root.
+        mkdir -p app
+        echo "$STEALTH_KEYSTORE_BASE64" | base64 -d > app/keystore.jks
+        chmod 600 app/keystore.jks
+        keytool -list -v -keystore app/keystore.jks -storetype JKS \
           -storepass "$STEALTH_KEYSTORE_PASSWORD" > /dev/null
         echo "keystore loads OK"
         cat > keystore.properties <<PROPEOF
