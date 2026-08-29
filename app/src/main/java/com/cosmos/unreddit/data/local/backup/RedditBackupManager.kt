@@ -15,6 +15,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.Listing
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.di.NetworkModule.RedditMoshi
+import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.squareup.moshi.Moshi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -36,14 +37,16 @@ class RedditBackupManager @Inject constructor(
     private val subredditMapper: SubredditMapper2,
     @RedditMoshi private val moshi: Moshi,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val preferencesRepository: PreferencesRepository
 ) : BackupManager(
     redditDatabase,
     profileMapper,
     subscriptionMapper,
     backupPostMapper,
     backupCommentMapper,
-    defaultDispatcher
+    defaultDispatcher,
+    preferencesRepository
 ) {
 
     override suspend fun import(uri: Uri): Result<List<Profile>> {

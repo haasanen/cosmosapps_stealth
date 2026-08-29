@@ -11,6 +11,7 @@ import com.cosmos.unreddit.data.model.backup.Profile
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.di.NetworkModule.BasicMoshi
+import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -35,14 +36,16 @@ class StealthBackupManager @Inject constructor(
     backupCommentMapper: BackupCommentMapper,
     @BasicMoshi private val moshi: Moshi,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val preferencesRepository: PreferencesRepository
 ) : BackupManager(
     redditDatabase,
     profileMapper,
     subscriptionMapper,
     backupPostMapper,
     backupCommentMapper,
-    defaultDispatcher
+    defaultDispatcher,
+    preferencesRepository
 ) {
 
     override suspend fun import(uri: Uri): Result<List<Profile>> {
