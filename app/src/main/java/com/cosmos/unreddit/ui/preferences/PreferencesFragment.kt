@@ -20,6 +20,7 @@ import com.cosmos.unreddit.data.model.preferences.ContentPreferences.Preferences
 import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT_SCRAP
+import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.ARCTIC
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.TEDDIT
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.databinding.LayoutPreferenceListBinding
@@ -213,6 +214,11 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                         null
                     )
                 }
+
+                ARCTIC -> {
+                    // Update value without asking for confirmation
+                    updateRedditSource(source.value)
+                }
             }
         }
     }
@@ -271,6 +277,8 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                                     value.second
                                 )
                             }
+
+                            ARCTIC -> getString(R.string.preference_reddit_source_arctic)
                         }
                         sourcePreference?.summary = summary
                     }

@@ -19,14 +19,19 @@ class CurrentSource @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val redditSource: RedditSource,
     private val redditScrapingSource: RedditScrapingSource,
-    private val tedditSource: TedditSource
+    private val tedditSource: TedditSource,
+    private val arcticShiftSource: ArcticShiftSource
 ) : BaseRedditSource {
 
     private val mutex = Mutex()
 
-    private var source: BaseRedditSource = runBlocking {
-        val sourceValue = preferencesRepository.getRedditSource().first()
-        getRedditSource(sourceValue)
+    private var source: BaseRedditSource
+    private var sourceType: DataPreferences.RedditSource
+
+    init {
+        val sourceValue = runBlocking { preferencesRepository.getRedditSource().first() }
+        sourceType = DataPreferences.RedditSource.fromValue(sourceValue)
+        source = getRedditSource(sourceValue)
     }
 
     override suspend fun getSubreddit(
@@ -89,8 +94,13 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // TODO: Replace by source when an endpoint is available for Teddit
-        return redditSource.searchPost(query, sort, timeSorting, after)
+        // Arctic has its own (prefix-based) search; the other sources fall back to the
+        // official API (TODO: Replace by source when an endpoint is available for Teddit)
+        return if (sourceType == DataPreferences.RedditSource.ARCTIC) {
+            source.searchPost(query, sort, timeSorting, after)
+        } else {
+            redditSource.searchPost(query, sort, timeSorting, after)
+        }
     }
 
     override suspend fun searchUser(
@@ -99,8 +109,13 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // TODO: Replace by source when an endpoint is available for Teddit
-        return redditSource.searchUser(query, sort, timeSorting, after)
+        // Arctic has its own (prefix-based) user search; other sources fall back to the
+        // official API (TODO: Replace by source when an endpoint is available for Teddit)
+        return if (sourceType == DataPreferences.RedditSource.ARCTIC) {
+            source.searchUser(query, sort, timeSorting, after)
+        } else {
+            redditSource.searchUser(query, sort, timeSorting, after)
+        }
     }
 
     override suspend fun searchSubreddit(
@@ -114,6 +129,7 @@ class CurrentSource @Inject constructor(
 
     suspend fun setRedditSource(value: Int) {
         mutex.withLock {
+            sourceType = DataPreferences.RedditSource.fromValue(value)
             source = getRedditSource(value)
         }
     }
@@ -123,6 +139,7 @@ class CurrentSource @Inject constructor(
             DataPreferences.RedditSource.REDDIT -> redditSource
             DataPreferences.RedditSource.TEDDIT -> tedditSource
             DataPreferences.RedditSource.REDDIT_SCRAP -> redditScrapingSource
+            DataPreferences.RedditSource.ARCTIC -> arcticShiftSource
         }
     }
 }

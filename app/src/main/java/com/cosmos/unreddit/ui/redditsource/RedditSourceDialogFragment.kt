@@ -63,6 +63,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
         binding.run {
             radioReddit.isChecked = source == DataPreferences.RedditSource.REDDIT
             radioRedditScrap.isChecked = source == DataPreferences.RedditSource.REDDIT_SCRAP
+            radioArctic.isChecked = source == DataPreferences.RedditSource.ARCTIC
 
             val isTeddit = source == DataPreferences.RedditSource.TEDDIT
 
@@ -90,6 +91,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
         val source = when (binding.radioGroup.checkedRadioButtonId) {
             R.id.radio_reddit -> DataPreferences.RedditSource.REDDIT
             R.id.radio_reddit_scrap -> DataPreferences.RedditSource.REDDIT_SCRAP
+            R.id.radio_arctic -> DataPreferences.RedditSource.ARCTIC
             R.id.radio_teddit -> DataPreferences.RedditSource.TEDDIT
             else -> DataPreferences.RedditSource.REDDIT
         }
