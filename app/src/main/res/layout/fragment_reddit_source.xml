@@ -35,6 +35,11 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:text="@string/preference_reddit_source_arctic"/>
+        <RadioButton
+            android:id="@+id/radio_reddit_official"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="@string/preference_reddit_source_reddit_official"/>
     </RadioGroup>
 
     <com.google.android.material.textfield.TextInputLayout

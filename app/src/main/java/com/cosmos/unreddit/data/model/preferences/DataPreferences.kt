@@ -16,7 +16,7 @@ data class DataPreferences(
     }
 
     enum class RedditSource(val value: Int) {
-        REDDIT(0), TEDDIT(1), REDDIT_SCRAP(2), ARCTIC(3);
+        REDDIT(0), TEDDIT(1), REDDIT_SCRAP(2), ARCTIC(3), REDDIT_OFFICIAL(4);
 
         companion object {
             fun fromValue(value: Int): RedditSource = values().find { it.value == value } ?: REDDIT
