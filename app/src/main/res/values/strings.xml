@@ -154,6 +154,8 @@
     <string name="preference_reddit_source_reddit">Reddit</string>
     <string name="preference_reddit_source_reddit_scrap">Reddit (Web Scraping)</string>
     <string name="preference_reddit_source_teddit">Teddit</string>
+    <string name="preference_reddit_source_arctic">Arctic Shift</string>
+    <string name="dialog_reddit_source_arctic_disclaimer_body">This is an experimental feature.\nThis source reads from a public archive. Only time-based sorting is available, content may be missing, and some features are not implemented.</string>
 
     <string name="preference_backup">Import/Export</string>
 
