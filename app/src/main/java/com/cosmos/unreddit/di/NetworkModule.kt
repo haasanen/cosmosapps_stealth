@@ -10,6 +10,8 @@ import com.cosmos.unreddit.data.remote.api.reddit.ArcticUserAgentInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.JsonInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.RedditApi
 import com.cosmos.unreddit.data.remote.api.reddit.RedditCookieJar
+import com.cosmos.unreddit.data.remote.api.reddit.RedditRssApi
+import com.cosmos.unreddit.data.remote.api.reddit.RedditRssUserAgentInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.SortingConverterFactory
 import com.cosmos.unreddit.data.remote.api.reddit.TedditApi
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.EditedAdapter
@@ -92,6 +94,14 @@ object NetworkModule {
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
     annotation class ArcticOkHttp
+
+    @Qualifier
+    @Retention(AnnotationRetention.BINARY)
+    annotation class Rss
+
+    @Qualifier
+    @Retention(AnnotationRetention.BINARY)
+    annotation class RssOkHttp
 
     @RedditMoshi
     @Provides
@@ -317,5 +327,31 @@ object NetworkModule {
             .client(okHttpClient)
             .build()
             .create(ArcticApi::class.java)
+    }
+
+    @RssOkHttp
+    @Provides
+    @Singleton
+    fun provideRssOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(RedditRssUserAgentInterceptor())
+            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
+            .readTimeout(TIMEOUT.first, TIMEOUT.second)
+            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
+            .build()
+    }
+
+    @Rss
+    @Provides
+    @Singleton
+    fun provideRedditRssApi(
+        @RssOkHttp okHttpClient: OkHttpClient
+    ): RedditRssApi {
+        // ResponseBody needs no converter factory
+        return Retrofit.Builder()
+            .baseUrl(RedditRssApi.BASE_URL)
+            .client(okHttpClient)
+            .build()
+            .create(RedditRssApi::class.java)
     }
 }

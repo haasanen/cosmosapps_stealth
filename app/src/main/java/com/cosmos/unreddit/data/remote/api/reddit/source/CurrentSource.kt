@@ -20,7 +20,8 @@ class CurrentSource @Inject constructor(
     private val redditSource: RedditSource,
     private val redditScrapingSource: RedditScrapingSource,
     private val tedditSource: TedditSource,
-    private val arcticShiftSource: ArcticShiftSource
+    private val arcticShiftSource: ArcticShiftSource,
+    private val redditOfficialSource: RedditOfficialSource
 ) : BaseRedditSource {
 
     private val mutex = Mutex()
@@ -94,12 +95,13 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // Arctic has its own (prefix-based) search; the other sources fall back to the
-        // official API (TODO: Replace by source when an endpoint is available for Teddit)
-        return if (sourceType == DataPreferences.RedditSource.ARCTIC) {
-            source.searchPost(query, sort, timeSorting, after)
-        } else {
-            redditSource.searchPost(query, sort, timeSorting, after)
+        // Arctic has its own (prefix-based) search; the "Reddit (official)" source has a
+        // working live full-text search; the other sources fall back to the official API
+        // (TODO: Replace by source when an endpoint is available for Teddit)
+        return when (sourceType) {
+            DataPreferences.RedditSource.ARCTIC -> source.searchPost(query, sort, timeSorting, after)
+            DataPreferences.RedditSource.REDDIT_OFFICIAL -> source.searchPost(query, sort, timeSorting, after)
+            else -> redditSource.searchPost(query, sort, timeSorting, after)
         }
     }
 
@@ -140,6 +142,7 @@ class CurrentSource @Inject constructor(
             DataPreferences.RedditSource.TEDDIT -> tedditSource
             DataPreferences.RedditSource.REDDIT_SCRAP -> redditScrapingSource
             DataPreferences.RedditSource.ARCTIC -> arcticShiftSource
+            DataPreferences.RedditSource.REDDIT_OFFICIAL -> redditOfficialSource
         }
     }
 }
