@@ -44,8 +44,9 @@ import javax.inject.Singleton
  * pre-fills the fields the generated adapters require but Arctic may omit (e.g.
  * `subreddit_name_prefixed`, `total_awards_received`).
  *
- * Pagination uses the `before` epoch cursor, which is **exclusive** on this API, so pages do
- * not overlap and no duplicate filtering is needed.
+ * Pagination uses epoch cursors on created_utc, both **exclusive** on this API (verified):
+ * newest-first pages replay the oldest item as `before`, oldest-first pages the newest item
+ * as `after`. Pages therefore do not overlap and no duplicate filtering is needed.
  *
  * Limitations (Arctic has no such endpoints or data):
  * - only time ordering is available (`sort=asc|desc`); HOT/TOP/RISING/... collapse to
@@ -84,7 +85,7 @@ class ArcticShiftSource @Inject constructor(
             val sub = subreddit.takeUnless { it.equals(POPULAR, ignoreCase = true) }
             fetchPostPage(sub, null, null, sort, timeSorting, after, LIMIT)
         }
-        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children), null))
+        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children, sortOrder(sort, timeSorting) == "asc"), null))
     }
 
     override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
@@ -103,7 +104,7 @@ class ArcticShiftSource @Inject constructor(
         after: String?
     ): Listing = withContext(ioDispatcher) {
         val children = fetchPostPage(subreddit, null, query, sort, timeSorting, after, LIMIT)
-        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children), null))
+        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children, sortOrder(sort, timeSorting) == "asc"), null))
     }
 
     //endregion
@@ -154,7 +155,7 @@ class ArcticShiftSource @Inject constructor(
         after: String?
     ): Listing = withContext(ioDispatcher) {
         val children = fetchPostPage(null, user, null, sort, timeSorting, after, LIMIT)
-        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children), null))
+        Listing(KIND_LISTING, ListingData(null, null, children, nextPostCursor(children, sortOrder(sort, timeSorting) == "asc"), null))
     }
 
     override suspend fun getUserComments(
@@ -163,17 +164,20 @@ class ArcticShiftSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
+        // Both cursors are exclusive on this API (verified), so `after` bounds asc pages.
         val cursor = parseCursor(after)
+        val ascending = sortOrder(sort, timeSorting) == "asc"
         val raw = arcticApi.searchComments(
             author = user,
             sort = sortOrder(sort, timeSorting),
-            before = cursor,
+            before = if (ascending) null else cursor,
+            after = if (ascending) cursor else null,
             limit = LIMIT
         )
         val children = jsonList(raw.string()).map { object_ ->
             CommentChild(parseComment(ensureCommentDefaults(object_, null, null)))
         }
-        Listing(KIND_LISTING, ListingData(null, null, children, nextCommentCursor(children), null))
+        Listing(KIND_LISTING, ListingData(null, null, children, nextCommentCursor(children, ascending), null))
     }
 
     //endregion
@@ -231,13 +235,17 @@ class ArcticShiftSource @Inject constructor(
         after: String?,
         limit: Int
     ): List<PostChild> {
+        // Both cursors are exclusive on this API (verified): `before` bounds desc pages,
+        // `after` bounds asc pages, so a page never repeats the cursor item.
         val cursor = parseCursor(after)
+        val ascending = sortOrder(sort, timeSorting) == "asc"
         val raw = arcticApi.searchPosts(
             subreddit = subreddit,
             author = author,
             query = query,
             sort = sortOrder(sort, timeSorting),
-            before = cursor,
+            before = if (ascending) null else cursor,
+            after = if (ascending) cursor else null,
             limit = limit
         )
         return jsonList(raw.string()).map { object_ ->
@@ -378,14 +386,20 @@ class ArcticShiftSource @Inject constructor(
     private fun parseCursor(after: String?): Long? = after?.toLongOrNull()
 
     /**
-     * `before` is exclusive on this API, so the minimum created_utc of the page is the next
-     * cursor without any overlap, for both asc and desc ordering.
+     * Emits the cursor for the next page: the oldest item (desc pages, replayed as `before`)
+     * or the newest item (asc pages, replayed as `after`). Both parameters are exclusive on
+     * this API (verified), so the cursor item is never repeated.
      */
-    private fun nextPostCursor(children: List<PostChild>): String? =
-        children.minByOrNull { it.data.created }?.let { it.data.created.toString() }
+    private fun nextPostCursor(children: List<PostChild>, ascending: Boolean = false): String? =
+        (if (ascending) children.maxByOrNull { it.data.created } else children.minByOrNull { it.data.created })
+            ?.let { it.data.created.toString() }
 
-    private fun nextCommentCursor(children: List<CommentChild>): String? =
-        children.minByOrNull { it.data.created }?.let { it.data.created.toString() }
+    private fun nextCommentCursor(
+        children: List<CommentChild>,
+        ascending: Boolean = false
+    ): String? =
+        (if (ascending) children.maxByOrNull { it.data.created } else children.minByOrNull { it.data.created })
+            ?.let { it.data.created.toString() }
 
     /** Extracts the `data` array of a `{"data": [...]}` Arctic response as raw maps. */
     private fun jsonList(body: String): List<Map<String, Any?>> {

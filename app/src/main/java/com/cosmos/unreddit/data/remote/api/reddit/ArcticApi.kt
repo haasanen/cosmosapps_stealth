@@ -23,6 +23,7 @@ interface ArcticApi {
         @Query("query") query: String? = null,
         @Query("sort") sort: String?,
         @Query("before") before: Long? = null,
+        @Query("after") after: Long? = null,
         @Query("limit") limit: Int? = null
     ): ResponseBody
 
@@ -34,6 +35,7 @@ interface ArcticApi {
         @Query("author") author: String? = null,
         @Query("sort") sort: String?,
         @Query("before") before: Long? = null,
+        @Query("after") after: Long? = null,
         @Query("limit") limit: Int? = null
     ): ResponseBody
 
