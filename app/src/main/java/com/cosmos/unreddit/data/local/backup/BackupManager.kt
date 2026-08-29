@@ -7,6 +7,7 @@ import com.cosmos.unreddit.data.local.mapper.BackupPostMapper
 import com.cosmos.unreddit.data.local.mapper.ProfileMapper
 import com.cosmos.unreddit.data.local.mapper.SubscriptionMapper
 import com.cosmos.unreddit.data.model.backup.Profile
+import com.cosmos.unreddit.data.repository.PreferencesRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -18,7 +19,8 @@ sealed class BackupManager(
     private val subscriptionMapper: SubscriptionMapper,
     private val backupPostMapper: BackupPostMapper,
     private val backupCommentMapper: BackupCommentMapper,
-    protected val defaultDispatcher: CoroutineDispatcher
+    protected val defaultDispatcher: CoroutineDispatcher,
+    private val preferencesRepository: PreferencesRepository
 ) {
 
     protected suspend fun getProfiles(): List<Profile> {
@@ -72,6 +74,10 @@ sealed class BackupManager(
                             commentDao.insert(*comments)
                         }
                 }
+
+                // The app resolves "current profile" from DataStore, so a newly
+                // imported profile would never be shown without this.
+                preferencesRepository.setCurrentProfile(id)
             }
         }
     }
