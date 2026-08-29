@@ -3,6 +3,7 @@ package com.cosmos.unreddit.data.remote.api.reddit.source
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.remote.api.reddit.ArcticApi
+import com.cosmos.unreddit.data.remote.api.reddit.EmbedApi
 import com.cosmos.unreddit.data.remote.api.reddit.RedditRssApi
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutData
@@ -17,8 +18,10 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.di.NetworkModule.Arctic
+import com.cosmos.unreddit.di.NetworkModule.Embed
 import com.cosmos.unreddit.di.NetworkModule.RedditMoshi
 import com.cosmos.unreddit.di.NetworkModule.Rss
+import okhttp3.Response
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
@@ -29,6 +32,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.ResponseBody
 import okio.Buffer
 import java.io.IOException
@@ -55,24 +60,30 @@ import javax.inject.Singleton
  * - Every subsequent page continues from the Arctic Shift archive, using the
  *   feed's oldest (desc) / newest (asc) `created_utc` as the exclusive epoch cursor
  *   (Arctic's cursor semantics, verified), so pages never overlap.
- * - Posts read from the feed are re-fetched by id from Arctic to restore the fields
- *   a feed lacks (score, comment count, NSFW flag, media, url). If the archive has
- *   not indexed a post yet (it is brand new) or the call fails (rate limit), the
- *   feed-derived object is kept as-is.
+ * - Posts read from the feed are restored in two stages: the archive (by id) adds the fields
+ *   a feed lacks (media, url, NSFW flag), and reddit.com's own live embed page
+ *   (embed.reddit.com) overlays the **live** upvote count and comment count. The archive is
+ *   not used for counts: it stores the placeholder values reddit hands anonymous clients
+ *   (`score: 1`, `num_comments: 0`) for fresh posts, which is why the feed-only app showed
+ *   wrong numbers. If the embed page cannot be read (rate limit, gone), the archive/feed
+ *   value is kept.
  * - Multi-subreddit lists skip the live feed (a 100-sub feed would be 100 anonymous
  *   requests, which hits the rate limit) and use the archive directly.
  *
  * Limitations (documented, not bugs):
  * - no live feed for CONTROVERSIAL/OLD/RELEVANCE sorts or multi-sub lists (archive),
- * - scores are unknown for brand-new posts until Arctic indexes them (shown as 0),
+ * - the feed channel caps at the first ~25 posts (no feed cursor) - deeper pages come
+ *   from the archive,
  * - in-subreddit search: page 1 is live (relevance), pages 2+ come from the archive
  *   in time order,
- * - post detail, comment trees, subreddit/user info and scoped searches are served
- *   by the archive (delegated to [ArcticShiftSource]).
+ * - comment trees, subreddit/user info and scoped searches are served by the archive
+ *   (delegated to [ArcticShiftSource]); the post itself in a detail view gets its live
+ *   counts from the embed page.
  */
 @Singleton
 class RedditOfficialSource @Inject constructor(
     @Rss private val rssApi: RedditRssApi,
+    @Embed private val embedApi: EmbedApi,
     @Arctic private val arcticApi: ArcticApi,
     private val arcticShiftSource: ArcticShiftSource,
     @RedditMoshi moshi: Moshi,
@@ -181,7 +192,32 @@ class RedditOfficialSource @Inject constructor(
 
     // Delegated to the archive: the feed channel has no post-detail or tree endpoint
     override suspend fun getPost(permalink: String, limit: Int?, sort: Sort): List<Listing> =
-        arcticShiftSource.getPost(permalink, limit, sort)
+        withContext(ioDispatcher) {
+            val listings = arcticShiftSource.getPost(permalink, limit, sort)
+            if (listings.size < 1) return@withContext listings
+            val postListing = listings[0]
+            val post = postListing.data.children.firstOrNull { it is PostChild } as? PostChild
+                ?: return@withContext listings
+            // Overlay the live counts from reddit.com's own embed page. Arctic stores the
+            // placeholder (1/0) values reddit hands anonymous clients for fresh posts, so the
+            // archive-derived post would otherwise show wrong score/comment count.
+            val overlaid = runCatching { enrichCountsFromEmbed(listOf(post)).first() }.getOrDefault(post)
+            if (overlaid == post) return@withContext listings
+            val newChildren = postListing.data.children.map {
+                if (it is PostChild && it.data.name == post.data.name) overlaid else it
+            }
+            val newListing = Listing(
+                postListing.kind,
+                ListingData(
+                    postListing.data.modhash,
+                    postListing.data.dist,
+                    newChildren,
+                    postListing.data.after,
+                    postListing.data.before
+                )
+            )
+            listings.mapIndexed { index, listing -> if (index == 0) newListing else listing }
+        }
 
     override suspend fun getMoreChildren(children: String, linkId: String): MoreChildren =
         arcticShiftSource.getMoreChildren(children, linkId)
@@ -454,14 +490,24 @@ class RedditOfficialSource @Inject constructor(
     }
 
     /**
-     * Re-fetches feed posts by id from the archive to restore the fields a feed lacks
-     * (score, comment count, NSFW, media, url). Falls back to the feed-derived object
-     * when the archive does not have the post yet (brand new) or the call fails
-     * (rate limit).
+     * Restores the fields an Atom feed does not carry. Two official/authoritative sources:
+     *
+     *  1. The Arctic archive (by id) restores media, url and the NSFW flag - fields reddit's
+     *     feeds omit entirely.
+     *  2. reddit.com's own live embed page (`embed.reddit.com`) supplies the **live** upvote
+     *     count and comment count. This is the fix for the "score 1 / 0 comments" bug: the
+     *     anonymous `.json` API is bot-walled (403) and the public Arctic archive only stores
+     *     the placeholder values reddit hands anonymous clients (`score: 1`, `num_comments: 0`)
+     *     for fresh posts. The embed page is reddit.com itself and renders the real numbers
+     *     server-side, so it is the official source of truth for counts.
+     *
+     * Each stage is defensive: a failure in one (rate limit, 404, post not yet indexed) keeps
+     * whatever the previous stage produced, so a live feed page never degrades to empty.
      */
     private suspend fun enrichPosts(posts: List<PostChild>): List<PostChild> {
         if (posts.isEmpty()) return posts
-        return runCatching {
+        // Stage 1 - archive: media / url / NSFW (feeds carry none of these).
+        val archiveEnriched = runCatching {
             val ids = posts.joinToString(",") { it.data.name }
             val raw = arcticApi.getPostByIds(ids)
             // The response body is consumable exactly once - parse it into a map first
@@ -478,7 +524,58 @@ class RedditOfficialSource @Inject constructor(
                     ?: post
             }
         }.getOrElse { posts }
+        // Stage 2 - official embed: live score + comment count.
+        return enrichCountsFromEmbed(archiveEnriched)
     }
+
+    /**
+     * Overlays the live upvote count and comment count from reddit.com's own embed page on to
+     * each post. Fetched in bounded parallel (the embed endpoint tolerates parallelism - 12/12
+     * concurrent verified); a failed fetch for one post keeps that post's previous counts.
+     */
+    private suspend fun enrichCountsFromEmbed(posts: List<PostChild>): List<PostChild> {
+        if (posts.isEmpty()) return posts
+        return coroutineScope {
+            val semaphore = Semaphore(EMBED_CONCURRENCY)
+            posts.map { post ->
+                async {
+                    semaphore.withPermit {
+                        runCatching {
+                            val (score, comments) = fetchEmbedCounts(
+                                post.data.subreddit,
+                                barePostId(post.data.name)
+                            )
+                            if (score == null && comments == null) post
+                            else post.copy(
+                                data = post.data.copy(
+                                    score = score ?: post.data.score,
+                                    commentsNumber = comments ?: post.data.commentsNumber
+                                )
+                            )
+                        }.getOrDefault(post)
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    /**
+     * Reads one official embed page and extracts the live upvote count and comment count.
+     * Both are `null` when the page does not expose them (caller keeps the prior value).
+     */
+    private suspend fun fetchEmbedCounts(subreddit: String, postId: String): Pair<Int?, Int?> {
+        if (subreddit.isBlank() || postId.isBlank()) return null to null
+        val body = embedApi.postEmbed(subreddit, postId).use { it.string() }
+        val score = EMBED_SCORE_REGEX.find(body)?.groupValues?.get(1)?.toIntOrNull()
+        val comments = EMBED_COMMENTS_REGEX.find(body)?.groupValues?.get(1)?.toIntOrNull()
+        return score to comments
+    }
+
+    /**
+     * The embed URL uses the bare post id (`1w1h4t0`), while [PostData.name] carries the
+     * reddit `t3_` prefix (`t3_1w1h4t0`). Strip the prefix if present.
+     */
+    private fun barePostId(name: String): String = name.removePrefix("t3_")
 
     /** Emits the epoch cursor for the next archive page (oldest for desc, newest for asc). */
     private fun nextCursor(children: List<Child>, ascending: Boolean = false): String? {
@@ -645,6 +742,17 @@ class RedditOfficialSource @Inject constructor(
         private const val POPULAR = "popular"
         private const val PAGE_LIMIT = 100
         private const val RETRY_DELAY_MS = 10_000L
+        // Max concurrent embed.reddit.com fetches. The endpoint tolerates parallelism
+        // (12/12 verified) but we cap at 6 to stay well under any hidden throttle.
+        private const val EMBED_CONCURRENCY = 6
+
+        // Live counts from reddit.com's own embed page (see fetchEmbedCounts).
+        // e.g.  <faceplate-number number="13432" pretty></faceplate-number> upvotes
+        //       View 1086 comments
+        private val EMBED_SCORE_REGEX =
+            Regex("<faceplate-number[^>]*number=\"(\\d+)\"[^>]*>[\\s\\S]*?</faceplate-number>\\s*upvotes")
+        private val EMBED_COMMENTS_REGEX =
+            Regex("View\\s+([\\d,]+)\\s+comments?")
 
         private val ENTRY_REGEX = Regex("<entry>(.*?)</entry>", RegexOption.DOT_MATCHES_ALL)
         private val TAG_ID = Regex("<id>(.*?)</id>")

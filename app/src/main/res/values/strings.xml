@@ -156,7 +156,7 @@
     <string name="preference_reddit_source_teddit">Teddit</string>
     <string name="preference_reddit_source_arctic">Arctic Shift</string>
     <string name="preference_reddit_source_reddit_official">Reddit (official)</string>
-    <string name="dialog_reddit_source_official_disclaimer_body">This is an experimental feature.\nThe first page of feeds, search and user lists is read live from reddit.com. The rest (older pages, post details and comments) is served by a public archive, so content there may be slightly delayed or missing.\nScores and comment counts of very new posts may be unavailable until the archive indexes them.</string>
+    <string name="dialog_reddit_source_official_disclaimer_body">This is an experimental feature.\nThe first page of feeds, search and user lists is read live from reddit.com, with upvote and comment counts taken live from reddit.com as well. Older pages, post details and comments are served by a public archive, so content there may be slightly delayed or missing.</string>
     <string name="dialog_reddit_source_arctic_disclaimer_body">This is an experimental feature.\nThis source reads from a public archive. Only time-based sorting is available, content may be missing, and some features are not implemented.</string>
 
     <string name="preference_backup">Import/Export</string>

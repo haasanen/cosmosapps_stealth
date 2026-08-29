@@ -7,6 +7,8 @@ import com.cosmos.unreddit.data.remote.api.imgur.ImgurApi
 import com.cosmos.unreddit.data.remote.api.imgur.adapter.AlbumDataAdapter
 import com.cosmos.unreddit.data.remote.api.reddit.ArcticApi
 import com.cosmos.unreddit.data.remote.api.reddit.ArcticUserAgentInterceptor
+import com.cosmos.unreddit.data.remote.api.reddit.EmbedApi
+import com.cosmos.unreddit.data.remote.api.reddit.EmbedUserAgentInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.JsonInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.RedditApi
 import com.cosmos.unreddit.data.remote.api.reddit.RedditCookieJar
@@ -102,6 +104,14 @@ object NetworkModule {
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
     annotation class RssOkHttp
+
+    @Qualifier
+    @Retention(AnnotationRetention.BINARY)
+    annotation class Embed
+
+    @Qualifier
+    @Retention(AnnotationRetention.BINARY)
+    annotation class EmbedOkHttp
 
     @RedditMoshi
     @Provides
@@ -353,5 +363,31 @@ object NetworkModule {
             .client(okHttpClient)
             .build()
             .create(RedditRssApi::class.java)
+    }
+
+    @EmbedOkHttp
+    @Provides
+    @Singleton
+    fun provideEmbedOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(EmbedUserAgentInterceptor())
+            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
+            .readTimeout(TIMEOUT.first, TIMEOUT.second)
+            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
+            .build()
+    }
+
+    @Embed
+    @Provides
+    @Singleton
+    fun provideEmbedApi(
+        @EmbedOkHttp okHttpClient: OkHttpClient
+    ): EmbedApi {
+        // ResponseBody needs no converter factory
+        return Retrofit.Builder()
+            .baseUrl(EmbedApi.BASE_URL)
+            .client(okHttpClient)
+            .build()
+            .create(EmbedApi::class.java)
     }
 }
