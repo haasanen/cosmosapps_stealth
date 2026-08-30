@@ -153,7 +153,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
         )?.apply {
             setOnPreferenceClickListener {
                 viewModel.redditSource.latest?.let { source ->
-                    showRedditSourceDialog(source.first, source.second)
+                    showRedditSourceDialog(source.first)
                 }
                 true
             }
@@ -328,12 +328,10 @@ class PreferencesFragment : PreferenceFragmentCompat() {
         viewModel.setNightMode(mode)
     }
 
-    private fun showRedditSourceDialog(source: Int, instance: String) {
+    private fun showRedditSourceDialog(source: Int) {
         RedditSourceDialogFragment.show(
             childFragmentManager,
-            DataPreferences.RedditSource.fromValue(source),
-            instance,
-            viewModel.tedditInstances
+            DataPreferences.RedditSource.fromValue(source)
         )
     }
 
