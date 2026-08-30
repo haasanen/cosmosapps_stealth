@@ -2,90 +2,69 @@ package com.cosmos.unreddit.data.remote.api.reddit.source
 
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.TimeSorting
-import com.cosmos.unreddit.data.remote.api.reddit.ArcticApi
-import com.cosmos.unreddit.data.remote.api.reddit.EmbedApi
-import com.cosmos.unreddit.data.remote.api.reddit.RedditRssApi
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutData
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutUserChild
+import com.cosmos.unreddit.data.remote.api.reddit.model.AboutUserData
 import com.cosmos.unreddit.data.remote.api.reddit.model.Child
 import com.cosmos.unreddit.data.remote.api.reddit.model.CommentChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.CommentData
+import com.cosmos.unreddit.data.remote.api.reddit.model.Data
+import com.cosmos.unreddit.data.remote.api.reddit.model.JsonMore
 import com.cosmos.unreddit.data.remote.api.reddit.model.Listing
 import com.cosmos.unreddit.data.remote.api.reddit.model.ListingData
 import com.cosmos.unreddit.data.remote.api.reddit.model.MoreChildren
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
-import com.cosmos.unreddit.di.NetworkModule.Arctic
-import com.cosmos.unreddit.di.NetworkModule.Embed
 import com.cosmos.unreddit.di.NetworkModule.RedditMoshi
-import com.cosmos.unreddit.di.NetworkModule.Rss
-import okhttp3.Response
+import com.cosmos.unreddit.di.NetworkModule.RedditScrapOkHttp
 import com.squareup.moshi.JsonAdapter
-import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
+import java.io.IOException
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import okhttp3.ResponseBody
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import okio.Buffer
-import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
-import javax.inject.Inject
-import javax.inject.Singleton
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 /**
- * "Reddit (official)" backend: reads the **live** www.reddit.com Atom (RSS) feeds and
- * falls back to the [ArcticShiftSource] archive for everything a feed cannot carry.
+ * "Reddit (official)" backend. Reads the **server-rendered** HTML that reddit.com itself
+ * ships to a browser and parses it with jsoup. It is fully independent of the Arctic Shift
+ * archive and of the RSS/embed channels: every screen is served by reddit.com's own pages.
  *
- * Why this design (verified live 2026-08-29):
- * - the `.json` API and the HTML pages of reddit.com require a login (403 / login wall);
- * - the `…/.rss` Atom feeds are the only reddit.com endpoints that still answer
- *   anonymously and return full post data,
- * - a feed carries at most ~25-30 entries and has **no pagination cursor**.
- *
- * Behaviour:
- * - First page of a single-subreddit feed (HOT/NEW/TOP/RISING), the home feed
- *   (`r/popular`), in-subreddit search, global search and user post/comment lists
- *   come from the live feed.
- * - Every subsequent page continues from the Arctic Shift archive, using the
- *   feed's oldest (desc) / newest (asc) `created_utc` as the exclusive epoch cursor
- *   (Arctic's cursor semantics, verified), so pages never overlap.
- * - Posts read from the feed are restored in two stages: the archive (by id) adds the fields
- *   a feed lacks (media, url, NSFW flag), and reddit.com's own live embed page
- *   (embed.reddit.com) overlays the **live** upvote count and comment count. The archive is
- *   not used for counts: it stores the placeholder values reddit hands anonymous clients
- *   (`score: 1`, `num_comments: 0`) for fresh posts, which is why the feed-only app showed
- *   wrong numbers. If the embed page cannot be read (rate limit, gone), the archive/feed
- *   value is kept.
- * - Multi-subreddit lists skip the live feed (a 100-sub feed would be 100 anonymous
- *   requests, which hits the rate limit) and use the archive directly.
- *
- * Limitations (documented, not bugs):
- * - no live feed for CONTROVERSIAL/OLD/RELEVANCE sorts or multi-sub lists (archive),
- * - the feed channel caps at the first ~25 posts (no feed cursor) - deeper pages come
- *   from the archive,
- * - in-subreddit search: page 1 is live (relevance), pages 2+ come from the archive
- *   in time order,
- * - comment trees, subreddit/user info and scoped searches are served by the archive
- *   (delegated to [ArcticShiftSource]); the post itself in a detail view gets its live
- *   counts from the embed page.
+ * Contract notes (verified against live reddit.com captures):
+ *  - Feeds: `https://www.reddit.com/r/{sub}/{sort}/?count=25&after=t3_xxx` renders
+ *    `shreddit-post` cards; `shreddit-ad-post` (ads) is a different tag and is never
+ *    selected, so ads drop out. Deep pagination is the main-page `after=t3_<fullname>`
+ *    param (verified: clean 10-unique chain, no overlap).
+ *  - Post detail: `https://www.reddit.com/r/{sub}/comments/{id}/{slug}/` renders the OP
+ *    (`shreddit-post view-context="CommentsPage"`) plus ~25 `shreddit-comment` cards in
+ *    depth order. Comment bodies are lazy: each card carries a `reload-url`
+ *    (`/svc/shreddit/comment/{t1_id}?…`) that returns the card with its markdown body, so
+ *    the bodies are fetched in bounded parallel. A slugless detail URL is a JS shell, so
+ *    the feed-supplied slug permalink is required.
+ *  - A Cloudflare challenge page (small body + "Just a moment") is retried, then surfaced
+ *    as an error. There is deliberately NO silent fallback to another source.
  */
 @Singleton
 class RedditOfficialSource @Inject constructor(
-    @Rss private val rssApi: RedditRssApi,
-    @Embed private val embedApi: EmbedApi,
-    @Arctic private val arcticApi: ArcticApi,
-    private val arcticShiftSource: ArcticShiftSource,
+    @RedditScrapOkHttp private val okHttpClient: OkHttpClient,
     @RedditMoshi moshi: Moshi,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : BaseRedditSource {
@@ -101,66 +80,19 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val ascending = sort == Sort.OLD
-        val children = when {
-            // Continuation pages always come from the archive (a feed has no cursor)
-            after != null -> if (subreddit.contains("+")) {
-                fetchMergedArchive(subreddit.split("+"), sort, timeSorting, after)
-            } else {
-                archivePostPage(
-                    subreddit.takeUnless { it.equals(POPULAR, ignoreCase = true) },
-                    null, null, sort, timeSorting, after
-                )
-            }
-
-            // Multi-sub lists use the archive directly (see class KDoc for the reason)
-            subreddit.contains("+") -> fetchMergedArchive(
-                subreddit.split("+"), sort, timeSorting, null
-            )
-
-            // Live first page for the sorts that exist as feeds; any live failure
-            // (rate limit, block, missing feed variant) degrades to the archive
-            else -> runCatching {
-                when (sort) {
-                    Sort.HOT -> parseFeedPosts(
-                        fetchFeed { rssApi.subredditFeed(rssSubreddit(subreddit)) }
-                    )
-
-                    Sort.NEW -> parseFeedPosts(
-                        fetchFeed { rssApi.subredditNewFeed(rssSubreddit(subreddit)) }
-                    )
-
-                    Sort.TOP -> parseFeedPosts(
-                        fetchFeed {
-                            rssApi.subredditTopFeed(
-                                rssSubreddit(subreddit),
-                                timeSorting?.type ?: "hour"
-                            )
-                        }
-                    )
-
-                    Sort.RISING -> parseFeedPosts(
-                        fetchFeed { rssApi.subredditRisingFeed(rssSubreddit(subreddit)) }
-                    )
-
-                    // No live feed for these sorts; the archive orders by time
-                    else -> null
-                }
-            }.getOrNull() ?: runCatching {
-                archivePostPage(
-                    subreddit.takeUnless { it.equals(POPULAR, ignoreCase = true) },
-                    null, null, sort, timeSorting, null
-                )
-            }.getOrDefault(emptyList())
-        }
+        val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = parsePostCards(doc)
         Listing(
             KIND_LISTING,
-            ListingData(null, null, children, nextCursor(children, ascending), null)
+            ListingData(null, children.size, children, nextPostCursor(children), null)
         )
     }
 
-    override suspend fun getSubredditInfo(subreddit: String): Child =
-        arcticShiftSource.getSubredditInfo(subreddit)
+    override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
+        val doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$subreddit/"))
+        AboutChild(buildAboutData(subreddit, doc))
+    }
 
     override suspend fun searchInSubreddit(
         subreddit: String,
@@ -169,63 +101,82 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val ascending = sort == Sort.OLD
-        val children = if (after != null) {
-            archivePostPage(subreddit, null, query, sort, timeSorting, after)
-        } else {
-            // Live relevance-ordered page 1; degrades to the archive on any failure
-            runCatching {
-                parseFeedPosts(
-                    fetchFeed { rssApi.subredditSearchFeed(rssSubreddit(subreddit), query) }
-                )
-            }.getOrNull() ?: runCatching {
-                archivePostPage(subreddit, null, query, sort, timeSorting, null)
-            }.getOrDefault(emptyList())
+        val url = buildString {
+            append("https://www.reddit.com/r/$subreddit/search/?q=")
+            append(encode(query))
+            append("&restrict_sr=1&sort=")
+            append(searchSort(sort))
+            if (!after.isNullOrBlank()) append("&after=").append(after)
         }
-        Listing(
-            KIND_LISTING,
-            ListingData(null, null, children, nextCursor(children, ascending), null)
-        )
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = parsePostCards(doc)
+        Listing(KIND_LISTING, ListingData(null, children.size, children, nextPostCursor(children), null))
     }
 
     //endregion
 
-    // Delegated to the archive: the feed channel has no post-detail or tree endpoint
+    //region Post detail
+
     override suspend fun getPost(permalink: String, limit: Int?, sort: Sort): List<Listing> =
         withContext(ioDispatcher) {
-            val listings = arcticShiftSource.getPost(permalink, limit, sort)
-            if (listings.size < 1) return@withContext listings
-            val postListing = listings[0]
-            val post = postListing.data.children.firstOrNull { it is PostChild } as? PostChild
-                ?: return@withContext listings
-            // Overlay the live counts from reddit.com's own embed page. Arctic stores the
-            // placeholder (1/0) values reddit hands anonymous clients for fresh posts, so the
-            // archive-derived post would otherwise show wrong score/comment count.
-            val overlaid = runCatching { enrichCountsFromEmbed(listOf(post)).first() }.getOrDefault(post)
-            if (overlaid == post) return@withContext listings
-            val newChildren = postListing.data.children.map {
-                if (it is PostChild && it.data.name == post.data.name) overlaid else it
-            }
-            val newListing = Listing(
-                postListing.kind,
-                ListingData(
-                    postListing.data.modhash,
-                    postListing.data.dist,
-                    newChildren,
-                    postListing.data.after,
-                    postListing.data.before
-                )
+            val url = if (permalink.startsWith("/")) "https://www.reddit.com$permalink"
+            else "https://www.reddit.com/$permalink"
+            val doc = Jsoup.parse(fetchPage(url))
+
+            val opElement = doc.select("shreddit-post").firstOrNull { it.attr("view-context") == "CommentsPage" }
+                ?: doc.select("shreddit-post").firstOrNull()
+                ?: throw IOException("Post not found: $permalink")
+            val op = postChildFromElement(opElement)
+                ?: throw IOException("Post not found: $permalink")
+
+            val postListing = Listing(
+                KIND_LISTING,
+                ListingData(null, null, listOf(op), null, null)
             )
-            listings.mapIndexed { index, listing -> if (index == 0) newListing else listing }
+
+            val comments = fetchComments(doc, op.data.subreddit, op.data.name, op.data.title)
+            val commentsListing = Listing(
+                KIND_LISTING,
+                ListingData(null, comments.size, comments, null, null)
+            )
+
+            listOf(postListing, commentsListing)
         }
 
     override suspend fun getMoreChildren(children: String, linkId: String): MoreChildren =
-        arcticShiftSource.getMoreChildren(children, linkId)
+        withContext(ioDispatcher) {
+            val ids = children.split(",").map { it.trim() }.filter { it.startsWith("t1_") }
+            val base = "https://www.reddit.com"
+            val things = ids.mapNotNull { id ->
+                runCatching {
+                    val body = fetchPartial("$base/svc/shreddit/comment/$id") ?: return@runCatching null
+                    val d = Jsoup.parse(body)
+                    val el = d.select("shreddit-comment").firstOrNull() ?: return@runCatching null
+                    buildCommentChild(
+                        name = el.attr("thingId").ifBlank { id },
+                        author = el.attr("author"),
+                        depth = el.attr("depth").toIntOrNull() ?: 0,
+                        createdAttr = el.attr("created"),
+                        scoreAttr = el.attr("score"),
+                        permalink = el.attr("permalink"),
+                        linkId = linkId,
+                        subreddit = null,
+                        linkTitle = null,
+                        bodyHtml = d.select(".md").firstOrNull()?.html() ?: ""
+                    )
+                }.getOrNull()
+            }
+            MoreChildren(JsonMore(Data(things)))
+        }
+
+    //endregion
 
     //region User
 
-    override suspend fun getUserInfo(user: String): Child =
-        arcticShiftSource.getUserInfo(user)
+    override suspend fun getUserInfo(user: String): Child = withContext(ioDispatcher) {
+        val doc = Jsoup.parse(fetchPage("https://www.reddit.com/user/$user/"))
+        AboutUserChild(buildAboutUserData(user, doc))
+    }
 
     override suspend fun getUserPosts(
         user: String,
@@ -233,21 +184,10 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val ascending = sort == Sort.OLD
-        val children = if (after != null) {
-            arcticShiftSource.getUserPosts(user, sort, timeSorting, after).data.children
-        } else {
-            // /user/{u}/new/.rss lists the user's submissions (t3 entries; parseFeedPosts
-            // drops t1 comment entries); degrades to the archive on any failure
-            runCatching {
-                parseFeedPosts(fetchFeed { rssApi.userPostsFeed(user) })
-            }.getOrNull()
-                ?: arcticShiftSource.getUserPosts(user, sort, timeSorting, null).data.children
-        }
-        Listing(
-            KIND_LISTING,
-            ListingData(null, null, children, nextCursor(children, ascending), null)
-        )
+        val url = userPageUrl(user, sort, after)
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = parsePostCards(doc)
+        Listing(KIND_LISTING, ListingData(null, children.size, children, nextPostCursor(children), null))
     }
 
     override suspend fun getUserComments(
@@ -256,21 +196,13 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val ascending = sort == Sort.OLD
-        val children = if (after != null) {
-            arcticShiftSource.getUserComments(user, sort, timeSorting, after).data.children
-        } else {
-            // /user/{u}/.rss mixes comments and submissions; keep t1 entries only,
-            // degrading to the archive on any failure
-            runCatching {
-                parseFeedComments(fetchFeed { rssApi.userCommentsFeed(user) })
-            }.getOrNull()
-                ?: arcticShiftSource.getUserComments(user, sort, timeSorting, null).data.children
+        val url = buildString {
+            append("https://www.reddit.com/user/$user/comments/?count=").append(PAGE_SIZE)
+            if (!after.isNullOrBlank()) append("&after=").append(after)
         }
-        Listing(
-            KIND_LISTING,
-            ListingData(null, null, children, nextCursor(children, ascending), null)
-        )
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = parseProfileComments(doc, user)
+        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
     }
 
     //endregion
@@ -283,19 +215,13 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val ascending = sort == Sort.OLD
-        val children = if (after != null) {
-            // The live feed is a single page and Arctic's global full-text search is
-            // not supported (it requires a subreddit/author scope), so continuation
-            // terminates here with an empty page
-            emptyList<PostChild>()
-        } else {
-            parseFeedPosts(fetchFeed { rssApi.globalSearchFeed(query) })
+        val url = buildString {
+            append("https://www.reddit.com/search/?q=").append(encode(query))
+            append("&sort=").append(searchSort(sort))
         }
-        Listing(
-            KIND_LISTING,
-            ListingData(null, null, children, nextCursor(children, ascending), null)
-        )
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = parseSearchPostBlocks(doc)
+        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
     }
 
     override suspend fun searchUser(
@@ -303,316 +229,490 @@ class RedditOfficialSource @Inject constructor(
         sort: Sort?,
         timeSorting: TimeSorting?,
         after: String?
-    ): Listing = arcticShiftSource.searchUser(query, sort, timeSorting, after)
+    ): Listing = withContext(ioDispatcher) {
+        val url = "https://www.reddit.com/search/?q=${encode(query)}&type=user"
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = doc.select("a[href^=/user/]").mapNotNull { a ->
+            val name = a.attr("href")
+                .removePrefix("/user/")
+                .trimEnd('/')
+                .takeIf { it.isNotEmpty() && !it.contains('/') }
+                ?: return@mapNotNull null
+            AboutUserChild(
+                AboutUserData(
+                    subreddit = null,
+                    id = null,
+                    iconImg = a.selectFirst("img")?.attr("src"),
+                    name = name,
+                    snoovatarImg = null
+                )
+            )
+        }.distinctBy { (it as AboutUserChild).data.name }
+        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
+    }
 
     override suspend fun searchSubreddit(
         query: String,
         sort: Sort?,
         timeSorting: TimeSorting?,
         after: String?
-    ): Listing = arcticShiftSource.searchSubreddit(query, sort, timeSorting, after)
+    ): Listing = withContext(ioDispatcher) {
+        val url = "https://www.reddit.com/search/?q=${encode(query)}&type=community"
+        val doc = Jsoup.parse(fetchPage(url))
+        val children = doc.select("[data-testid=search-community]").mapNotNull { block ->
+            val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
+                ?: ""
+            val name = TRACKER_SUB_NAME.find(tracker)?.groupValues?.get(1)
+                ?: block.selectFirst("a[href^=/r/]")?.attr("href")?.removePrefix("/r/")?.trimEnd('/')
+                ?: block.text().removePrefix("r/").trim().takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            val icon = block.selectFirst("img")?.attr("src")
+            AboutChild(
+                AboutData(
+                    wikiEnabled = null,
+                    displayName = name,
+                    headerImg = null,
+                    title = name,
+                    primaryColor = null,
+                    activeUserCount = null,
+                    iconImg = icon,
+                    subscribers = null,
+                    quarantine = null,
+                    publicDescriptionHtml = "",
+                    communityIcon = "",
+                    bannerBackgroundImage = "",
+                    keyColor = null,
+                    bannerBackgroundColor = null,
+                    over18 = null,
+                    descriptionHtml = "",
+                    url = "/r/$name/",
+                    created = 0L
+                )
+            )
+        }
+        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
+    }
 
     //endregion
 
-    //region Feed parsing
+    //region HTTP
+
+    /** Fetches a full page, retrying on challenge/failure, then throws if unusable. */
+    private suspend fun fetchPage(url: String): String {
+        for (attempt in 0 until SSR_RETRIES) {
+            val body = doGet(url, "GET", forPartial = false)
+            if (body != null && !isCloudflareChallenge(body)) return body
+            if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
+        }
+        throw IOException(
+            "reddit.com did not return a usable page (Cloudflare challenge or rate limit). Please try again."
+        )
+    }
 
     /**
-     * Fetches a feed body, retrying once after a delay when the response is not a
-     * feed (rate-limit / challenge page). The feeds have no pagination, so a single
-     * retry is all that makes sense.
+     * Fetches a lazy partial (comment body). Tries GET then POST; returns the body or null.
+     * A null body means the caller degrades gracefully (e.g. an empty comment body) instead
+     * of failing the whole detail page.
      */
-    private suspend fun fetchFeed(block: suspend () -> ResponseBody): String {
-        val first = runCatching { block().string() }.getOrNull()
-        if (isFeed(first)) return first!!
-        delay(RETRY_DELAY_MS)
-        val second = runCatching { block().string() }.getOrNull()
-        if (isFeed(second)) return second!!
-        throw IOException("reddit.com RSS feed unavailable (blocked or rate limited)")
-    }
-
-    private fun isFeed(body: String?): Boolean =
-        body != null && body.contains("<feed", ignoreCase = true) &&
-            body.contains("<entry", ignoreCase = true)
-
-    private fun rssSubreddit(subreddit: String): String =
-        if (subreddit.equals(POPULAR, ignoreCase = true)) POPULAR else subreddit
-
-    /** Parses a post feed into [PostChild]s and re-fetches full objects from the archive. */
-    private suspend fun parseFeedPosts(xml: String): List<PostChild> {
-        val entries = splitEntries(xml)
-            .filter { idOf(it)?.startsWith("t3_") == true }
-            .mapNotNull { entry -> feedToPostMap(entry)?.let { it.toMutableMap() } }
-        if (entries.isEmpty()) return emptyList()
-        val posts = entries.map { map ->
-            runCatching { PostChild(parsePost(ensurePostDefaults(map, str(map, "subreddit")))) }
-                .getOrNull()
-        }.filterNotNull()
-        return enrichPosts(posts)
-    }
-
-    /** Parses a comment feed into [CommentChild]s. */
-    private fun parseFeedComments(xml: String): List<CommentChild> =
-        splitEntries(xml)
-            .mapNotNull { entry -> feedToCommentMap(entry)?.let { it.toMutableMap() } }
-            .mapNotNull { map ->
-                runCatching { CommentChild(parseComment(ensureCommentDefaults(map))) }
-                    .getOrNull()
-            }
-
-    //region Feed field extraction
-
-    private fun splitEntries(xml: String): List<String> =
-        ENTRY_REGEX.findAll(xml).map { it.groupValues[1] }.toList()
-
-    private fun idOf(entry: String): String? = TAG_ID.find(entry)?.groupValues?.get(1)
-
-    private fun titleOf(entry: String): String =
-        unescapeXml(TAG_TITLE.find(entry)?.groupValues?.get(1) ?: "")
-
-    private fun dateOf(entry: String): Long? =
-        (TAG_PUBLISHED.find(entry) ?: TAG_UPDATED.find(entry))
-            ?.groupValues?.get(1)
-            ?.let(::parseFeedDate)
-
-    private fun contentOf(entry: String): String =
-        unescapeXml(TAG_CONTENT.find(entry)?.groupValues?.get(1) ?: "")
-
-    private fun linkOf(entry: String): String? =
-        TAG_LINK.find(entry)?.groupValues?.get(1)
-
-    /** Builds the Reddit-JSON-shaped post object a feed entry provides. */
-    private fun feedToPostMap(entry: String): Map<String, Any?>? {
-        val id = idOf(entry) ?: return null
-        if (!id.startsWith("t3_")) return null
-        val href = linkOf(entry)?.let { it.substringAfter("www.reddit.com") } ?: return null
-        val sub = PERMALINK_SUB.find(href)?.groupValues?.get(1) ?: return null
-        val postId = PERMALINK_ID.find(href)?.groupValues?.get(1) ?: return null
-        val content = contentOf(entry)
-        val author = AUTHOR_LINK.find(content)?.groupValues?.get(1)
-        val selftext = MD_DIV.find(content)?.groupValues?.get(1)
-        val linkUrl = CONTENT_LINK.find(content)?.groupValues?.get(1)
-        val thumbnail = IMG_SRC.find(content)?.groupValues?.get(1)
-        val created = dateOf(entry) ?: return null
-
-        val isSelf = selftext != null
-        return mapOf(
-            "id" to postId,
-            "name" to id,
-            "subreddit" to sub,
-            "subreddit_name_prefixed" to "r/$sub",
-            "title" to titleOf(entry),
-            "author" to (author ?: ""),
-            "created_utc" to created,
-            "permalink" to "/r/$sub/comments/$postId/",
-            "url" to (if (isSelf) href else (linkUrl ?: href)),
-            "is_self" to isSelf,
-            "selftext_html" to selftext,
-            "domain" to (if (isSelf) "self.$sub" else (URL_DOMAIN(linkUrl) ?: "reddit.com"))
-        ).let { base ->
-            base.toMutableMap().also {
-                if (thumbnail != null) it["thumbnail"] = thumbnail
-            }.toMap()
+    private suspend fun fetchPartial(url: String): String? {
+        for (method in listOf("GET", "POST")) {
+            val body = doGet(url, method, forPartial = true)
+            if (body != null && !isCloudflareChallenge(body)) return body
         }
+        return null
     }
 
-    /** Builds the Reddit-JSON-shaped comment object a feed entry provides. */
-    private fun feedToCommentMap(entry: String): Map<String, Any?>? {
-        val id = idOf(entry) ?: return null
-        if (!id.startsWith("t1_")) return null
-        val href = linkOf(entry)?.let { it.substringAfter("www.reddit.com") } ?: return null
-        val sub = PERMALINK_SUB.find(href)?.groupValues?.get(1) ?: return null
-        val postId = PERMALINK_ID.find(href)?.groupValues?.get(1) ?: return null
-        val body = MD_DIV.find(contentOf(entry))?.groupValues?.get(1) ?: return null
-        val author = COMMENT_AUTHOR.find(titleOf(entry))?.groupValues?.get(1) ?: ""
-        val created = dateOf(entry) ?: return null
-        val commentId = id.removePrefix("t1_")
+    private suspend fun doGet(url: String, method: String, forPartial: Boolean): String? =
+        runCatching {
+            val req = newRequest(url, method, forPartial)
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+        }.getOrNull()
 
-        return mapOf(
-            "id" to commentId,
-            "name" to id,
+    private fun newRequest(url: String, method: String, forPartial: Boolean): Request {
+        val builder = Request.Builder().url(url)
+        builder.addHeader("User-Agent", USER_AGENT)
+        builder.addHeader(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        )
+        builder.addHeader("Accept-Language", "en-US,en;q=0.9")
+        builder.addHeader("Upgrade-Insecure-Requests", "1")
+        if (forPartial) {
+            builder.addHeader("Sec-Fetch-Dest", "empty")
+            builder.addHeader("Sec-Fetch-Mode", "cors")
+        } else {
+            builder.addHeader("Sec-Fetch-Dest", "document")
+            builder.addHeader("Sec-Fetch-Mode", "navigate")
+        }
+        builder.addHeader("Sec-Fetch-Site", "same-origin")
+        builder.addHeader("Sec-Fetch-User", "?1")
+        builder.method(method, null)
+        return builder.build()
+    }
+
+    private fun isCloudflareChallenge(body: String): Boolean {
+        if (body.length > 30_000) return false // real pages are large
+        val s = body.lowercase()
+        return s.contains("just a moment") ||
+            s.contains("cf-chl") ||
+            s.contains("challenge-platform") ||
+            s.contains("attention required")
+    }
+
+    //endregion
+
+    //region URL builders
+
+    private fun subredditFeedUrl(
+        subreddit: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?
+    ): String = buildString {
+        append("https://www.reddit.com")
+        if (subreddit.equals(POPULAR, ignoreCase = true)) {
+            append("/popular/")
+        } else {
+            append("/r/").append(subreddit).append("/").append(feedSortPath(sort)).append("/")
+        }
+        append("?count=").append(PAGE_SIZE)
+        if (sort == Sort.TOP || sort == Sort.CONTROVERSIAL) {
+            timeSorting?.type?.let { append("&t=").append(it) }
+        }
+        if (!after.isNullOrBlank()) append("&after=").append(after)
+    }
+
+    private fun userPageUrl(user: String, sort: Sort, after: String?): String = buildString {
+        append("https://www.reddit.com/user/").append(user).append("/").append(feedSortPath(sort))
+            .append("/?count=").append(PAGE_SIZE)
+        if (!after.isNullOrBlank()) append("&after=").append(after)
+    }
+
+    private fun feedSortPath(sort: Sort): String = when (sort) {
+        Sort.HOT, Sort.RELEVANCE, Sort.COMMENTS, Sort.BEST, Sort.QA -> "hot"
+        Sort.NEW -> "new"
+        Sort.TOP -> "top"
+        Sort.RISING -> "rising"
+        Sort.CONTROVERSIAL -> "controversial"
+        Sort.OLD -> "new"
+    }
+
+    private fun searchSort(sort: Sort?): String = when (sort) {
+        null, Sort.RELEVANCE -> "relevance"
+        Sort.NEW -> "new"
+        Sort.HOT -> "hot"
+        Sort.TOP -> "top"
+        Sort.CONTROVERSIAL -> "controversial"
+        else -> "relevance"
+    }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    //endregion
+
+    //region Post parsing
+
+    /** Selects the real post cards, dropping ads (a different tag) by construction. */
+    private fun parsePostCards(doc: Document): List<PostChild> =
+        doc.select("shreddit-post").mapNotNull { postChildFromElement(it) }
+
+    private fun postChildFromElement(el: Element): PostChild? {
+        val name = el.attr("id").takeIf { it.startsWith("t3_") } ?: return null
+        val sub = el.attr("subreddit-name").ifBlank { "unknown" }
+        val permalink = el.attr("permalink")
+        val author = el.attr("author")
+        val title = el.attr("post-title")
+        val created = el.attr("created-timestamp").let {
+            if (it.isBlank()) 0L else parseRedditTimestamp(it)
+        }
+        val score = el.attr("score").toIntOrNull() ?: 0
+        val comments = el.attr("comment-count").toIntOrNull() ?: 0
+        val ratio = el.attr("upvote-ratio").toDoubleOrNull()
+        val domain = el.attr("domain").ifBlank { "self.$sub" }
+        val postType = el.attr("post-type")
+        val contentHref = el.attr("content-href")
+        val isSelf = postType == "text" || domain.startsWith("self.")
+        val absolutePermalink = if (permalink.startsWith("/")) "https://www.reddit.com$permalink" else permalink
+        val url = if (isSelf) absolutePermalink else (contentHref.ifBlank { absolutePermalink })
+
+        val map = mutableMapOf<String, Any?>(
+            "name" to name,
+            "id" to name.removePrefix("t3_"),
+            "subreddit" to sub,
+            "subreddit_name_prefixed" to (el.attr("subreddit-prefixed-name").ifBlank { "r/$sub" }),
+            "title" to title,
             "author" to author,
             "created_utc" to created,
-            "subreddit_name_prefixed" to "r/$sub",
-            "link_id" to "t3_$postId",
-            "link_permalink" to "/r/$sub/comments/$postId/",
-            "link_title" to titleOf(entry).removePrefix("/u/$author on "),
-            "body_html" to body,
-            "permalink" to "/r/$sub/comments/$postId/$commentId"
+            "permalink" to permalink,
+            "url" to url,
+            "domain" to domain,
+            "is_self" to isSelf,
+            "score" to score,
+            "num_comments" to comments,
+            "upvote_ratio" to (ratio ?: 0.0),
+            "link_flair_richtext" to emptyList<Any>()
         )
+        el.select("img").firstOrNull {
+            val src = it.attr("src")
+            src.contains("redd.it") || src.contains("redditmedia")
+        }?.attr("src")?.let { map["thumbnail"] = it }
+
+        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
     }
 
     //endregion
 
-    //region Archive helpers (same semantics as ArcticShiftSource, verified)
+    //region Comment parsing
 
-    private suspend fun archivePostPage(
-        subreddit: String?,
-        author: String?,
-        query: String?,
-        sort: Sort?,
-        timeSorting: TimeSorting?,
-        after: String?
-    ): List<PostChild> {
-        // Both cursors are exclusive on the Arctic API (verified): `before` bounds desc
-        // pages, `after` bounds asc pages, so a page never repeats the cursor item.
-        val cursor = after?.toLongOrNull()
-        val ascending = sort == Sort.OLD
-        val raw = arcticApi.searchPosts(
-            subreddit = subreddit,
-            author = author,
-            query = query,
-            sort = if (ascending) "asc" else "desc",
-            before = if (ascending) null else cursor,
-            after = if (ascending) cursor else null,
-            limit = PAGE_LIMIT
-        )
-        return jsonList(raw.string()).map { object_ ->
-            PostChild(parsePost(ensurePostDefaults(object_, subreddit)))
-        }
-    }
-
-    private suspend fun fetchMergedArchive(
-        subreddits: List<String>,
-        sort: Sort?,
-        timeSorting: TimeSorting?,
-        after: String?
-    ): List<PostChild> = coroutineScope {
-        val pages = subreddits.map { name ->
+    /**
+     * Parses the SSR comment cards (already in depth order) and hydrates each body from its
+     * lazy `reload-url` partial, in bounded parallel. A failed body fetch leaves that
+     * comment's body empty rather than failing the page.
+     */
+    private suspend fun fetchComments(
+        doc: Document,
+        subreddit: String,
+        postName: String,
+        postTitle: String
+    ): List<Child> = coroutineScope {
+        val cards = doc.select("shreddit-comment")
+        if (cards.isEmpty()) return@coroutineScope emptyList()
+        val base = if (doc.location().isNotBlank()) doc.location() else "https://www.reddit.com"
+        val semaphore = Semaphore(BODY_CONCURRENCY)
+        cards.map { el ->
             async {
-                runCatching {
-                    archivePostPage(name, null, null, sort, timeSorting, after)
-                }.getOrDefault(emptyList())
-            }
-        }.awaitAll()
-        pages.flatten()
-            .sortedByDescending { it.data.created }
-            .distinctBy { it.data.name }
-    }
-
-    /**
-     * Restores the fields an Atom feed does not carry. Two official/authoritative sources:
-     *
-     *  1. The Arctic archive (by id) restores media, url and the NSFW flag - fields reddit's
-     *     feeds omit entirely.
-     *  2. reddit.com's own live embed page (`embed.reddit.com`) supplies the **live** upvote
-     *     count and comment count. This is the fix for the "score 1 / 0 comments" bug: the
-     *     anonymous `.json` API is bot-walled (403) and the public Arctic archive only stores
-     *     the placeholder values reddit hands anonymous clients (`score: 1`, `num_comments: 0`)
-     *     for fresh posts. The embed page is reddit.com itself and renders the real numbers
-     *     server-side, so it is the official source of truth for counts.
-     *
-     * Each stage is defensive: a failure in one (rate limit, 404, post not yet indexed) keeps
-     * whatever the previous stage produced, so a live feed page never degrades to empty.
-     */
-    private suspend fun enrichPosts(posts: List<PostChild>): List<PostChild> {
-        if (posts.isEmpty()) return posts
-        // Stage 1 - archive: media / url / NSFW (feeds carry none of these).
-        val archiveEnriched = runCatching {
-            val ids = posts.joinToString(",") { it.data.name }
-            val raw = arcticApi.getPostByIds(ids)
-            // The response body is consumable exactly once - parse it into a map first
-            val byName = jsonList(raw.string())
-                .mapNotNull { object_ -> str(object_, "name")?.let { name -> name to object_ } }
-                .toMap()
-            posts.map { post ->
-                byName[post.data.name]
-                    ?.let { object_ ->
+                semaphore.withPermit {
+                    val reloadUrl = el.attr("reload-url")
+                    val bodyHtml = if (reloadUrl.isNotBlank()) {
                         runCatching {
-                            PostChild(parsePost(ensurePostDefaults(object_, post.data.subreddit)))
-                        }.getOrNull()
-                    }
-                    ?: post
-            }
-        }.getOrElse { posts }
-        // Stage 2 - official embed: live score + comment count.
-        return enrichCountsFromEmbed(archiveEnriched)
-    }
-
-    /**
-     * Overlays the live upvote count and comment count from reddit.com's own embed page on to
-     * each post. Fetched in bounded parallel (the embed endpoint tolerates parallelism - 12/12
-     * concurrent verified); a failed fetch for one post keeps that post's previous counts.
-     */
-    private suspend fun enrichCountsFromEmbed(posts: List<PostChild>): List<PostChild> {
-        if (posts.isEmpty()) return posts
-        return coroutineScope {
-            val semaphore = Semaphore(EMBED_CONCURRENCY)
-            posts.map { post ->
-                async {
-                    semaphore.withPermit {
-                        runCatching {
-                            val (score, comments) = fetchEmbedCounts(
-                                post.data.subreddit,
-                                barePostId(post.data.name)
-                            )
-                            if (score == null && comments == null) post
-                            else post.copy(
-                                data = post.data.copy(
-                                    score = score ?: post.data.score,
-                                    commentsNumber = comments ?: post.data.commentsNumber
-                                )
-                            )
-                        }.getOrDefault(post)
-                    }
+                            fetchPartial("$base$reloadUrl")?.let { Jsoup.parse(it).select(".md").firstOrNull()?.html() } ?: ""
+                        }.getOrDefault("")
+                    } else ""
+                    buildCommentChild(
+                        name = el.attr("thingId").ifBlank { return@withPermit null },
+                        author = el.attr("author"),
+                        depth = el.attr("depth").toIntOrNull() ?: 0,
+                        createdAttr = el.attr("created"),
+                        scoreAttr = el.attr("score"),
+                        permalink = el.attr("permalink"),
+                        linkId = el.attr("postId").ifBlank { postName },
+                        subreddit = subreddit,
+                        linkTitle = postTitle,
+                        bodyHtml = bodyHtml
+                    )
                 }
-            }.awaitAll()
-        }
-    }
-
-    /**
-     * Reads one official embed page and extracts the live upvote count and comment count.
-     * Both are `null` when the page does not expose them (caller keeps the prior value).
-     */
-    private suspend fun fetchEmbedCounts(subreddit: String, postId: String): Pair<Int?, Int?> {
-        if (subreddit.isBlank() || postId.isBlank()) return null to null
-        val body = embedApi.postEmbed(subreddit, postId).use { it.string() }
-        val score = EMBED_SCORE_REGEX.find(body)?.groupValues?.get(1)?.toIntOrNull()
-        val comments = EMBED_COMMENTS_REGEX.find(body)?.groupValues?.get(1)?.toIntOrNull()
-        return score to comments
-    }
-
-    /**
-     * The embed URL uses the bare post id (`1w1h4t0`), while [PostData.name] carries the
-     * reddit `t3_` prefix (`t3_1w1h4t0`). Strip the prefix if present.
-     */
-    private fun barePostId(name: String): String = name.removePrefix("t3_")
-
-    /** Emits the epoch cursor for the next archive page (oldest for desc, newest for asc). */
-    private fun nextCursor(children: List<Child>, ascending: Boolean = false): String? {
-        val timestamps = children.mapNotNull { child ->
-            when (child) {
-                is PostChild -> child.data.created
-                is CommentChild -> child.data.created
-                else -> null
             }
-        }
-        return (if (ascending) timestamps.maxOrNull() else timestamps.minOrNull())?.toString()
+        }.awaitAll().filterNotNull()
     }
 
-    /** Extracts the `data` array of a `{"data": [...]}` Arctic response as raw maps. */
-    private fun jsonList(body: String): List<Map<String, Any?>> {
-        val top = readObject(body) ?: return emptyList()
-        if (top["data"] == null) {
-            val error = top["error"]
-            if (error is String && error.isNotEmpty()) throw IOException("Arctic error: $error")
-            return emptyList()
-        }
-        return (top["data"] as? List<*>)
-            ?.mapNotNull { it as? Map<*, *> }
-            ?.mapNotNull { it as? Map<String, Any?> }
-            ?: emptyList()
+    private fun buildCommentChild(
+        name: String,
+        author: String,
+        depth: Int,
+        createdAttr: String,
+        scoreAttr: String,
+        permalink: String,
+        linkId: String,
+        subreddit: String?,
+        linkTitle: String?,
+        bodyHtml: String
+    ): CommentChild {
+        val created = if (createdAttr.isBlank()) 0L else parseRedditTimestamp(createdAttr)
+        val score = scoreAttr.toIntOrNull() ?: 0
+        val map = mutableMapOf<String, Any?>(
+            "name" to name,
+            "id" to name.removePrefix("t1_"),
+            "author" to author,
+            "created_utc" to created,
+            "score" to score,
+            "score_hidden" to scoreAttr.isBlank(),
+            "depth" to depth,
+            "permalink" to permalink,
+            "body_html" to bodyHtml,
+            "link_id" to linkId,
+            "subreddit_name_prefixed" to (subreddit?.let { "r/$it" } ?: "")
+        )
+        if (linkTitle != null) map["link_title"] = linkTitle
+        return runCatching { CommentChild(parseComment(ensureCommentDefaults(map))) }
+            .getOrNull()
+            ?: CommentChild(
+                parseComment(
+                    ensureCommentDefaults(
+                        mapOf(
+                            "name" to "t1_unknown",
+                            "id" to "unknown",
+                            "author" to author,
+                            "created_utc" to 0L,
+                            "score" to 0,
+                            "body_html" to bodyHtml,
+                            "link_id" to linkId
+                        )
+                    )
+                )
+            )
     }
 
-    private fun readObject(body: String): Map<String, Any?>? {
-        return try {
-            val reader = JsonReader.of(Buffer().writeUtf8(body))
-            reader.isLenient = true
-            // Moshi 1.x readJsonValue() returns mutable LinkedHashTreeMaps and ArrayLists
-            reader.readJsonValue() as? Map<String, Any?>
-        } catch (e: Exception) {
-            null
-        }
+    /** Parses the profile comment cards on a user's /comments/ page. */
+    private suspend fun parseProfileComments(doc: Document, user: String): List<Child> = coroutineScope {
+        val cards = doc.select("shreddit-profile-comment")
+        if (cards.isEmpty()) return@coroutineScope emptyList()
+        val base = if (doc.location().isNotBlank()) doc.location() else "https://www.reddit.com"
+        val semaphore = Semaphore(BODY_CONCURRENCY)
+        cards.map { el ->
+            async {
+                semaphore.withPermit {
+                    val name = el.attr("comment-id").ifBlank { return@withPermit null }
+                    val href = el.attr("href")
+                    val ref = PERMALINK_REF.find(href)
+                    val subreddit = ref?.groupValues?.getOrNull(1)
+                    val postId = ref?.groupValues?.getOrNull(2)?.let { "t3_$it" }
+                    val reloadUrl = el.attr("reload-url")
+                    val bodyHtml = if (reloadUrl.isNotBlank()) {
+                        runCatching {
+                            fetchPartial("$base$reloadUrl")?.let { Jsoup.parse(it).select(".md").firstOrNull()?.html() } ?: ""
+                        }.getOrDefault("")
+                    } else ""
+                    buildCommentChild(
+                        name = name,
+                        author = user,
+                        depth = 0,
+                        createdAttr = el.selectFirst("faceplate-timeago")?.attr("ts") ?: "",
+                        scoreAttr = "",
+                        permalink = href,
+                        linkId = (postId ?: "").ifBlank { "t3_" },
+                        subreddit = subreddit,
+                        linkTitle = el.text().take(200).takeIf { it.isNotBlank() },
+                        bodyHtml = bodyHtml
+                    )
+                }
+            }
+        }.awaitAll().filterNotNull()
     }
+
+    //endregion
+
+    //region Search post parsing
+
+    private fun parseSearchPostBlocks(doc: Document): List<PostChild> =
+        doc.select("[data-testid=search-post-with-content-preview]").mapNotNull { block ->
+            val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
+                ?: ""
+            val title = block.selectFirst("[data-testid=post-title-text]")?.text()
+                ?: block.selectFirst(".post-title, [data-testid=post-title]")?.text()
+                ?: ""
+            val link = block.selectFirst("a[href*=/comments/]")?.attr("href") ?: ""
+            val id = REGEX_T3.find(tracker)?.value
+                ?: REGEX_POST_ID.find(link)?.let { "t3_${it.groupValues[1]}" }
+            if (id == null) return@mapNotNull null
+            val sub = TRACKER_SUB_NAME.find(tracker)?.groupValues?.get(1)
+                ?: PERMALINK_REF.find(link)?.groupValues?.getOrNull(1)
+                ?: "unknown"
+            val created = 0L
+            val map = mutableMapOf<String, Any?>(
+                "name" to id,
+                "id" to id.removePrefix("t3_"),
+                "subreddit" to sub,
+                "subreddit_name_prefixed" to "r/$sub",
+                "title" to title,
+                "author" to (REGEX_AUTHOR.find(tracker)?.groupValues?.get(1) ?: ""),
+                "created_utc" to created,
+                "permalink" to link,
+                "url" to (REGEX_URL.find(block.html())?.groupValues?.get(1) ?: link),
+                "domain" to "self.$sub",
+                "is_self" to false,
+                "score" to 0,
+                "num_comments" to 0,
+                "upvote_ratio" to 0.0,
+                "link_flair_richtext" to emptyList<Any>()
+            )
+            runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+        }
+
+    //endregion
+
+    //region About builders
+
+    private fun buildAboutData(sub: String, doc: Document): AboutData {
+        val header = doc.selectFirst("shreddit-subreddit-header")
+        val name = header?.attr("name")?.ifBlank { sub } ?: sub
+        val displayName = header?.attr("display-name")?.ifBlank { name } ?: name
+        val description = header?.attr("description")?.ifBlank { "" } ?: ""
+        val weeklyActive = header?.attr("weekly-active-users")?.takeIf { it.isNotBlank() }
+            ?.replace(Regex("[^0-9]"), "")?.toIntOrNull()
+        val created = doc.selectFirst("faceplate-timeago")?.attr("ts")
+            ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() / 1000 }.getOrDefault(0L) }
+            ?: 0L
+        return AboutData(
+            wikiEnabled = null,
+            displayName = displayName,
+            headerImg = header?.attr("header-img"),
+            title = name,
+            primaryColor = null,
+            activeUserCount = weeklyActive,
+            iconImg = header?.attr("icon-img"),
+            subscribers = parseMembersCount(doc),
+            quarantine = null,
+            publicDescriptionHtml = description,
+            communityIcon = "",
+            bannerBackgroundImage = "",
+            keyColor = null,
+            bannerBackgroundColor = null,
+            over18 = null,
+            descriptionHtml = description,
+            url = "/r/$sub/",
+            created = created
+        )
+    }
+
+    private fun buildAboutUserData(user: String, doc: Document): AboutUserData {
+        val karmaEl = doc.selectFirst("[data-testid=karma-number]")
+        val totalKarma = karmaEl?.text()?.replace(",", "")?.toIntOrNull() ?: -1
+        val tooltip = karmaEl?.parent()?.text() ?: ""
+        val postKarma = Regex("(\\d[\\d,]*)\\s*post karma", RegexOption.IGNORE_CASE)
+            .find(tooltip)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: -1
+        val commentKarma = Regex("(\\d[\\d,]*)\\s*comment karma", RegexOption.IGNORE_CASE)
+            .find(tooltip)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: -1
+        val avatar = doc.selectFirst("[data-testid=profile-icon] img")?.attr("src")
+            ?: doc.selectFirst("img.snoovatar")?.attr("src")
+        return AboutUserData(
+            isSuspended = false,
+            isEmployee = false,
+            subreddit = null,
+            id = null,
+            iconImg = avatar,
+            linkKarma = postKarma,
+            totalKarma = totalKarma,
+            name = user,
+            created = -1L,
+            snoovatarImg = avatar,
+            commentKarma = commentKarma
+        )
+    }
+
+    private fun parseMembersCount(doc: Document): Int? {
+        val text = doc.text()
+        val m = Regex("(\\d[\\d,]*\\.?\\d*)\\s*([KM])?\\s*(?:members|subscribers)", RegexOption.IGNORE_CASE)
+            .find(text) ?: return null
+        val num = m.groupValues[1].replace(",", "").toDoubleOrNull() ?: return null
+        val mult = when (m.groupValues[2].uppercase()) {
+            "K" -> 1_000.0
+            "M" -> 1_000_000.0
+            else -> 1.0
+        }
+        return (num * mult).toInt()
+    }
+
+    //endregion
+
+    //region Moshi model helpers (Reddit-JSON-shaped maps, same pipeline as before)
+
+    private fun parsePost(map: Map<String, Any?>): PostData =
+        postAdapter.fromJson(toJson(map)) ?: throw IOException("Invalid post data")
+
+    private fun parseComment(map: Map<String, Any?>): CommentData =
+        commentAdapter.fromJson(toJson(map)) ?: throw IOException("Invalid comment data")
 
     private fun toJson(value: Any?): String {
         val buffer = Buffer()
@@ -622,16 +722,7 @@ class RedditOfficialSource @Inject constructor(
         return buffer.readUtf8()
     }
 
-    private fun str(map: Map<*, *>?, name: String): String? =
-        (map?.get(name) as? String)?.takeIf { it.isNotEmpty() }
-
-    private fun parsePost(map: Map<String, Any?>): PostData =
-        postAdapter.fromJson(toJson(map)) ?: throw IOException("Invalid post data")
-
-    private fun parseComment(map: Map<String, Any?>): CommentData =
-        commentAdapter.fromJson(toJson(map)) ?: throw IOException("Invalid comment data")
-
-    /** Pre-fills the non-optional PostData fields a feed-derived object does not carry. */
+    /** Pre-fills the non-optional PostData fields a parsed object does not carry. */
     private fun ensurePostDefaults(
         map: Map<String, Any?>,
         subreddit: String?
@@ -666,7 +757,7 @@ class RedditOfficialSource @Inject constructor(
         return result
     }
 
-    /** Pre-fills the non-optional CommentData fields a feed-derived object does not carry. */
+    /** Pre-fills the non-optional CommentData fields a parsed object does not carry. */
     private fun ensureCommentDefaults(map: Map<String, Any?>): MutableMap<String, Any?> {
         val result = map.toMutableMap()
         result.putIfAbsent("id", "")
@@ -700,73 +791,42 @@ class RedditOfficialSource @Inject constructor(
 
     //region Misc
 
-    private fun parseFeedDate(value: String): Long? {
-        val formats = listOf(
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
-            "yyyy-MM-dd'T'HH:mm:ssZ"
-        )
-        for (format in formats) {
-            try {
-                val sdf = SimpleDateFormat(format, Locale.US)
-                    .apply { timeZone = TimeZone.getTimeZone("UTC") }
-                return sdf.parse(value)?.time?.div(1000)
-            } catch (_: Exception) {
-                // try the next format
-            }
-        }
-        return null
+    /** Parses `2026-08-30T08:45:00.921000+0000` (and `…Z` / `…+00:00`) to epoch seconds. */
+    private fun parseRedditTimestamp(value: String): Long {
+        if (value.isBlank()) return 0L
+        return runCatching {
+            val cleaned = value
+                .replace(Regex("\\.\\d+"), "")
+                .replace(Regex("Z$"), "+0000")
+                .replace(Regex("([+-])(\\d{2})(\\d{2})$"), "$1$2:$3")
+            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US)
+            sdf.parse(cleaned)?.time?.div(1000) ?: 0L
+        }.getOrDefault(0L)
     }
 
-    /** Decodes the XML entities reddit's Atom feeds use (including numeric ones). */
-    private fun unescapeXml(value: String): String = value
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace(Regex("&#(\\d+);")) { m ->
-            m.groupValues[1].toIntOrNull()?.let { String(Character.toChars(it)) } ?: ""
-        }
-        .replace(Regex("&#x([0-9a-fA-F]+);")) { m ->
-            m.groupValues[1].toIntOrNull(16)?.let { String(Character.toChars(it)) } ?: ""
-        }
-
-    private fun URL_DOMAIN(url: String?): String? =
-        url?.let { runCatching { it.substringBefore('/').substringAfter("://") }.getOrNull() }
+    /** Last post's fullname is the `after` cursor for the next SSR feed page. */
+    private fun nextPostCursor(children: List<Child>): String? =
+        children.filterIsInstance<PostChild>().lastOrNull()?.data?.name
 
     //endregion
 
     companion object {
         private const val KIND_LISTING = "Listing"
         private const val POPULAR = "popular"
-        private const val PAGE_LIMIT = 100
-        private const val RETRY_DELAY_MS = 10_000L
-        // Max concurrent embed.reddit.com fetches. The endpoint tolerates parallelism
-        // (12/12 verified) but we cap at 6 to stay well under any hidden throttle.
-        private const val EMBED_CONCURRENCY = 6
+        private const val PAGE_SIZE = 25
+        private const val SSR_RETRIES = 3
+        private const val SSR_RETRY_BASE_MS = 1_000L
+        private const val BODY_CONCURRENCY = 6
 
-        // Live counts from reddit.com's own embed page (see fetchEmbedCounts).
-        // e.g.  <faceplate-number number="13432" pretty></faceplate-number> upvotes
-        //       View 1086 comments
-        private val EMBED_SCORE_REGEX =
-            Regex("<faceplate-number[^>]*number=\"(\\d+)\"[^>]*>[\\s\\S]*?</faceplate-number>\\s*upvotes")
-        private val EMBED_COMMENTS_REGEX =
-            Regex("View\\s+([\\d,]+)\\s+comments?")
+        private const val USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/131.0.0.0 Safari/537.36"
 
-        private val ENTRY_REGEX = Regex("<entry>(.*?)</entry>", RegexOption.DOT_MATCHES_ALL)
-        private val TAG_ID = Regex("<id>(.*?)</id>")
-        private val TAG_TITLE = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL)
-        private val TAG_PUBLISHED = Regex("<published>(.*?)</published>")
-        private val TAG_UPDATED = Regex("<updated>(.*?)</updated>")
-        private val TAG_LINK = Regex("<link[^>]*href=\"([^\"]+)\"")
-        private val TAG_CONTENT = Regex("<content[^>]*>(.*?)</content>", RegexOption.DOT_MATCHES_ALL)
-        private val PERMALINK_SUB = Regex("/r/([^/]+)/comments/")
-        private val PERMALINK_ID = Regex("/comments/([a-z0-9]+)/")
-        private val AUTHOR_LINK = Regex("/user/([A-Za-z0-9_-]+)\">")
-        private val COMMENT_AUTHOR = Regex("^/u/([A-Za-z0-9_-]+)\\s+on\\s")
-        private val MD_DIV = Regex("<div class=\"md\">(.*?)</div>", RegexOption.DOT_MATCHES_ALL)
-        private val CONTENT_LINK = Regex("<span><a href=\"([^\"]+)\">\\[link\\]</a></span>")
-        private val IMG_SRC = Regex("<img src=\"([^\"]+)\"")
+        private val PERMALINK_REF = Regex("/r/([^/]+)/comments/([a-z0-9]+)/")
+        private val REGEX_T3 = Regex("t3_[a-z0-9]+")
+        private val REGEX_POST_ID = Regex("/comments/([a-z0-9]+)/")
+        private val REGEX_AUTHOR = Regex("\"author\"\\s*:\\s*\"([^\"]+)\"")
+        private val REGEX_URL = Regex("href=\"(https?://[^\"]+)\"")
+        private val TRACKER_SUB_NAME = Regex("\"subreddit\"\\s*:\\s*\\{[^}]*\"name\"\\s*:\\s*\"([^\"]+)\"")
     }
 }
