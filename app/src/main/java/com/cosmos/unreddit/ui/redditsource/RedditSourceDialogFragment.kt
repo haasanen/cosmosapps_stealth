@@ -4,17 +4,14 @@ import android.app.Dialog
 import android.content.DialogInterface
 import android.content.DialogInterface.OnShowListener
 import android.os.Bundle
-import android.widget.ArrayAdapter
 import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
-import androidx.core.view.isVisible
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.setFragmentResult
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.databinding.FragmentRedditSourceBinding
-import com.cosmos.unreddit.util.LinkValidator
 import com.cosmos.unreddit.util.extension.doAndDismiss
 import com.cosmos.unreddit.util.extension.serializable
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -25,15 +22,11 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
     private val binding get() = _binding!!
 
     private lateinit var source: DataPreferences.RedditSource
-    private var instance: String? = null
-    private lateinit var instances: List<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         arguments?.run {
-            source = serializable(KEY_SOURCE) ?: DataPreferences.RedditSource.REDDIT
-            instance = serializable(KEY_INSTANCE)
-            instances = getStringArrayList(KEY_INSTANCES) ?: emptyList()
+            source = serializable(KEY_SOURCE) ?: DataPreferences.RedditSource.ARCTIC
         }
     }
 
@@ -41,7 +34,6 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
         _binding = FragmentRedditSourceBinding.inflate(requireActivity().layoutInflater)
 
         initView()
-        initSpinner()
 
         return MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.dialog_reddit_source_title)
@@ -61,58 +53,18 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
 
     private fun initView() {
         binding.run {
-            radioReddit.isChecked = source == DataPreferences.RedditSource.REDDIT
-            radioRedditScrap.isChecked = source == DataPreferences.RedditSource.REDDIT_SCRAP
-            radioArctic.isChecked = source == DataPreferences.RedditSource.ARCTIC
+            // Legacy stored values (REDDIT, TEDDIT, REDDIT_SCRAP) are no longer selectable;
+            // fall back to ARCTIC so they never remain silently selected.
+            radioArctic.isChecked = source != DataPreferences.RedditSource.REDDIT_OFFICIAL
             radioRedditOfficial.isChecked = source == DataPreferences.RedditSource.REDDIT_OFFICIAL
-
-            val isTeddit = source == DataPreferences.RedditSource.TEDDIT
-
-            radioTeddit.isChecked = isTeddit
-            listInstances.isVisible = isTeddit
-
-            radioGroup.setOnCheckedChangeListener { _, checkedId ->
-                listInstances.isVisible = checkedId == R.id.radio_teddit
-            }
-        }
-    }
-
-    private fun initSpinner() {
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, instances)
-
-        val savedInstance = instance.orEmpty().ifEmpty { adapter.getItem(0) }
-
-        binding.textListInstances.run {
-            setAdapter(adapter)
-            setText(savedInstance, false)
         }
     }
 
     private fun save() {
         val source = when (binding.radioGroup.checkedRadioButtonId) {
-            R.id.radio_reddit -> DataPreferences.RedditSource.REDDIT
-            R.id.radio_reddit_scrap -> DataPreferences.RedditSource.REDDIT_SCRAP
             R.id.radio_arctic -> DataPreferences.RedditSource.ARCTIC
             R.id.radio_reddit_official -> DataPreferences.RedditSource.REDDIT_OFFICIAL
-            R.id.radio_teddit -> DataPreferences.RedditSource.TEDDIT
-            else -> DataPreferences.RedditSource.REDDIT
-        }
-        val instance = binding.textListInstances.text.toString()
-        val linkValidator = LinkValidator(instance)
-
-        var errorMessage: String? = null
-
-        if (source == DataPreferences.RedditSource.TEDDIT) {
-            errorMessage = when {
-                instance.isBlank() -> getString(R.string.instance_empty_error)
-                !linkValidator.isValid -> getString(R.string.instance_invalid_error)
-                else -> null
-            }
-        }
-
-        if (errorMessage != null) {
-            binding.listInstances.error = errorMessage
-            return
+            else -> DataPreferences.RedditSource.ARCTIC
         }
 
         doAndDismiss {
@@ -120,7 +72,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
                 REQUEST_KEY_SOURCE,
                 bundleOf(
                     KEY_SOURCE to source,
-                    KEY_INSTANCE to linkValidator.validUrl?.host?.ifEmpty { "" }
+                    KEY_INSTANCE to ""
                 )
             )
         }
@@ -146,19 +98,14 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
 
         const val KEY_SOURCE = "KEY_SOURCE"
         const val KEY_INSTANCE = "KEY_INSTANCE"
-        private const val KEY_INSTANCES = "KEY_INSTANCES"
 
         fun show(
             fragmentManager: FragmentManager,
-            source: DataPreferences.RedditSource,
-            instance: String?,
-            instances: List<String>
+            source: DataPreferences.RedditSource
         ) {
             RedditSourceDialogFragment().apply {
                 arguments = bundleOf(
-                    KEY_SOURCE to source,
-                    KEY_INSTANCE to instance,
-                    KEY_INSTANCES to instances
+                    KEY_SOURCE to source
                 )
             }.show(fragmentManager, TAG)
         }
