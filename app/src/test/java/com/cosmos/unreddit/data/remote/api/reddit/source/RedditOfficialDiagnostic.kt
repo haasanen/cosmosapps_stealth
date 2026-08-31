@@ -64,6 +64,61 @@ class RedditOfficialDiagnostic {
     }
 
     @Test
+    fun liveMultiReddFeed() {
+        runBlocking {
+            val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
+            val t0 = System.currentTimeMillis()
+            // A multiredd home feed: subreddits joined with '+', exactly the URL shape the
+            // app builds for a user's home list (e.g. /r/A+B+C/hot/?count=25).
+            val multi = listOf(
+                "LocalLLM", "openclaw", "3Dmodeling", "freegames",
+                "prusa3d", "eWitness", "linux_gaming", "animation"
+            ).joinToString("+")
+            try {
+                val listing = source.getSubreddit(multi, Sort.HOT, null, null)
+                println("LIVE MULTI OK: ${listing.data.children.size} posts in ${System.currentTimeMillis() - t0}ms for ${multi.length}-char multiredd")
+                println("LIVE MULTI first 5: " + listing.data.children.take(5)
+                    .map { (it as? PostChild)?.data?.title ?: "?" }.joinToString())
+            } catch (t: Throwable) {
+                println("LIVE MULTI FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
+                t.cause?.let { println("LIVE MULTI cause: ${it::class.java.simpleName}: ${it.message}") }
+            }
+        }
+    }
+
+    @Test
+    fun liveMultiReddUserList() {
+        runBlocking {
+            val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
+            val t0 = System.currentTimeMillis()
+            // The user's ACTUAL home multiredd, read from the banner on their phone
+            // (2026-08-31): ~30 subs. This is the exact feed that was blank on-device.
+            val multi = listOf(
+                "LocalLLM", "openclaw", "3Dmodeling", "freegames",
+                "prusa3d", "eWitness", "linux_gaming", "animation",
+                "sysadmin", "Lofree", "FRMEDIAHECKYEAH", "doohickeycorporation",
+                "MechanicalKeyboards", "privacy", "networking", "yubico",
+                "Eldenring", "hermesagent", "fromsoftware", "pcgaming",
+                "LocalLLaMA", "functionalprint", "virtualreality", "frigate_nvr",
+                "GameDeals", "cableporn", "NuPhy", "godot",
+                "storage", "HomeSecurity"
+            ).joinToString("+")
+            try {
+                val listing = source.getSubreddit(multi, Sort.HOT, null, null)
+                println("LIVE USER-MULTI OK: ${listing.data.children.size} posts in ${System.currentTimeMillis() - t0}ms for ${multi.length}-char (${multi.count { it == '+' } + 1}-sub) multiredd")
+                println("LIVE USER-MULTI first 5: " + listing.data.children.take(5)
+                    .map { (it as? PostChild)?.data?.title ?: "?" }.joinToString())
+                println("LIVE USER-MULTI subs present: " + listing.data.children
+                    .map { (it as? PostChild)?.data?.subreddit ?: "?" }
+                    .distinct().take(12).joinToString())
+            } catch (t: Throwable) {
+                println("LIVE USER-MULTI FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
+                t.cause?.let { println("LIVE USER-MULTI cause: ${it::class.java.simpleName}: ${it.message}") }
+            }
+        }
+    }
+
+    @Test
     fun liveSubredditOverview() {
         runBlocking {
             val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)

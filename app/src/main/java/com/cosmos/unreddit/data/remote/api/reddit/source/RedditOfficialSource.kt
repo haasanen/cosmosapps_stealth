@@ -1,5 +1,7 @@
 package com.cosmos.unreddit.data.remote.api.reddit.source
 
+import android.net.Uri
+import android.text.Html
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
@@ -100,20 +102,159 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
-        val body = fetchPage(url)
-        val doc = Jsoup.parse(body)
-        val children = loadFeedContinuation(doc, parsePostCards(doc))
-        requireFeedHasPosts(url, body, children)
-        Listing(
-            KIND_LISTING,
-            ListingData(null, children.size, children, nextPostCursor(children), null)
-        )
+        if (subreddit.contains("+")) {
+            // A multiredd home feed. reddit.com serves the multiredd SSR HTML to anonymous
+            // clients behind a login/18+ age gate (a full page containing zero post
+            // elements), so the HTML path can never return posts. The official Atom feed
+            // for the same multiredd is served without a gate (over18 in the query),
+            // paginates with after=<t3_id>, and is the same feed the website shows.
+            getSubredditViaAtom(subreddit, sort, timeSorting, after)
+        } else {
+            val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
+            val body = fetchPage(url)
+            val doc = Jsoup.parse(body)
+            val children = loadFeedContinuation(doc, parsePostCards(doc))
+            requireFeedHasPosts(url, body, children)
+            Listing(
+                KIND_LISTING,
+                ListingData(null, children.size, children, nextPostCursor(children), null)
+            )
+        }
     }
 
     override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
         val doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$subreddit/"))
         AboutChild(buildAboutData(subreddit, doc))
+    }
+
+    /**
+     * Multiredd feed via reddit's official Atom endpoint. The multiredd SSR HTML is
+     * login-gated for anonymous clients (a full page with zero post elements), but the
+     * Atom feed for the same multiredd is served openly. Verified live (2026-08-31):
+     * `https://www.reddit.com/r/{multi}/hot/.rss?over18=1` returns 25 entries for
+     * 8-sub and 30-sub lists, and `after=<t3_id>` paginates with no overlap.
+     *
+     * Entries carry title, link, id (t3_...), author name, category (subreddit),
+     * published, and an HTML `<content>` block from which the external link and the
+     * thumbnail are extracted. Score and comment counts are not part of the Atom feed;
+     * they default to 0 (the Arctic source shows the same limitation on its multiredd
+     * feeds).
+     */
+    private suspend fun getSubredditViaAtom(
+        multiredd: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?
+    ): Listing {
+        val url = buildString {
+            append("https://www.reddit.com/r/").append(multiredd).append('/')
+            append(feedSortPath(sort)).append("/.rss?over18=1")
+            if (sort == Sort.TOP || sort == Sort.CONTROVERSIAL) {
+                timeSorting?.type?.let { append("&t=").append(it) }
+            }
+            if (!after.isNullOrBlank()) append("&after=").append(after)
+        }
+        var lastError = "no response from server"
+        var body: String? = null
+        for (attempt in 0 until SSR_RETRIES) {
+            val req = newRequest(url, "GET", forPartial = false)
+                .newBuilder()
+                .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
+                .build()
+            val resp = runCatching { okHttpClient.newCall(req).execute() }.getOrNull()
+            if (resp != null) {
+                resp.use {
+                    if (it.isSuccessful) {
+                        val b = it.body?.string()
+                        if (!b.isNullOrBlank()) { body = b } else { lastError = "empty response body" }
+                    } else {
+                        lastError = "HTTP ${it.code}"
+                    }
+                }
+            } else {
+                lastError = "connection failed"
+            }
+            if (body != null) break
+            if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
+        }
+        val xml = body ?: throw IOException("reddit.com multiredd feed $url failed ($lastError)")
+        val doc = Jsoup.parse(xml)
+        val entries = doc.select("entry").mapNotNull { atomPostFromEntry(it) }
+        if (entries.isEmpty()) {
+            val entryCount = doc.select("entry").size
+            throw IOException(
+                "reddit.com returned no posts for $url (feed ${xml.length} chars, " +
+                    "entries=$entryCount; the multiredd feed may have changed — please report this)"
+            )
+        }
+        return Listing(
+            KIND_LISTING,
+            ListingData(null, entries.size, entries, nextPostCursor(entries), null)
+        )
+    }
+
+    /** Maps one Atom `<entry>` to a [PostChild] using the shared [parsePost] pipeline. */
+    private fun atomPostFromEntry(entry: Element): PostChild? {
+        val name = entry.selectFirst("id")?.ownText()?.trim()
+            ?.takeIf { it.startsWith("t3_") } ?: return null
+        val title = entry.selectFirst("title")?.ownText()?.trim() ?: ""
+        val link = entry.selectFirst("link")?.attr("href") ?: ""
+        val authorName = entry.selectFirst("author name")?.ownText()?.trim()
+            ?.removePrefix("/u/") ?: ""
+        val sub = entry.selectFirst("category")?.attr("label")
+            ?.removePrefix("r/")
+            ?.takeIf { it.isNotBlank() } ?: "unknown"
+        val published = entry.selectFirst("published")?.ownText()
+            ?.takeIf { it.isNotBlank() } ?: entry.selectFirst("updated")?.ownText() ?: ""
+        // The HTML content block carries the external link and the preview image.
+        // `[link]` is the post's own permalink for self-posts, the external URL
+        // otherwise; `[comments]` is always the post permalink.
+        val contentHtml = entry.selectFirst("content")?.data() ?: ""
+        val linkHref = Regex("""<a href="([^"]+)"">\[link\]</a>""").find(contentHtml)?.groupValues?.get(1)
+        val commentsHref = Regex("""<a href="([^"]+)"">\[comments\]</a>""").find(contentHtml)?.groupValues?.get(1)
+        val permalink = commentsHref?.ifBlank { link } ?: link
+        val externalUrl = linkHref?.takeIf { it.isNotBlank() && it != permalink }
+        val isSelf = externalUrl == null
+        val url = if (isSelf) permalink else externalUrl
+
+        val map = mutableMapOf<String, Any?>(
+            "name" to name,
+            "id" to name.removePrefix("t3_"),
+            "subreddit" to sub,
+            "subreddit_name_prefixed" to "r/$sub",
+            "title" to title,
+            "author" to authorName,
+            "created_utc" to parseAtomTimestamp(published),
+            "permalink" to permalink,
+            "url" to url,
+            "domain" to if (isSelf) "self.$sub"
+            else runCatching { Uri.parse(url).host ?: "unknown" }.getOrDefault("unknown"),
+            "is_self" to isSelf,
+            "score" to 0,
+            "num_comments" to 0,
+            "upvote_ratio" to 0.0,
+            "link_flair_richtext" to emptyList<Any>()
+        )
+        // Media posts carry a media:thumbnail element; link images embed a redd.it img tag
+        // in the (HTML-escaped) <content> block, which .data() returns undecoded.
+        entry.getElementsByTag("media:thumbnail").firstOrNull()?.attr("url")?.takeIf { it.isNotBlank() }?.let {
+            map["thumbnail"] = it
+        }
+        Regex("""src="([^"]+redd\.it[^"]*|[^"]+redditmedia[^"]*)"""").find(contentHtml)?.groupValues?.get(1)?.let {
+            map.putIfAbsent("thumbnail", it)
+        }
+        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+    }
+
+    /** Atom timestamps: `2026-08-31T15:41:07+00:00` -> epoch seconds. */
+    private fun parseAtomTimestamp(value: String): Long {
+        if (value.isBlank()) return 0L
+        return runCatching {
+            val cleaned = value
+                .replace(Regex("Z$"), "+00:00")
+                .replace(Regex("\\.\\d+$"), "")
+            java.time.OffsetDateTime.parse(cleaned).toEpochSecond()
+        }.getOrDefault(0L)
     }
 
     override suspend fun searchInSubreddit(
