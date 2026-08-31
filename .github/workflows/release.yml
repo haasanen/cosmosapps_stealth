@@ -27,6 +27,16 @@ jobs:
       run: |
         yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
+    - name: Unit tests (SSR parser contract vs real reddit.com fixtures)
+      run: |
+        set -euo pipefail
+        chmod +x gradlew
+        # Pins the official-source parser to real captured reddit.com markup.
+        # If reddit.com changes a selector this relies on, Gradle exits non-zero
+        # and the build fails here, before a broken parser can ship.
+        # Fixtures live in app/src/test/resources/reddit_ssr/.
+        ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
     - name: Restore release keystore (secret -> file, never committed)
       env:
         STEALTH_KEYSTORE_BASE64: ${{ secrets.STEALTH_KEYSTORE_BASE64 }}
