@@ -9,6 +9,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.di.NetworkModule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -22,45 +23,31 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
  * Fixture-based regression tests for the "Reddit (official)" SSR source.
  *
- * These drive the REAL [RedditOfficialSource] — same [OkHttpClient] + [com.squareup.moshi.Moshi]
- * pipeline the app uses — against real captured reddit.com server-rendered HTML. The network is
- * stubbed at the OkHttp interceptor level (no real requests), so the test runs fully offline on
- * the JVM. The point is to prove the parser actually *runs* and to pin the contract: if reddit.com
- * changes its markup so a card no longer carries an expected attribute, a test goes red here
- * (and in CI) before a broken build ever reaches a device.
+ * These drive the REAL [RedditOfficialSource] — the same OkHttpClient + Moshi pipeline the app
+ * uses — against real captured reddit.com server-rendered HTML (fixtures in
+ * `src/test/resources/reddit_ssr/`, full pages, not trimmed). The network is stubbed at the
+ * OkHttp interceptor level, so the tests run fully offline on the JVM.
  *
- * Fixtures live in `src/test/resources/reddit_ssr/` and were captured from live www.reddit.com
- * pages. They are deliberately the *full* page (not trimmed) so the parser is exercised against a
- * realistic document, not a hand-crafted happy path.
+ * Beyond pure parsing, they also exercise the live-fetch mechanics that the committed parser-only
+ * suite could not see: the JS-challenge resubmit (absolute URL, doubled 16-hex solution, token)
+ * and the "load more" continuation partial fetch + merge. If reddit.com changes the contract —
+ * a challenge parameter, a card attribute, the continuation selector — a test goes red here
+ * (and in CI) before a broken build reaches a device.
  */
 class RedditOfficialSourceTest {
 
     private lateinit var source: RedditOfficialSource
 
-    /** Maps a request URL to the fixture that should answer it. Returns null to answer empty. */
-    private fun fixtureFor(url: String): String? = when {
-        // /popular/ feed
-        url.contains("/popular/") -> "pf_popular_p1.html"
-        // global search  /search/?…
-        url.contains("/search/") -> "fv3_search0.html"
-        // user comments  /user/{name}/comments/  (MUST precede the /comments/ post-detail rule)
-        url.contains("/user/") && url.contains("/comments/") -> "pin_user_c.html"
-        // post detail  /r/{sub}/comments/{id}/…
-        url.contains("/comments/") -> "vp_detail.html"
-        // user home  /user/{name}/  (karma) and user posts  /user/{name}/{sort}/
-        url.contains("/user/") -> "pin_user_p.html"
-        // subreddit about  /r/{sub}/  (exact, no trailing path)
-        Regex("/r/[a-z0-9_]+/$").containsMatchIn(url.substringBefore('?')) -> "vp_about.html"
-        // lazy comment-body partials  /svc/shreddit/comment/…  -> empty (body degrades to "")
-        url.contains("/svc/") -> null
-        else -> null
-    }
+    /** Records the request URLs the source asked for, in order. */
+    private val requestedUrls = mutableListOf<String>()
+
+    /** Counts the JS-challenge resubmit requests (GET with a js_challenge=1 param). */
+    private val resubmits = mutableListOf<okhttp3.HttpUrl>()
 
     private fun loadFixture(name: String): String {
         val stream = javaClass.classLoader.getResourceAsStream("reddit_ssr/$name")
@@ -68,21 +55,71 @@ class RedditOfficialSourceTest {
         return stream.bufferedReader().use { it.readText() }
     }
 
+    private fun loadFixtureBytes(name: String): String = loadFixture(name)
+
+    /**
+     * Maps a request URL to the fixture that should answer it, in priority order.
+     * The rules follow the URL contract the source builds (see RedditOfficialSource):
+     *  - challenge resubmits: `js_challenge=1` in the query
+     *  - lazy partials: `/svc/...` (continuations, comment bodies)
+     *  - post detail: `/r/{sub}/comments/{id}/`
+     *  - user posts: `/user/{u}/submitted/`
+     *  - user comments: `/user/{u}/comments/`
+     *  - user home (karma): `/user/{u}/`
+     *  - search: `/search/` (global) or `/r/{sub}/search/` (in-sub)
+     *  - subreddit about: `/r/{sub}/`
+     *  - subreddit feed: `/r/{sub}/{sort}/`
+     */
+    private fun fixtureFor(url: okhttp3.HttpUrl): String {
+        requestedUrls += url.toString()
+        val path = url.encodedPath
+        if (url.queryParameter("js_challenge") == "1") {
+            resubmits += url
+            return "ra_android_p1.html"
+        }
+        if (path.startsWith("/svc/")) {
+            return when {
+                path.contains("community-more-posts") -> "cont_android_p1.html"
+                path.contains("profile_posts-more-posts") -> "sub_user_cont.html"
+                path.contains("comment/") -> "" // comment bodies degrade to ""
+                else -> ""
+            }
+        }
+        return when {
+            // user profile comments: /user/{u}/comments/  (must precede the /comments/ detail rule)
+            path.contains("/user/") && path.contains("/comments/") -> "pin_user_c.html"
+            // post detail: /r/{sub}/comments/{id}/
+            path.contains("/comments/") -> "vp_detail.html"
+            path.contains("/submitted/") -> "sub_user_p1.html"
+            path.contains("/user/") -> "pin_user_p.html"
+            path.contains("/search/") -> when {
+                url.queryParameter("type") == "user" -> "search_user.html"
+                url.queryParameter("type") == "community" -> "search_community.html"
+                path.startsWith("/r/") -> "insub_search1.html"
+                else -> "fv3_search0.html"
+            }
+            Regex("^/r/[a-zA-Z0-9_]+/$").containsMatchIn(path) -> "vp_about.html"
+            path.contains("/r/Android/hot/") -> "ra_android_p1.html"
+            else -> "ra_android_p1.html"
+        }
+    }
+
+    private fun okResponse(req: okhttp3.Request, body: String): Response = Response.Builder()
+        .request(req)
+        .protocol(Protocol.HTTP_1_1)
+        .code(200)
+        .message("OK")
+        .header("Content-Type", "text/html; charset=utf-8")
+        .body(body.toResponseBody("text/html".toMediaTypeOrNull()))
+        .build()
+
     @Before
     fun buildSource() {
+        requestedUrls.clear()
+        resubmits.clear()
         val stub = Interceptor { chain ->
             val req = chain.request()
-            val url = req.url.toString()
-            val body = fixtureFor(url)?.let { loadFixture(it) } ?: "<html><body></body></html>"
-            val resp = Response.Builder()
-                .request(req)
-                .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
-                .header("Content-Type", "text/html; charset=utf-8")
-                .body(body.toResponseBody("text/html".toMediaTypeOrNull()))
-                .build()
-            resp
+            okResponse(req, loadFixture(fixtureFor(req.url)))
         }
         val client = OkHttpClient.Builder()
             .callTimeout(30, TimeUnit.SECONDS)
@@ -92,24 +129,96 @@ class RedditOfficialSourceTest {
         source = RedditOfficialSource(client, moshi, Dispatchers.Default)
     }
 
+    //region Subreddit feed
+
     @Test
-    fun `subreddit feed parses real post cards with id sub title author score`() = runBlocking {
-        val listing = source.getSubreddit("popular", Sort.HOT, null, null)
+    fun `subreddit feed merges SSR cards with the load-more continuation`() = runBlocking {
+        val listing = source.getSubreddit("Android", Sort.HOT, null, null)
         val children = listing.data.children.filterIsInstance<PostChild>()
-        // Fixture page carries exactly 25 shreddit-post cards.
-        assertEquals(25, children.size)
+        // 3 cards server-rendered in ra_android_p1 + 24 in the continuation partial.
+        assertEquals(27, children.size)
         val first = children.first().data
-        assertEquals("t3_1w1ydca", first.name)
-        assertEquals("whatisit", first.subreddit)
-        assertEquals("Estate sale find today", first.title)
-        assertEquals("SpicyDillRadish", first.author)
-        assertEquals(4415, first.score)
-        assertEquals(787, first.commentsNumber)
-        // Pagination cursor = last post fullname.
-        assertEquals(children.last().data.name, listing.data.after)
-        // Multi-sub popular feed should span several subreddits.
-        assertTrue(children.map { it.data.subreddit }.toSet().size > 5)
+        assertEquals("t3_1w2mtlr", first.name)
+        assertEquals("Android", first.subreddit)
+        assertEquals("FragmentedChicken", first.author)
+        assertEquals(215, first.score)
+        // Pagination cursor = last (merged) post fullname, i.e. the continuation's last card.
+        assertEquals("t3_1w14j1r", listing.data.after)
+        // No duplicates after the merge.
+        assertEquals(children.size, children.map { it.data.name }.toSet().size)
+        // The continuation partial was actually fetched from the page's signed src.
+        assertTrue(
+            "expected a /svc/shreddit/community-more-posts request",
+            requestedUrls.any { it.startsWith("https://www.reddit.com/svc/shreddit/community-more-posts/") }
+        )
     }
+
+    @Test
+    fun `subreddit feed never duplicates a post across the SSR cards and the continuation`() = runBlocking {
+        val listing = source.getSubreddit("Android", Sort.HOT, null, null)
+        val names = listing.data.children.filterIsInstance<PostChild>().map { it.data.name }
+        assertEquals("merged feed must contain no duplicate fullnames", names.size, names.toSet().size)
+    }
+
+    //endregion
+
+    //region JS challenge
+
+    @Test
+    fun `first request answered with a JS challenge is solved and resubmitted with an absolute url`() = runBlocking {
+        // Point the whole flow at the challenge fixture first: the source must solve it over
+        // plain HTTP and only then parse the real page.
+        requestedUrls.clear()
+        resubmits.clear()
+        val challengeSource = buildSourceWith(firstBody = "ch_js_challenge.html")
+        val listing = challengeSource.getSubreddit("Android", Sort.HOT, null, null)
+        val children = listing.data.children.filterIsInstance<PostChild>()
+        assertTrue("expected posts after solving the challenge, got ${children.size}", children.isNotEmpty())
+
+        // Exactly one resubmit happened.
+        assertEquals(1, resubmits.size)
+        val resubmit = resubmits[0]
+        // The form action is relative (/r/Android/hot/) — the source must send an ABSOLUTE URL.
+        assertEquals("https", resubmit.scheme)
+        assertEquals("www.reddit.com", resubmit.host)
+        assertEquals("/r/Android/hot/", resubmit.encodedPath)
+        // The original page's own query params are preserved (the browser copies them).
+        assertEquals("25", resubmit.queryParameter("count"))
+        // The solution is the 16-hex literal from the challenge fixture, doubled.
+        val solution = resubmit.queryParameter("solution") ?: ""
+        assertEquals("76c86b1b8d9d9ddc76c86b1b8d9d9ddc", solution)
+        // The form token round-trips.
+        assertNotNull(resubmit.queryParameter("token"))
+        assertEquals("", resubmit.queryParameter("jsc_orig_r"))
+    }
+
+    /** Builds a source whose first response for the feed URL is a named fixture. */
+    private fun buildSourceWith(firstBody: String): RedditOfficialSource {
+        val stub = Interceptor { chain ->
+            val req = chain.request()
+            val url = req.url
+            val body = when {
+                // The challenge resubmit: the solved real page.
+                url.queryParameter("js_challenge") == "1" -> {
+                    resubmits += url
+                    loadFixtureBytes("ra_android_p1.html")
+                }
+                // The very first request of the flow: the challenge page itself.
+                requestedUrls.isEmpty() -> loadFixtureBytes(firstBody)
+                else -> loadFixtureBytes(fixtureFor(url))
+            }
+            okResponse(req, body)
+        }
+        val client = OkHttpClient.Builder()
+            .callTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(stub)
+            .build()
+        return RedditOfficialSource(client, NetworkModule.provideRedditMoshi(), Dispatchers.Default)
+    }
+
+    //endregion
+
+    //region Post detail
 
     @Test
     fun `post detail parses OP and comment cards in depth order`() = runBlocking {
@@ -132,6 +241,10 @@ class RedditOfficialSourceTest {
         assertTrue(first.permalink.contains("/r/linux/comments/1w2gg8x/"))
     }
 
+    //endregion
+
+    //region Subreddit about
+
     @Test
     fun `subreddit about parses community header`() = runBlocking {
         val child = source.getSubredditInfo("linux") as AboutChild
@@ -142,6 +255,10 @@ class RedditOfficialSourceTest {
         assertTrue(about.publicDescriptionHtml?.contains("Welcome to /r/Linux!") == true)
     }
 
+    //endregion
+
+    //region User
+
     @Test
     fun `user info parses karma`() = runBlocking {
         val child = source.getUserInfo("Coldplayfan1999") as AboutUserChild
@@ -150,12 +267,27 @@ class RedditOfficialSourceTest {
     }
 
     @Test
-    fun `user posts parses their post cards`() = runBlocking {
+    fun `user posts use the submitted url and merge the continuation`() = runBlocking {
         val listing = source.getUserPosts("Coldplayfan1999", Sort.HOT, null, null)
+        // The source must target the live URL: /user/{u}/submitted/?count=25&sort=hot
+        assertTrue(
+            "expected /user/Coldplayfan1999/submitted/ request, got: $requestedUrls",
+            requestedUrls.any {
+                it.startsWith("https://www.reddit.com/user/Coldplayfan1999/submitted/") &&
+                    it.contains("count=25") && it.contains("sort=hot")
+            }
+        )
+        // And it must NOT use the dead /user/{u}/{sort}/ URL.
+        assertFalse(requestedUrls.any { it.contains("/user/Coldplayfan1999/hot/") })
+
         val children = listing.data.children.filterIsInstance<PostChild>()
-        assertTrue("expected user posts, got ${children.size}", children.isNotEmpty())
-        assertEquals("t3_1w27oi2", children.first().data.name)
-        assertEquals("linux", children.first().data.subreddit)
+        // 3 SSR (sub_user_p1) + 25 continuation (sub_user_cont).
+        assertEquals(28, children.size)
+        val first = children.first().data
+        assertEquals("t3_1w2qlbj", first.name)
+        assertEquals("Coldplayfan1999", first.author)
+        // Cursor = last merged card.
+        assertEquals("t3_1vp6pwl", listing.data.after)
     }
 
     @Test
@@ -169,27 +301,60 @@ class RedditOfficialSourceTest {
         assertFalse(children.isEmpty())
     }
 
+    //endregion
+
+    //region Search
+
     @Test
-    fun `global search parses post preview blocks`() = runBlocking {
+    fun `global search parses both legacy and unit result blocks`() = runBlocking {
         val listing = source.searchPost("digital film", null, null, null)
         val children = listing.data.children.filterIsInstance<PostChild>()
-        // Fixture search page carries 6 search-post-with-content-preview blocks.
-        assertEquals(6, children.size)
+        // Fixture fv3_search0 carries 6 legacy blocks + 1 unit block, all distinct posts.
+        assertEquals(7, children.size)
         assertEquals("t3_1vz9f7d", children.first().data.name)
+        // The unit block's post is present too (it only has the new markup).
+        assertTrue(children.any { it.data.name == "t3_1w1wr5t" })
     }
 
     @Test
-    fun `ad cards are a different tag and never appear in parsed feeds`() = runBlocking {
-        // The parser selects the "shreddit-post" tag; ads are "shreddit-ad-post" and are dropped
-        // by construction. Confirm the raw feed fixture contains no parsed ad id.
-        val raw = loadFixture("pf_popular_p1.html")
-        val rawAdPosts = Regex("<shreddit-ad-post").findAll(raw).count()
-        // Whatever the ad count in the fixture, the parsed children must all be real t3 ids.
-        val children = source.getSubreddit("popular", Sort.HOT, null, null).data.children
+    fun `in-subreddit search parses the unit markup`() = runBlocking {
+        val listing = source.searchInSubreddit("Android", "bigme", null, null, null)
+        val children = listing.data.children.filterIsInstance<PostChild>()
+        assertTrue("expected in-sub search results, got ${children.size}", children.isNotEmpty())
+        assertEquals("t3_1w2gg8x", children.first().data.name)
+        assertEquals("linux", children.first().data.subreddit)
+    }
+
+    @Test
+    fun `user search parses profile blocks`() = runBlocking {
+        val listing = source.searchUser("coldplayfan", null, null, null)
+        val children = listing.data.children
+        assertEquals(4, children.size)
+        val first = children.first() as AboutUserChild
+        assertEquals("coldplayfan", first.data.name)
+    }
+
+    @Test
+    fun `community search parses subreddit blocks`() = runBlocking {
+        val listing = source.searchSubreddit("linux", null, null, null)
+        val children = listing.data.children
+        assertEquals(5, children.size)
+        val first = children.first() as AboutChild
+        assertEquals("linux", first.data.displayName)
+        assertEquals("/r/linux/", first.data.url)
+    }
+
+    //endregion
+
+    //region Invariants
+
+    @Test
+    fun `post ids are always real t3 fullnames`() = runBlocking {
+        val children = source.getSubreddit("Android", Sort.HOT, null, null).data.children
             .filterIsInstance<PostChild>()
         assertTrue(children.isNotEmpty())
         assertTrue(children.all { it.data.name.startsWith("t3_") })
-        // (rawAdPosts is informational; recorded so a future fixture swap is auditable.)
-        println("informational: fixture contains $rawAdPosts ad-post cards; parsed ${children.size} real posts")
     }
+
+    //endregion
 }

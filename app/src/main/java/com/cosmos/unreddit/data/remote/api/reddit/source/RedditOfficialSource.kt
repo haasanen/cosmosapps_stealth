@@ -48,17 +48,37 @@ import org.jsoup.nodes.Element
  * ships to a browser and parses it with jsoup. It is fully independent of the Arctic Shift
  * archive and of the RSS/embed channels: every screen is served by reddit.com's own pages.
  *
- * Contract notes (verified against live reddit.com captures):
- *  - Feeds: `https://www.reddit.com/r/{sub}/{sort}/?count=25&after=t3_xxx` renders
- *    `shreddit-post` cards; `shreddit-ad-post` (ads) is a different tag and is never
- *    selected, so ads drop out. Deep pagination is the main-page `after=t3_<fullname>`
- *    param (verified: clean 10-unique chain, no overlap).
+ * Contract notes (verified against live reddit.com captures, 2026-08-29/31):
+ *  - A brand-new session's first request is answered with a small **JS challenge** page
+ *    (~8 KB, zero content cards) whose inline script computes `solution = <16-hex literal>
+ *    doubled` (`await (async e => e + e)(lit)`) and resubmits the form. This source
+ *    reproduces that over plain HTTP: it extracts the literal and the form token from the
+ *    page and GETs `https://www.reddit.com{form action}?<original query>&js_challenge=1&
+ *    token=…&jsc_orig_r=&solution=<lit><lit>`. Solving issues the session cookies
+ *    (`token_v2`, `loid`, `csrf_token`, `session_tracker`) which the [RedditCookieJar]
+ *    persists for every follow-up request in the same client.
+ *  - Feeds render only the first few `shreddit-post` cards in the initial HTML; the rest of
+ *    the page load from an embedded continuation partial (`faceplate-partial` with
+ *    `slot="load-after"` pointing at `/svc/shreddit/community-more-posts/…` or
+ *    `/svc/shreddit/feeds/popular-feed`). The URL is HTML-escaped in the markup (`&amp;`) —
+ *    jsoup decodes it — and is bound to the solved session, so it is fetched immediately
+ *    with the same cookie-carrying client and its cards are merged in: a feed returns a
+ *    full page (~27 cards) instead of the 3 that are server-rendered.
+ *  - Home: the `/popular/` URL no longer exists on the live site (404 in a browser); the
+ *    home feed is `https://www.reddit.com/r/popular/hot/`.
+ *  - User posts: `/user/{u}/submitted/?count=25` (+ optional `sort=`, `after=`). The old
+ *    `/user/{u}/{sort}/` URL is dead.
  *  - Post detail: `https://www.reddit.com/r/{sub}/comments/{id}/{slug}/` renders the OP
- *    (`shreddit-post view-context="CommentsPage"`) plus ~25 `shreddit-comment` cards in
- *    depth order. Comment bodies are lazy: each card carries a `reload-url`
+ *    (`shreddit-post view-context="CommentsPage"`) plus the top-level `shreddit-comment`
+ *    cards in depth order. Comment bodies are lazy: each card carries a `reload-url`
  *    (`/svc/shreddit/comment/{t1_id}?…`) that returns the card with its markdown body, so
- *    the bodies are fetched in bounded parallel. A slugless detail URL is a JS shell, so
- *    the feed-supplied slug permalink is required.
+ *    the bodies are fetched in bounded parallel.
+ *  - Search (global and in-subreddit) mixes two block markups: legacy
+ *    `data-testid="search-post-with-content-preview"` and the newer `data-testid=
+ *    "search-post-unit"`. Both carry a `search-telemetry-tracker` whose
+ *    `data-faceplate-tracking-context` JSON holds the post id, title, author and subreddit.
+ *    User search returns `search-author` blocks (profile links); community search returns
+ *    `search-community` blocks.
  *  - A Cloudflare challenge page (small body + "Just a moment") is retried, then surfaced
  *    as an error. There is deliberately NO silent fallback to another source.
  */
@@ -82,7 +102,7 @@ class RedditOfficialSource @Inject constructor(
     ): Listing = withContext(ioDispatcher) {
         val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
         val doc = Jsoup.parse(fetchPage(url))
-        val children = parsePostCards(doc)
+        val children = loadFeedContinuation(doc, parsePostCards(doc))
         Listing(
             KIND_LISTING,
             ListingData(null, children.size, children, nextPostCursor(children), null)
@@ -109,8 +129,8 @@ class RedditOfficialSource @Inject constructor(
             if (!after.isNullOrBlank()) append("&after=").append(after)
         }
         val doc = Jsoup.parse(fetchPage(url))
-        val children = parsePostCards(doc)
-        Listing(KIND_LISTING, ListingData(null, children.size, children, nextPostCursor(children), null))
+        val children = parseSearchBlocks(doc)
+        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
     }
 
     //endregion
@@ -184,9 +204,9 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing = withContext(ioDispatcher) {
-        val url = userPageUrl(user, sort, after)
+        val url = userPostsUrl(user, sort, after)
         val doc = Jsoup.parse(fetchPage(url))
-        val children = parsePostCards(doc)
+        val children = loadFeedContinuation(doc, parsePostCards(doc))
         Listing(KIND_LISTING, ListingData(null, children.size, children, nextPostCursor(children), null))
     }
 
@@ -202,7 +222,10 @@ class RedditOfficialSource @Inject constructor(
         }
         val doc = Jsoup.parse(fetchPage(url))
         val children = parseProfileComments(doc, user)
-        Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
+        Listing(
+            KIND_LISTING,
+            ListingData(null, children.size, children, nextCommentCursor(children), null)
+        )
     }
 
     //endregion
@@ -220,7 +243,7 @@ class RedditOfficialSource @Inject constructor(
             append("&sort=").append(searchSort(sort))
         }
         val doc = Jsoup.parse(fetchPage(url))
-        val children = parseSearchPostBlocks(doc)
+        val children = parseSearchBlocks(doc)
         Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
     }
 
@@ -232,19 +255,19 @@ class RedditOfficialSource @Inject constructor(
     ): Listing = withContext(ioDispatcher) {
         val url = "https://www.reddit.com/search/?q=${encode(query)}&type=user"
         val doc = Jsoup.parse(fetchPage(url))
-        val children = doc.select("a[href^=/user/]").mapNotNull { a ->
-            val name = a.attr("href")
-                .removePrefix("/user/")
-                .trimEnd('/')
-                .takeIf { it.isNotEmpty() && !it.contains('/') }
+        val children = doc.select("[data-testid=search-author]").mapNotNull { block ->
+            val name = trackerField(block, "profile", "name")
+                ?: block.selectFirst("a[href^=/user/]")?.attr("href")
+                    ?.removePrefix("/user/")?.trimEnd('/')?.take(1)
                 ?: return@mapNotNull null
+            val icon = block.selectFirst("img")?.attr("src")
             AboutUserChild(
                 AboutUserData(
                     subreddit = null,
                     id = null,
-                    iconImg = a.selectFirst("img")?.attr("src"),
+                    iconImg = icon,
                     name = name,
-                    snoovatarImg = null
+                    snoovatarImg = icon
                 )
             )
         }.distinctBy { (it as AboutUserChild).data.name }
@@ -260,11 +283,8 @@ class RedditOfficialSource @Inject constructor(
         val url = "https://www.reddit.com/search/?q=${encode(query)}&type=community"
         val doc = Jsoup.parse(fetchPage(url))
         val children = doc.select("[data-testid=search-community]").mapNotNull { block ->
-            val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
-                ?: ""
-            val name = TRACKER_SUB_NAME.find(tracker)?.groupValues?.get(1)
+            val name = trackerField(block, "subreddit", "name")
                 ?: block.selectFirst("a[href^=/r/]")?.attr("href")?.removePrefix("/r/")?.trimEnd('/')
-                ?: block.text().removePrefix("r/").trim().takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
             val icon = block.selectFirst("img")?.attr("src")
             AboutChild(
@@ -289,7 +309,7 @@ class RedditOfficialSource @Inject constructor(
                     created = 0L
                 )
             )
-        }
+        }.distinctBy { (it as AboutChild).data.displayName }
         Listing(KIND_LISTING, ListingData(null, children.size, children, null, null))
     }
 
@@ -297,22 +317,89 @@ class RedditOfficialSource @Inject constructor(
 
     //region HTTP
 
-    /** Fetches a full page, retrying on challenge/failure, then throws if unusable. */
+    /**
+     * Fetches a full page, solving the JS challenge when reddit.com answers with one,
+     * retrying on failure, then throws if still unusable.
+     */
     private suspend fun fetchPage(url: String): String {
+        var lastError = "no response from server"
         for (attempt in 0 until SSR_RETRIES) {
-            val body = doGet(url, "GET", forPartial = false)
-            if (body != null && !isCloudflareChallenge(body)) return body
+            val body = doGet(url, "GET", forPartial = false) ?: continue
+            if (isCloudflareChallenge(body)) {
+                lastError = "Cloudflare challenge page"
+                if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
+                continue
+            }
+            val solved = solveJsChallenge(body, url)
+            if (solved != null) return solved
+            if (parseJsChallenge(body) == null) return body // not a challenge: real page
+            lastError = "JS challenge could not be solved"
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
-        throw IOException(
-            "reddit.com did not return a usable page (Cloudflare challenge or rate limit). Please try again."
-        )
+        throw IOException("reddit.com did not return a usable page ($lastError). Please try again.")
     }
 
     /**
-     * Fetches a lazy partial (comment body). Tries GET then POST; returns the body or null.
-     * A null body means the caller degrades gracefully (e.g. an empty comment body) instead
-     * of failing the whole detail page.
+     * If [body] is a JS challenge page, solves it over plain HTTP (doubled-literal solution
+     * + form token) and returns the real page; otherwise returns null.
+     *
+     * The challenge's inline script copies every current URL query param into hidden inputs
+     * and submits the form; we do the same. The resubmitted request goes through the same
+     * OkHttp client so the session cookies it issues persist in the [RedditCookieJar] for
+     * the follow-up requests (feeds, continuations, partials).
+     */
+    private suspend fun solveJsChallenge(body: String, originalUrl: String): String? {
+        val challenge = parseJsChallenge(body) ?: return null
+        val solvedUrl = buildChallengeResubmitUrl(challenge, originalUrl)
+        val solved = doGet(solvedUrl, "GET", forPartial = false) ?: return null
+        return if (isCloudflareChallenge(solved) || parseJsChallenge(solved) != null) null else solved
+    }
+
+    /**
+     * Extracts the challenge form data from a challenge page, or null when the body is not a
+     * challenge (real pages are large and never carry the challenge form/script).
+     */
+    private fun parseJsChallenge(body: String): ChallengeForm? {
+        if (body.length > CHALLENGE_MAX_SIZE) return null // real pages are large
+        val doc = Jsoup.parse(body)
+        val tokenInput = doc.selectFirst("form input[name=token]") ?: return null
+        val form = tokenInput.closest("form") ?: return null
+        val token = tokenInput.attr("value")
+        if (token.isNullOrBlank()) return null
+        val action = form.attr("action").ifBlank { return null }
+        val literal = JS_CHALLENGE_LITERAL.find(body)?.groupValues?.get(1)
+            ?: return null
+        return ChallengeForm(action = action, token = token, literal = literal)
+    }
+
+    /**
+     * Builds the challenge resubmit URL the way the browser's form submit does: the form
+     * action plus the original page's own query params (the browser copies them into hidden
+     * inputs) and the hidden fields (`js_challenge`, `token`, `jsc_orig_r`, `solution`).
+     * The solution is the 16-hex literal doubled — exactly what
+     * `await (async e => e + e)(lit)` produces. The form action is relative
+     * (e.g. `/r/Android/hot/`) and is resolved against the site root.
+     */
+    private fun buildChallengeResubmitUrl(challenge: ChallengeForm, originalUrl: String): String {
+        val originalQuery = originalUrl.substringAfter('?', missingDelimiterValue = "")
+        val solution = challenge.literal + challenge.literal
+        val action = if (challenge.action.startsWith("/")) "https://www.reddit.com" + challenge.action
+        else challenge.action
+        val sep = if (action.contains("?")) "&" else "?"
+        val params = buildList {
+            if (originalQuery.isNotBlank()) add(originalQuery)
+            add("js_challenge=1")
+            add("token=" + challenge.token)
+            add("jsc_orig_r=")
+            add("solution=" + solution)
+        }.joinToString("&")
+        return action + sep + params
+    }
+
+    /**
+     * Fetches a lazy partial (comment body / continuation). Tries GET then POST; returns the
+     * body or null. A null body means the caller degrades gracefully (e.g. an empty comment
+     * body, or a page without its continuation cards) instead of failing the whole request.
      */
     private suspend fun fetchPartial(url: String): String? {
         for (method in listOf("GET", "POST")) {
@@ -361,6 +448,34 @@ class RedditOfficialSource @Inject constructor(
             s.contains("attention required")
     }
 
+    /**
+     * Fetches the embedded "load more" continuation partial for [doc] (the `faceplate-partial`
+     * with `slot="load-after"` whose src points at a more-posts feed) and merges its
+     * `shreddit-post` cards onto [initial], de-duplicated by fullname.
+     *
+     * The partial is bound to the solved session and is fetched immediately with the same
+     * cookie-carrying client. Returns [initial] unchanged when the page has no
+     * continuation or the partial cannot be fetched — a continuation is an enhancement,
+     * never a failure.
+     */
+    private suspend fun loadFeedContinuation(
+        doc: Document,
+        initial: List<PostChild>
+    ): List<PostChild> {
+        val src = doc.selectFirst(CONTINUATION_SELECTOR)?.attr("src") ?: return initial
+        if (src.isBlank()) return initial
+        val baseUrl = if (doc.location().isNotBlank()) doc.location() else "https://www.reddit.com"
+        val url = if (src.startsWith("/")) baseUrl + src else src
+        val body = runCatching { fetchPartial(url) }.getOrNull() ?: return initial
+        val partial = runCatching { Jsoup.parse(body) }.getOrNull() ?: return initial
+        val more = partial.select("shreddit-post").mapNotNull { postChildFromElement(it) }
+        if (more.isEmpty()) return initial
+        val seen = initial.mapTo(HashSet()) { it.data.name }
+        val merged = initial.toMutableList()
+        more.filter { seen.add(it.data.name) }.forEach(merged::add)
+        return merged
+    }
+
     //endregion
 
     //region URL builders
@@ -373,7 +488,8 @@ class RedditOfficialSource @Inject constructor(
     ): String = buildString {
         append("https://www.reddit.com")
         if (subreddit.equals(POPULAR, ignoreCase = true)) {
-            append("/popular/")
+            // "/popular/" is dead on the live site; the home feed is r/popular.
+            append("/r/popular/").append(feedSortPath(sort)).append("/")
         } else {
             append("/r/").append(subreddit).append("/").append(feedSortPath(sort)).append("/")
         }
@@ -384,9 +500,14 @@ class RedditOfficialSource @Inject constructor(
         if (!after.isNullOrBlank()) append("&after=").append(after)
     }
 
-    private fun userPageUrl(user: String, sort: Sort, after: String?): String = buildString {
-        append("https://www.reddit.com/user/").append(user).append("/").append(feedSortPath(sort))
-            .append("/?count=").append(PAGE_SIZE)
+    /**
+     * `/user/{u}/submitted/?count=25` — the live URL for a user's posts (the old
+     * `/user/{u}/{sort}/` is 404). `sort=` accepts hot/new/top/controversial; `after=`
+     * advances pagination with the last post's fullname.
+     */
+    private fun userPostsUrl(user: String, sort: Sort, after: String?): String = buildString {
+        append("https://www.reddit.com/user/").append(user).append("/submitted/?count=").append(PAGE_SIZE)
+        append("&sort=").append(feedSortPath(sort))
         if (!after.isNullOrBlank()) append("&after=").append(after)
     }
 
@@ -595,40 +716,68 @@ class RedditOfficialSource @Inject constructor(
 
     //region Search post parsing
 
-    private fun parseSearchPostBlocks(doc: Document): List<PostChild> =
-        doc.select("[data-testid=search-post-with-content-preview]").mapNotNull { block ->
-            val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
-                ?: ""
-            val title = block.selectFirst("[data-testid=post-title-text]")?.text()
-                ?: block.selectFirst(".post-title, [data-testid=post-title]")?.text()
-                ?: ""
-            val link = block.selectFirst("a[href*=/comments/]")?.attr("href") ?: ""
-            val id = REGEX_T3.find(tracker)?.value
-                ?: REGEX_POST_ID.find(link)?.let { "t3_${it.groupValues[1]}" }
-            if (id == null) return@mapNotNull null
-            val sub = TRACKER_SUB_NAME.find(tracker)?.groupValues?.get(1)
-                ?: PERMALINK_REF.find(link)?.groupValues?.getOrNull(1)
-                ?: "unknown"
-            val created = 0L
-            val map = mutableMapOf<String, Any?>(
-                "name" to id,
-                "id" to id.removePrefix("t3_"),
-                "subreddit" to sub,
-                "subreddit_name_prefixed" to "r/$sub",
-                "title" to title,
-                "author" to (REGEX_AUTHOR.find(tracker)?.groupValues?.get(1) ?: ""),
-                "created_utc" to created,
-                "permalink" to link,
-                "url" to (REGEX_URL.find(block.html())?.groupValues?.get(1) ?: link),
-                "domain" to "self.$sub",
-                "is_self" to false,
-                "score" to 0,
-                "num_comments" to 0,
-                "upvote_ratio" to 0.0,
-                "link_flair_richtext" to emptyList<Any>()
-            )
-            runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
-        }
+    /**
+     * Parses search post results. reddit.com serves the result list as a mix of legacy
+     * `search-post-with-content-preview` blocks and newer `search-post-unit` blocks (global
+     * and in-subreddit alike); both carry a `search-telemetry-tracker` whose
+     * `data-faceplate-tracking-context` JSON holds the post id, title, author and subreddit.
+     */
+    private fun parseSearchBlocks(doc: Document): List<PostChild> =
+        doc.select("[data-testid=search-post-with-content-preview], [data-testid=search-post-unit]")
+            .mapNotNull { block ->
+                val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
+                    ?: ""
+                val id = trackerField(block, "post", "id")
+                    ?: REGEX_T3.find(tracker)?.value
+                    ?: block.selectFirst("a[href*=/comments/]")?.attr("href")
+                        ?.let { REGEX_POST_ID.find(it)?.let { m -> "t3_${m.groupValues[1]}" } }
+                if (id == null) return@mapNotNull null
+                val title = block.selectFirst("[data-testid=post-title-text]")?.text()?.trim()
+                    ?: trackerPostTitle(block)
+                    ?: ""
+                val link = block.selectFirst("a[href*=/comments/]")?.attr("href") ?: ""
+                val sub = trackerField(block, "subreddit", "name")
+                    ?: PERMALINK_REF.find(link)?.groupValues?.getOrNull(1)
+                    ?: "unknown"
+                val author = trackerField(block, "profile", "name")
+                    ?: REGEX_AUTHOR.find(tracker)?.groupValues?.getOrNull(1)
+                    ?: ""
+                val map = mutableMapOf<String, Any?>(
+                    "name" to id,
+                    "id" to id.removePrefix("t3_"),
+                    "subreddit" to sub,
+                    "subreddit_name_prefixed" to "r/$sub",
+                    "title" to title,
+                    "author" to author,
+                    "created_utc" to 0L,
+                    "permalink" to link,
+                    "url" to (REGEX_URL.find(block.html())?.groupValues?.getOrNull(1) ?: link),
+                    "domain" to "self.$sub",
+                    "is_self" to false,
+                    "score" to 0,
+                    "num_comments" to 0,
+                    "upvote_ratio" to 0.0,
+                    "link_flair_richtext" to emptyList<Any>()
+                )
+                runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+            }
+            .distinctBy { it.data.name }
+
+    /** Reads `."<field>" : "<value>"` (or the object form) out of a tracker block's JSON. */
+    private fun trackerField(block: Element, group: String, field: String): String? {
+        val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
+            ?: return null
+        val obj = Regex("\"$group\"\\s*:\\s*\\{[^}]*?\"$field\"\\s*:\\s*\"([^\"]*)\"")
+            .find(tracker)?.groupValues?.get(1)
+        if (obj != null) return obj
+        return Regex("\"$field\"\\s*:\\s*\"([^\"]*)\"").find(tracker)?.groupValues?.get(1)
+    }
+
+    private fun trackerPostTitle(block: Element): String? {
+        val tracker = block.selectFirst("search-telemetry-tracker")?.attr("data-faceplate-tracking-context")
+            ?: return null
+        return Regex("\"title\"\\s*:\\s*\"([^\"]*)\"").find(tracker)?.groupValues?.get(1)
+    }
 
     //endregion
 
@@ -641,9 +790,14 @@ class RedditOfficialSource @Inject constructor(
         val description = header?.attr("description")?.ifBlank { "" } ?: ""
         val weeklyActive = header?.attr("weekly-active-users")?.takeIf { it.isNotBlank() }
             ?.replace(Regex("[^0-9]"), "")?.toIntOrNull()
-        val created = doc.selectFirst("faceplate-timeago")?.attr("ts")
-            ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() / 1000 }.getOrDefault(0L) }
+        // The "Created …" line is the faceplate-timeago that sits next to the literal
+        // "Created" text; picking the first timeago on the page grabs a tooltip instead.
+        val created = doc.select("rpl-tooltip").firstOrNull { it.text().startsWith("Created ") }
+            ?.selectFirst("faceplate-timeago")?.attr("ts")
+            ?.let { runCatching { parseTimestampMillis(it) / 1000 }.getOrDefault(0L) }
             ?: 0L
+        val icon = header?.select("img")?.firstOrNull { it.attr("src").contains("redditmedia.com") }?.attr("src")
+            ?: header?.attr("icon-img")
         return AboutData(
             wikiEnabled = null,
             displayName = displayName,
@@ -651,7 +805,7 @@ class RedditOfficialSource @Inject constructor(
             title = name,
             primaryColor = null,
             activeUserCount = weeklyActive,
-            iconImg = header?.attr("icon-img"),
+            iconImg = icon,
             subscribers = parseMembersCount(doc),
             quarantine = null,
             publicDescriptionHtml = description,
@@ -804,11 +958,20 @@ class RedditOfficialSource @Inject constructor(
         }.getOrDefault(0L)
     }
 
+    private fun parseTimestampMillis(value: String): Long = parseRedditTimestamp(value) * 1000
+
     /** Last post's fullname is the `after` cursor for the next SSR feed page. */
     private fun nextPostCursor(children: List<Child>): String? =
         children.filterIsInstance<PostChild>().lastOrNull()?.data?.name
 
+    /** Last comment's fullname advances `/user/{u}/comments/?after=`. */
+    private fun nextCommentCursor(children: List<Child>): String? =
+        children.filterIsInstance<CommentChild>().lastOrNull()?.data?.name
+
     //endregion
+
+    /** The challenge page's form: relative action, hidden token, and the 16-hex literal. */
+    private data class ChallengeForm(val action: String, val token: String, val literal: String)
 
     companion object {
         private const val KIND_LISTING = "Listing"
@@ -817,16 +980,22 @@ class RedditOfficialSource @Inject constructor(
         private const val SSR_RETRIES = 3
         private const val SSR_RETRY_BASE_MS = 1_000L
         private const val BODY_CONCURRENCY = 6
+        // Real reddit.com pages are 300 KB+; a challenge page is ~8 KB.
+        private const val CHALLENGE_MAX_SIZE = 64_000
+        // `await (async e => e + e)("<16 hex>")` — the literal is doubled as the solution.
+        private val JS_CHALLENGE_LITERAL =
+            Regex("""\(\s*async\s+e\s*=>\s*e\s*\+\s*e\s*\)\s*\(\s*"([0-9a-fA-F]{16})"\s*\)""")
+        // The embedded "load more" partial (its `src` is HTML-escaped; jsoup decodes it).
+        private val CONTINUATION_SELECTOR = "faceplate-partial[slot=load-after]"
 
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/131.0.0.0 Safari/537.36"
 
-        private val PERMALINK_REF = Regex("/r/([^/]+)/comments/([a-z0-9]+)/")
+        private val PERMALINK_REF = Regex("/r([^/]+)/comments/([a-z0-9]+)/")
         private val REGEX_T3 = Regex("t3_[a-z0-9]+")
         private val REGEX_POST_ID = Regex("/comments/([a-z0-9]+)/")
         private val REGEX_AUTHOR = Regex("\"author\"\\s*:\\s*\"([^\"]+)\"")
         private val REGEX_URL = Regex("href=\"(https?://[^\"]+)\"")
-        private val TRACKER_SUB_NAME = Regex("\"subreddit\"\\s*:\\s*\\{[^}]*\"name\"\\s*:\\s*\"([^\"]+)\"")
     }
 }
