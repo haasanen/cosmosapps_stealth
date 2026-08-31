@@ -101,8 +101,10 @@ class RedditOfficialSource @Inject constructor(
         after: String?
     ): Listing = withContext(ioDispatcher) {
         val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
-        val doc = Jsoup.parse(fetchPage(url))
+        val body = fetchPage(url)
+        val doc = Jsoup.parse(body)
         val children = loadFeedContinuation(doc, parsePostCards(doc))
+        requireFeedHasPosts(url, body, children)
         Listing(
             KIND_LISTING,
             ListingData(null, children.size, children, nextPostCursor(children), null)
@@ -338,7 +340,6 @@ class RedditOfficialSource @Inject constructor(
         }
         throw IOException("reddit.com did not return a usable page ($lastError). Please try again.")
     }
-
     /**
      * If [body] is a JS challenge page, solves it over plain HTTP (doubled-literal solution
      * + form token) and returns the real page; otherwise returns null.
@@ -349,10 +350,21 @@ class RedditOfficialSource @Inject constructor(
      * the follow-up requests (feeds, continuations, partials).
      */
     private suspend fun solveJsChallenge(body: String, originalUrl: String): String? {
-        val challenge = parseJsChallenge(body) ?: return null
-        val solvedUrl = buildChallengeResubmitUrl(challenge, originalUrl)
-        val solved = doGet(solvedUrl, "GET", forPartial = false) ?: return null
-        return if (isCloudflareChallenge(solved) || parseJsChallenge(solved) != null) null else solved
+        // Some networks (mobile carriers in particular) answer the solved resubmit with yet
+        // another challenge page carrying a fresh token. The browser rides the same flow; we
+        // loop up to [CHALLENGE_MAX_ROUNDS] rounds, re-sending the session cookies each time.
+        var current = body
+        for (round in 1..CHALLENGE_MAX_ROUNDS) {
+            val challenge = parseJsChallenge(current) ?: return null
+            val solvedUrl = buildChallengeResubmitUrl(challenge, originalUrl)
+            val solved = doGet(solvedUrl, "GET", forPartial = false) ?: return null
+            if (isCloudflareChallenge(solved)) return null
+            val next = parseJsChallenge(solved)
+            if (next == null) return solved // real page
+            if (next.token == challenge.token) return null // same token: it will not progress
+            current = solved // a fresh challenge: solve it again
+        }
+        return null
     }
 
     /**
@@ -474,6 +486,36 @@ class RedditOfficialSource @Inject constructor(
         val merged = initial.toMutableList()
         more.filter { seen.add(it.data.name) }.forEach(merged::add)
         return merged
+    }
+
+    /**
+     * A feed that resolves to zero posts is never a valid reddit.com answer — a real feed
+     * page always carries at least one server-rendered card. Zero means the page we got was
+     * not a feed (an unrecognized challenge/interstitial variant, a soft-block, or a layout
+     * change the parser no longer recognizes). Silently rendering an empty list for that was
+     * the "black front page" bug: the user saw nothing and there was no error to act on.
+     *
+     * Throwing instead surfaces a retry banner whose message names exactly what the phone
+     * received (size + <title> + recognizable markers), which is what unblocks the next
+     * fix. Detail pages and searches can legitimately be empty, so this applies to feeds
+     * only.
+     */
+    private fun requireFeedHasPosts(url: String, body: String, children: List<PostChild>) {
+        if (children.isNotEmpty()) return
+        val doc = Jsoup.parse(body)
+        val title = doc.title().ifBlank { "(no title)" }
+        val markers = listOf(
+            "challenge" to ("name=\"token\"" in body),
+            "cf-clearance" to ("cf-chl" in body || "challenge-platform" in body),
+            "just-a-moment" to ("just a moment" in body.lowercase()),
+            "post-cards" to ("shreddit-post" in body),
+            "partial" to ("faceplate-partial" in body)
+        ).filter { it.second }.joinToString(", ")
+        throw IOException(
+            "reddit.com returned no posts for $url " +
+                "(page ${body.length} chars, title \"$title\"; markers: ${markers.ifBlank { "none recognized" }}). " +
+                "The page layout may have changed — please report this."
+        )
     }
 
     //endregion
@@ -979,6 +1021,10 @@ class RedditOfficialSource @Inject constructor(
         private const val PAGE_SIZE = 25
         private const val SSR_RETRIES = 3
         private const val SSR_RETRY_BASE_MS = 1_000L
+        // The JS-challenge solve may need to repeat: a flagged network can answer a solved
+        // resubmit with a *new* challenge (fresh token) before finally returning the feed.
+        // The browser rides this flow; we allow a few rounds before giving up.
+        private const val CHALLENGE_MAX_ROUNDS = 3
         private const val BODY_CONCURRENCY = 6
         // Real reddit.com pages are 300 KB+; a challenge page is ~8 KB.
         private const val CHALLENGE_MAX_SIZE = 64_000
