@@ -53,6 +53,13 @@ android {
         }
     }
 
+    // Release is signed only when a keystore is actually present. This keeps the
+    // build working in environments without a signing key (e.g. F-Droid, which
+    // re-signs every build with its own key) while still producing a signed APK
+    // for the CI/local builds that carry the release keystore.
+    val releaseKeystorePresent =
+        file(keystoreProperties.getProperty("storeFile", "keystore.jks")).exists()
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
@@ -61,7 +68,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseKeystorePresent) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         getByName("debug") {
             applicationIdSuffix = ".dev"

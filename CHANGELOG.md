@@ -1,3 +1,19 @@
+# 2.4.0 - 2026/08/31
+
+### Added
+- "Reddit (official)" source now uses reddit.com's own server-rendered pages
+  (no third-party archive, no RSS): live scores, post detail with comment
+  bodies, user pages, search, subreddit info
+- Source picker cleanup: dead sources removed from the UI
+
+### Fixed
+- Upvote and comment counts showed wrong values on the official source
+  (placeholder data from third-party archive)
+- Videos in posts returned 403 on the official source (unsigned fallback URLs)
+- Backup restore: imported profile was not selected after a successful
+  restore (subscriptions/saved posts looked empty)
+- Count mismatch between post listing and post detail
+
 # 2.3.1 - 2025/06/01
 
 ### Fixed
