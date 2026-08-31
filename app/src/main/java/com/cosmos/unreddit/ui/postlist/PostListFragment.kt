@@ -246,6 +246,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
                 val errorState = loadState.source.refresh as? LoadState.Error
                 errorState?.let {
+                    // Show the real reason (e.g. the official-source diagnostic describing the
+                    // page reddit.com actually served) instead of the static retry hint.
+                    val realMessage = it.error.message?.takeIf { m -> m.isNotBlank() }
+                    if (realMessage != null) {
+                        binding.infoRetry.setMessage(realMessage.take(400))
+                    }
                     binding.infoRetry.show()
                 }
             }

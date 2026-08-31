@@ -106,6 +106,11 @@ class InfoBarView @JvmOverloads constructor(
         }
     }
 
+    fun setMessage(text: CharSequence) {
+        textMessage = text.toString()
+        message.text = textMessage
+    }
+
     fun show() {
         getSceneRoot()?.let {
             TransitionManager.beginDelayedTransition(it, transition)
