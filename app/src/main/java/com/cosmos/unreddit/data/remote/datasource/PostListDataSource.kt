@@ -8,6 +8,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.Child
 import com.cosmos.unreddit.data.remote.api.reddit.model.Listing
 import com.cosmos.unreddit.data.remote.api.reddit.source.CurrentSource
 import com.squareup.moshi.JsonDataException
+import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -25,13 +26,15 @@ open class PostListDataSource(
             val data = response.data
 
             LoadResult.Page(data.children, null, data.after)
-        } catch (exception: IOException) {
+        } catch (exception: CancellationException) {
+            // Structured concurrency: navigation/config-change cancels must propagate,
+            // not surface as a load error.
+            throw exception
+        } catch (exception: Exception) {
+            // Catch everything else: challenge/parse failures surface as plain
+            // exceptions and must reach the visible error banner, not a silent
+            // blank feed.
             Log.e("PostListDataSource", "Error", exception)
-            LoadResult.Error(exception)
-        } catch (exception: HttpException) {
-            Log.e("PostListDataSource", "Error", exception)
-            LoadResult.Error(exception)
-        } catch (exception: JsonDataException) {
             LoadResult.Error(exception)
         }
     }

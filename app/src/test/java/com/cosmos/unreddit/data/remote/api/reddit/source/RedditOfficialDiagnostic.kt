@@ -2,6 +2,7 @@ package com.cosmos.unreddit.data.remote.api.reddit.source
 
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.remote.api.reddit.RedditCookieJar
+import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.di.NetworkModule
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,41 @@ class RedditOfficialDiagnostic {
             } catch (t: Throwable) {
                 println("LIVE FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
                 t.cause?.let { println("LIVE cause: ${it::class.java.simpleName}: ${it.message}") }
+            }
+        }
+    }
+
+    @Test
+    fun liveSubredditFeed() {
+        runBlocking {
+            val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
+            val t0 = System.currentTimeMillis()
+            try {
+                // Exactly what the app calls when the user picks a subreddit (default sort HOT):
+                // https://www.reddit.com/r/AskReddit/hot/?count=25
+                val listing = source.getSubreddit("AskReddit", Sort.HOT, null, null)
+                println("LIVE SUB OK: ${listing.data.children.size} posts in ${System.currentTimeMillis() - t0}ms")
+                println("LIVE SUB first 5: " + listing.data.children.take(5)
+                    .map { (it as? PostChild)?.data?.title ?: "?" }.joinToString())
+            } catch (t: Throwable) {
+                println("LIVE SUB FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
+                t.cause?.let { println("LIVE SUB cause: ${it::class.java.simpleName}: ${it.message}") }
+            }
+        }
+    }
+
+    @Test
+    fun liveSubredditOverview() {
+        runBlocking {
+            val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
+            val t0 = System.currentTimeMillis()
+            try {
+                val child = source.getSubredditInfo("AskReddit")
+                val about = (child as AboutChild).data
+                println("LIVE ABOUT OK in ${System.currentTimeMillis() - t0}ms: title=${about.title} subscribers=${about.subscribers} online=${about.activeUserCount}")
+            } catch (t: Throwable) {
+                println("LIVE ABOUT FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
+                t.cause?.let { println("LIVE ABOUT cause: ${it::class.java.simpleName}: ${it.message}") }
             }
         }
     }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
 import kotlin.math.ceil
+import kotlinx.coroutines.CancellationException
 
 class SmartPostListDataSource(
     private val source: CurrentSource,
@@ -41,11 +42,14 @@ class SmartPostListDataSource(
     override suspend fun load(params: LoadParams<List<String>>): LoadResult<List<String>, Child> {
         return try {
             if (query.size > REDDIT_SUBREDDIT_LIMIT) getSmartData(params) else getData(params)
-        } catch (exception: IOException) {
-            LoadResult.Error(exception)
-        } catch (exception: HttpException) {
-            LoadResult.Error(exception)
-        } catch (exception: JsonDataException) {
+        } catch (exception: CancellationException) {
+            // Structured concurrency: navigation/config-change cancels must propagate,
+            // not surface as a load error.
+            throw exception
+        } catch (exception: Exception) {
+            // Catch everything else: challenge/parse failures surface as plain
+            // exceptions and must reach the visible error banner, not a silent
+            // blank feed.
             LoadResult.Error(exception)
         }
     }
