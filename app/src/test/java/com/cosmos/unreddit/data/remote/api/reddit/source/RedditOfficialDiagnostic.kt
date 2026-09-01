@@ -91,17 +91,21 @@ class RedditOfficialDiagnostic {
         runBlocking {
             val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
             val t0 = System.currentTimeMillis()
-            // The user's ACTUAL home multiredd, read from the banner on their phone
-            // (2026-08-31): ~30 subs. This is the exact feed that was blank on-device.
+            // The user's ACTUAL home multiredd — the exact 73-subreddit list taken
+            // verbatim from their backup file (projects/stealth/backup-stealth-profile.json,
+            // profile "Stealth"). This is the feed that was blank on-device.
             val multi = listOf(
-                "LocalLLM", "openclaw", "3Dmodeling", "freegames",
-                "prusa3d", "eWitness", "linux_gaming", "animation",
-                "sysadmin", "Lofree", "FRMEDIAHECKYEAH", "doohickeycorporation",
-                "MechanicalKeyboards", "privacy", "networking", "yubico",
-                "Eldenring", "hermesagent", "fromsoftware", "pcgaming",
-                "LocalLLaMA", "functionalprint", "virtualreality", "frigate_nvr",
-                "GameDeals", "cableporn", "NuPhy", "godot",
-                "storage", "HomeSecurity"
+                "GameDeals", "freegames", "FreeGamesOnSteam", "patientgamers", "Amd", "intel", "nvidia", "hardware",
+                "gamedev", "godot", "netsec", "CrackWatch", "PiratedGames", "Piracy", "FREEMEDIAHECKYEAH",
+                "privacy", "ProtonVPN", "ProtonMail", "linux_gaming", "Android", "food", "FoodPorn", "Cooking",
+                "unity", "Unity3D", "archlinux", "blender", "DataHoarder", "homelab", "HomeServer", "selfhosted",
+                "hetzner", "BorgBackup", "fromsoftware", "Steam", "virtualreality", "oculus", "OculusQuest",
+                "TheWitness", "cableporn", "3Dmodeling", "functionalprint", "3Dprinting", "prusa3d",
+                "animation", "LineageOS", "cybersecurity", "sysadmin", "MiniPCs", "Eldenring", "pcgaming",
+                "TOR", "tails", "homeassistant", "frigate_nvr", "reolinkcam", "homeautomation", "networking",
+                "ipv6", "PorkBun", "Lofree", "NuPhy", "MechanicalKeyboards", "outerwilds", "storage",
+                "LocalLLM", "LocalLLaMA", "openclaw", "yubikey", "doohickeycorporation", "smarthome", "ollama",
+                "hermesagent"
             ).joinToString("+")
             try {
                 val listing = source.getSubreddit(multi, Sort.HOT, null, null)
