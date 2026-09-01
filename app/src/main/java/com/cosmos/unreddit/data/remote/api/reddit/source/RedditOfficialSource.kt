@@ -21,6 +21,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.di.NetworkModule.RedditMoshi
 import com.cosmos.unreddit.di.NetworkModule.RedditScrapOkHttp
+import com.cosmos.unreddit.util.extension.interlace
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
@@ -30,6 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -103,12 +105,14 @@ class RedditOfficialSource @Inject constructor(
         after: String?
     ): Listing = withContext(ioDispatcher) {
         if (subreddit.contains("+")) {
-            // A multiredd home feed. reddit.com serves the multiredd SSR HTML to anonymous
-            // clients behind a login/18+ age gate (a full page containing zero post
-            // elements), so the HTML path can never return posts. The official Atom feed
-            // for the same multiredd is served without a gate (over18 in the query),
-            // paginates with after=<t3_id>, and is the same feed the website shows.
-            getSubredditViaAtom(subreddit, sort, timeSorting, after)
+            // A multiredd home feed. A JOINED multiredd URL is unusable for logged-out
+            // clients (live-verified 2026-09-01: reddit.com answers 301 -> the front
+            // page for both 3-sub and 73-sub joins), so the feed is assembled per
+            // subreddit: one SSR request per sub (bounded concurrency), merged and
+            // interlaced — the same data the website shows, with real scores and
+            // comment counts. Cursor list (one `after` per sub, aligned to the sub
+            // order) is threaded back for pagination.
+            getSubredditFanOut(subreddit, sort, timeSorting, after)
         } else {
             val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
             val body = fetchPage(url)
@@ -119,6 +123,90 @@ class RedditOfficialSource @Inject constructor(
                 KIND_LISTING,
                 ListingData(null, children.size, children, nextPostCursor(children), null)
             )
+        }
+    }
+
+    /**
+     * A multiredd home feed, assembled one subreddit at a time. A JOINED
+     * multiredd URL is unusable for logged-out clients (reddit.com answers 301 ->
+     * the front page for both 3-sub and 73-sub joins, live-verified 2026-09-01),
+     * so each subreddit's own SSR feed is fetched (bounded concurrency, the same
+     * page the website shows a logged-in user) and the results are merged and
+     * interlaced — giving real scores, comment counts and previews.
+     *
+     * Pagination: one `after` cursor per subreddit, aligned to the subreddit
+     * order, joined with [FANOUT_CURSOR_SEP] into the single opaque cursor string
+     * the paging layer hands back. A subreddit that fails (challenge, 404, empty)
+     * is skipped rather than blanking the whole feed; only a total failure throws.
+     */
+    private suspend fun getSubredditFanOut(
+        multiredd: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?
+    ): Listing {
+        val subs = multiredd.split("+").map { it.trim() }.filter { it.isNotEmpty() }
+        val cursors = subs.indices.map { i ->
+            after?.split(FANOUT_CURSOR_SEP)?.getOrNull(i)?.takeIf { it.isNotBlank() }
+        }
+        val semaphore = Semaphore(FANOUT_CONCURRENCY)
+        val perSub = coroutineScope {
+            subs.mapIndexed { i, sub ->
+                async {
+                    semaphore.withPermit { fetchSubPostsLenient(sub, sort, timeSorting, cursors[i]) }
+                }
+            }.awaitAll()
+        }
+        val merged = mergeFanOut(perSub, sort)
+        if (merged.isEmpty()) {
+            // Every per-sub fetch failed (e.g. reddit.com's CF layer is challenging this
+            // client hard right now). Degrade to reddit.com's own Atom feed so the home
+            // screen is not blank. The Atom feed has no scores/comment counts; it is
+            // still reddit.com, not a third-party source.
+            System.out.println("[RedditOfficialSource] Multiredd fan-out produced no posts; falling back to the Atom feed")
+            return getSubredditViaAtom(multiredd, sort, timeSorting, null)
+        }
+        val nextCursors = perSub.map { nextPostCursor(it) }
+        val encoded = nextCursors.joinToString(FANOUT_CURSOR_SEP) { it ?: "" }
+        return Listing(KIND_LISTING, ListingData(null, merged.size, merged, encoded, null))
+    }
+
+    /**
+     * Fetch one subreddit's feed page (SSR + continuation partial) for the fan-out
+     * path. Lenient: a single dead subreddit returns an empty list instead of
+     * throwing, so one challenge/404 does not blank the whole home feed.
+     */
+    private suspend fun fetchSubPostsLenient(
+        subreddit: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?
+    ): List<PostChild> = try {
+        val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
+        val body = fetchPage(url)
+        val doc = Jsoup.parse(body)
+        loadFeedContinuation(doc, parsePostCards(doc))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /**
+     * Merge the per-subreddit feeds into one list, de-duplicated by fullname.
+     * NEW sorts by date, TOP by score; every other sort interlaces the lists so
+     * the feed reads as a balanced mix rather than sub-blocks (matches the
+     * SmartPostListDataSource merge semantics).
+     */
+    private fun mergeFanOut(perSub: List<List<PostChild>>, sort: Sort): List<PostChild> {
+        val seen = HashSet<String>()
+        val deduped = perSub.map { list -> list.filter { seen.add(it.data.name) } }
+            .filter { it.isNotEmpty() }
+        if (deduped.isEmpty()) return emptyList()
+        return when (sort) {
+            Sort.NEW -> deduped.flatten().sortedByDescending { it.data.created }
+            Sort.TOP -> deduped.flatten().sortedByDescending { it.data.score }
+            else -> deduped.interlace()
         }
     }
 
@@ -284,7 +372,20 @@ class RedditOfficialSource @Inject constructor(
         withContext(ioDispatcher) {
             val url = if (permalink.startsWith("/")) "https://www.reddit.com$permalink"
             else "https://www.reddit.com/$permalink"
-            val doc = Jsoup.parse(fetchPage(url))
+            var body = fetchPage(url)
+            var doc = Jsoup.parse(body)
+            // Slugless permalinks (e.g. /r/x/comments/abc123/) are served as a JS-redirect
+            // stub pointing at the slugged URL. Follow it once so the detail page loads
+            // for the permalinks the Atom feed hands over.
+            if (doc.select("shreddit-post").isEmpty()) {
+                val redirectTarget = shredditRedirectTarget(doc)
+                if (redirectTarget != null) {
+                    val redirectUrl = if (redirectTarget.startsWith("/")) "https://www.reddit.com$redirectTarget"
+                    else redirectTarget
+                    body = fetchPage(redirectUrl)
+                    doc = Jsoup.parse(body)
+                }
+            }
 
             val opElement = doc.select("shreddit-post").firstOrNull { it.attr("view-context") == "CommentsPage" }
                 ?: doc.select("shreddit-post").firstOrNull()
@@ -717,6 +818,20 @@ class RedditOfficialSource @Inject constructor(
     //endregion
 
     //region Post parsing
+
+    /**
+     * Reddit serves slugless permalinks as a page whose only post signal is a
+     * `shreddit-redirect` `ac-call` with `location.replace(&quot;/r/x/comments/id/slug/&quot;)`.
+     * Returns that target, or null when the page is not a redirect stub.
+     */
+    internal fun shredditRedirectTarget(doc: Document): String? {
+        val call = doc.select("#shreddit-redirect ac-call").firstOrNull() ?: return null
+        val method = call.attr("method")
+        val m = Regex("location\\.replace\\(&quot;(.*?)&quot;\\)").find(method)
+            ?: Regex("""location\.replace\("([^"]+)"""").find(method)
+            ?: return null
+        return m.groupValues.get(1).takeIf { it.isNotBlank() }
+    }
 
     /** Selects the real post cards, dropping ads (a different tag) by construction. */
     private fun parsePostCards(doc: Document): List<PostChild> =
@@ -1162,6 +1277,13 @@ class RedditOfficialSource @Inject constructor(
         private const val PAGE_SIZE = 25
         private const val SSR_RETRIES = 3
         private const val SSR_RETRY_BASE_MS = 1_000L
+        // Multiredd fan-out: concurrency kept low enough that reddit.com's CF layer
+        // does not challenge a burst of per-sub feed requests (73 subs at 4-wide
+        // finished in seconds in live tests, 2026-09-01).
+        private const val FANOUT_CONCURRENCY = 4
+        // Separator for the per-sub cursor list threaded through the opaque cursor
+        // string. Subreddit names never contain ';'; `after` t3_ ids are base36.
+        private const val FANOUT_CURSOR_SEP = ";"
         // The JS-challenge solve may need to repeat: a flagged network can answer a solved
         // resubmit with a *new* challenge (fresh token) before finally returning the feed.
         // The browser rides this flow; we allow a few rounds before giving up.
