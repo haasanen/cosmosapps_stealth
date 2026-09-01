@@ -153,6 +153,14 @@ class FeedCoordinator @Inject constructor(
                 _state.update { s -> s.copy(posts = cachedPosts) }
             }
 
+            // 1b. Show the progress header from the very first frame: "0 / N" while the
+            //     fan-out is still warming up. Without this, a cold launch (empty cache)
+            //     sits on a blank list until the first subreddit survives CF's challenge
+            //     dance — minutes in the worst case — with nothing on screen but the logo.
+            _state.update { s ->
+                s.copy(progress = RedditOfficialSource.FanOutProgress(subs.size, 0, 0, emptyList(), null))
+            }
+
             if (!isOnline()) {
                 _state.update { s ->
                     s.copy(
