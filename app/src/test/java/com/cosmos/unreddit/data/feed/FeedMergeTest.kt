@@ -55,6 +55,39 @@ class FeedMergeTest {
     private fun child(data: PostData) = PostChild(data)
 
     @Test
+    fun emptyFreshCycleKeepsCachedFeedNeverBlank() {
+        // The whole "never blank" contract: when the network cycle yields nothing
+        // (CF hard-challenge, offline, or every sub failing), the merge returns the
+        // cached posts so the home feed is not empty. This is the path the
+        // FeedCoordinator takes when the fan-out throws or emits no rows.
+        val cache = (1..12).map { i -> post("cached$i", score = 100 + i, ageMinutes = 60L * (i + 1)) }
+        val out = FeedMerge.merge(emptyList(), cache, Sort.HOT, now)
+        assertEquals("cache must survive an empty-fresh cycle", 12, out.size)
+        assertTrue(out.map { it.data.name }.toSet() == cache.map { it.name }.toSet())
+    }
+
+    @Test
+    fun emptyFreshAndEmptyCacheIsEmpty() {
+        // First-ever launch with no network: nothing to show is legitimately empty
+        // (the UI shows a loading/empty state, not a crash).
+        val out = FeedMerge.merge(emptyList(), emptyList(), Sort.HOT, now)
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun partialFreshCycleStillKeepsCachePostsBelowFresh() {
+        // A partial cycle (some subs answered, others failed) still must not drop the
+        // cached posts — fresh wins dedup, cache fills in below.
+        val fresh = listOf(listOf(child(post("f1", score = 50)), child(post("f2", score = 40))))
+        val cache = listOf(post("cached1", score = 90), post("cached2", score = 80))
+        val out = FeedMerge.merge(fresh, cache, Sort.HOT, now)
+        val names = out.map { it.data.name }
+        assertTrue("fresh present", names.containsAll(listOf("f1", "f2")))
+        assertTrue("cache survived a partial cycle", names.containsAll(listOf("cached1", "cached2")))
+        assertEquals(4, out.size)
+    }
+
+    @Test
     fun freshOnlyInterlacesSubLists() {
         val a = listOf(child(post("a1", 500)), child(post("a2", 400)))
         val b = listOf(child(post("b1", 300)), child(post("b2", 200)))
