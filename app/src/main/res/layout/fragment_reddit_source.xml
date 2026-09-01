@@ -24,6 +24,11 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:text="@string/preference_reddit_source_reddit_official"/>
+        <RadioButton
+            android:id="@+id/radio_reddit_atom"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="@string/preference_reddit_source_reddit_atom"/>
     </RadioGroup>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

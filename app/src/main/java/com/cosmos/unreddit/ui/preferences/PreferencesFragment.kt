@@ -22,6 +22,7 @@ import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.R
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT_SCRAP
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.ARCTIC
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT_OFFICIAL
+import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.REDDIT_ATOM
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.TEDDIT
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.databinding.LayoutPreferenceListBinding
@@ -53,6 +54,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     private var showSpoilerPreviewPreference: SwitchPreferenceCompat? = null
     private var backupPreference: Preference? = null
     private var sourcePreference: Preference? = null
+    private var cacheTtlPreference: Preference? = null
     private var privacyEnhancerPreference: Preference? = null
     private var aboutPreference: Preference? = null
     private var policyDisclaimerPreference: Preference? = null
@@ -159,6 +161,15 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             }
         }
 
+        cacheTtlPreference = findPreference<Preference?>(
+            DataPreferences.PreferencesKeys.CACHE_TTL_HOURS.name
+        )?.apply {
+            setOnPreferenceClickListener {
+                showCacheTtlDialog()
+                true
+            }
+        }
+
         privacyEnhancerPreference = findPreference<Preference?>(
             DataPreferences.PreferencesKeys.PRIVACY_ENHANCER.name
         )?.apply {
@@ -228,6 +239,14 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                         null
                     )
                 }
+
+                REDDIT_ATOM -> {
+                    showRedditSourceDisclaimer(
+                        R.string.dialog_reddit_source_atom_disclaimer_body,
+                        source,
+                        null
+                    )
+                }
             }
         }
     }
@@ -292,6 +311,10 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                             REDDIT_OFFICIAL -> getString(
                                 R.string.preference_reddit_source_reddit_official
                             )
+
+                            REDDIT_ATOM -> getString(
+                                R.string.preference_reddit_source_reddit_atom
+                            )
                         }
                         sourcePreference?.summary = summary
                     }
@@ -304,6 +327,19 @@ class PreferencesFragment : PreferenceFragmentCompat() {
                         getString(R.string.preference_privacy_enhancer_enabled)
                     } else {
                         getString(R.string.preference_privacy_enhancer_disabled)
+                    }
+                }
+            }
+
+            launch {
+                viewModel.cacheTtlHours.collect { hours ->
+                    val values = resources.getStringArray(R.array.pref_cache_ttl_values)
+                    val labels = resources.getStringArray(R.array.pref_cache_ttl_labels)
+                    val index = values.indexOf(hours.toString())
+                    if (index >= 0) {
+                        cacheTtlPreference?.summary = labels[index]
+                    } else {
+                        cacheTtlPreference?.summary = "$hours h"
                     }
                 }
             }
@@ -333,6 +369,24 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             childFragmentManager,
             DataPreferences.RedditSource.fromValue(source)
         )
+    }
+
+    private fun showCacheTtlDialog() {
+        val values = resources.getStringArray(R.array.pref_cache_ttl_values)
+        val labels = resources.getStringArray(R.array.pref_cache_ttl_labels)
+        val current = viewModel.cacheTtlHours.latest ?: 24
+        val checked = values.indexOf(current.toString()).coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.preference_cache_ttl)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                values.getOrNull(which)?.toIntOrNull()?.let { hours ->
+                    viewModel.setCacheTtlHours(hours)
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
     }
 
     private fun showRedditSourceDisclaimer(

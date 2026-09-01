@@ -156,10 +156,18 @@
     <string name="preference_reddit_source_teddit">Teddit</string>
     <string name="preference_reddit_source_arctic">Arctic Shift</string>
     <string name="preference_reddit_source_reddit_official">Reddit (official)</string>
+    <string name="preference_reddit_source_reddit_atom">Reddit (Atom RSS)</string>
     <string name="dialog_reddit_source_official_disclaimer_body">This is an experimental feature.\nThe first page of feeds, search and user lists is read live from reddit.com, with upvote and comment counts taken live from reddit.com as well. Older pages, post details and comments are served by a public archive, so content there may be slightly delayed or missing.</string>
+    <string name="dialog_reddit_source_atom_disclaimer_body">This is an experimental feature.\nFeeds are read from reddit.com\'s public Atom (RSS) endpoints, which are the most likely to stay reachable when reddit.com is blocking requests. Atom feeds carry no upvote or comment counts, no images, and only support hot/top/new/sorting by day/week/month/year.</string>
     <string name="dialog_reddit_source_arctic_disclaimer_body">This is an experimental feature.\nThis source reads from a public archive. Only time-based sorting is available, content may be missing, and some features are not implemented.</string>
 
     <string name="preference_backup">Import/Export</string>
+    <string name="preference_cache_ttl">Feed cache duration</string>
+    <string name="preference_cache_ttl_12h">12 hours</string>
+    <string name="preference_cache_ttl_24h">24 hours</string>
+    <string name="preference_cache_ttl_48h">48 hours</string>
+    <string name="preference_cache_ttl_72h">72 hours</string>
+    <string name="preference_cache_ttl_1w">1 week</string>
 
     <string name="preference_about">About</string>
     <string name="preference_policy_disclaimer">Reddit\'s API Policy Change</string>
@@ -275,6 +283,9 @@
     <string name="menu_refresh">Refresh</string>
 
     <string name="last_refresh">Last refresh: %s</string>
+    <string name="feed_progress_loading">Loading %1$s — %2$d / %3$d</string>
+    <string name="feed_progress_done">%1$d of %2$d subreddits loaded</string>
+    <string name="feed_offline">Offline — showing cached feed</string>
 
     <string name="toast_clipboard_copied_email">Email copied to clipboard</string>
 

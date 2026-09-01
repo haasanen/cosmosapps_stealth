@@ -5,6 +5,7 @@ import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutUserChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.CommentChild
+import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.di.NetworkModule
 import kotlinx.coroutines.Dispatchers
@@ -354,6 +355,62 @@ class RedditOfficialSourceTest {
             .filterIsInstance<PostChild>()
         assertTrue(children.isNotEmpty())
         assertTrue(children.all { it.data.name.startsWith("t3_") })
+    }
+
+    //endregion
+
+    //region Thumbnails (8a regression)
+
+    @Test
+    fun `media cards pick the post preview, never the author or community avatar`() = runBlocking {
+        // Real captured reddit.com feed (r/gaming). Every media card in it carries the
+        // AUTHOR or COMMUNITY avatar as its FIRST <img> — the old "first redd.it image"
+        // heuristic therefore rendered avatars as the post thumbnail (user-reported in
+        // build 0c432fb: placeholder instead of the real preview).
+        val doc = org.jsoup.Jsoup.parse(loadFixture("rg_gaming_p1.html"))
+        val mediaCards = doc.select("shreddit-post").toList().filter {
+            it.attr("id").startsWith("t3_") && it.attr("post-type") in setOf("image", "video", "link")
+        }
+        assertTrue("expected media cards in the fixture, got ${mediaCards.size}", mediaCards.size >= 2)
+
+        val parsed = mediaCards.mapNotNull { el ->
+            // Drive the REAL private selection path via the public parse pipeline.
+            runCatching { source.parsePostCardForTest(el) }.getOrNull()
+        }
+        assertTrue("expected parseable media cards, got ${parsed.size}", parsed.size >= 2)
+
+        for (post in parsed) {
+            val thumb = post.data.thumbnail
+            assertNotNull("card ${post.data.name} got no thumbnail", thumb)
+            val t = thumb!!
+            // The real post preview, on a host that is never an avatar host.
+            assertTrue(
+                "card ${post.data.name} picked an avatar as its preview: $t",
+                t.contains(".preview.redd.it") || t.contains("external-preview.redd.it")
+            )
+            assertFalse("card ${post.data.name} picked a profileIcon: $t", t.contains("profileIcon"))
+            assertFalse("card ${post.data.name} picked a default avatar: $t", t.contains("/avatars/"))
+            assertFalse("card ${post.data.name} picked a community badge: $t", t.contains("a.thumbs"))
+
+            // The field that actually maps to PostEntity.preview and renders in the app.
+            // Only assert it for LINK cards: their previewUrl resolves ENTIRELY from
+            // `thumbnail` (content-href is a non-image web URL), which is precisely the
+            // 8a placeholder case. Before the @Json round-trip fix, thumbnail was null,
+            // so previewUrl was null and the app showed a placeholder. (Image cards
+            // resolve previewUrl through the url/mimeType path, which needs the Android
+            // framework and is not exercised by plain JVM tests.)
+            if (post.data.postType == PostType.LINK) {
+                val preview = post.data.previewUrl
+                assertNotNull(
+                    "link card ${post.data.name} got no previewUrl -> placeholder in app",
+                    preview
+                )
+                val p = preview!!
+                assertFalse("link card ${post.data.name} previewUrl is an avatar: $p", p.contains("profileIcon"))
+                assertFalse("link card ${post.data.name} previewUrl is a default avatar: $p", p.contains("/avatars/"))
+                assertFalse("link card ${post.data.name} previewUrl is a community badge: $p", p.contains("a.thumbs"))
+            }
+        }
     }
 
     //endregion

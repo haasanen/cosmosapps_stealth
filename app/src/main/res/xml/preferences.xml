@@ -49,6 +49,11 @@
             app:persistent="false"/>
 
         <Preference
+            app:key="cache_ttl_hours"
+            app:title="@string/preference_cache_ttl"
+            app:persistent="false"/>
+
+        <Preference
             app:key="privacy_enhancer"
             app:title="@string/preference_privacy_enhancer"
             app:persistent="false"/>
