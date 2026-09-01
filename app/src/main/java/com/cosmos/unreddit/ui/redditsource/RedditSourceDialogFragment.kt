@@ -55,8 +55,9 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
         binding.run {
             // Legacy stored values (REDDIT, TEDDIT, REDDIT_SCRAP) are no longer selectable;
             // fall back to ARCTIC so they never remain silently selected.
-            radioArctic.isChecked = source != DataPreferences.RedditSource.REDDIT_OFFICIAL
+            radioArctic.isChecked = source == DataPreferences.RedditSource.ARCTIC
             radioRedditOfficial.isChecked = source == DataPreferences.RedditSource.REDDIT_OFFICIAL
+            radioRedditAtom.isChecked = source == DataPreferences.RedditSource.REDDIT_ATOM
         }
     }
 
@@ -64,6 +65,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
         val source = when (binding.radioGroup.checkedRadioButtonId) {
             R.id.radio_arctic -> DataPreferences.RedditSource.ARCTIC
             R.id.radio_reddit_official -> DataPreferences.RedditSource.REDDIT_OFFICIAL
+            R.id.radio_reddit_atom -> DataPreferences.RedditSource.REDDIT_ATOM
             else -> DataPreferences.RedditSource.ARCTIC
         }
 

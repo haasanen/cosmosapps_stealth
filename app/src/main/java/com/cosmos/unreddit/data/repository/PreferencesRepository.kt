@@ -108,6 +108,25 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
+    /**
+     * How long (in hours) a cached home-feed post stays usable before it is re-fetched.
+     * Defaults to 24 h; the user can raise it (up to a week) when they only open the app
+     * on the go and would otherwise never see cached content.
+     */
+    suspend fun setCacheTtlHours(hours: Int) {
+        preferencesDatastore.setValue(
+            DataPreferences.PreferencesKeys.CACHE_TTL_HOURS,
+            hours
+        )
+    }
+
+    fun getCacheTtlHours(defaultValue: Int = 24): Flow<Int> {
+        return preferencesDatastore.getValue(
+            DataPreferences.PreferencesKeys.CACHE_TTL_HOURS,
+            defaultValue
+        )
+    }
+
     suspend fun setRedditSourceInstance(instance: String) {
         preferencesDatastore.setValue(
             DataPreferences.PreferencesKeys.REDDIT_SOURCE_INSTANCE,

@@ -82,6 +82,14 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
     private lateinit var postListAdapter: PostListAdapter
 
+    private lateinit var feedListAdapter: FeedListAdapter
+
+    /** Progressive (coordinator) scroll listener; active only in coordinator mode. */
+    private var progressiveScrollListener: androidx.recyclerview.widget.RecyclerView.OnScrollListener? = null
+
+    /** True while the list is driven by the progressive coordinator feed. */
+    private var coordinatorMode = false
+
     private lateinit var profileAdapter: ProfileAdapter
 
     @Inject
@@ -106,7 +114,13 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
         binding.infoRetry.apply {
             applyMarginWindowInsets(left = false, right = false, bottom = false)
-            setActionClickListener { postListAdapter.retry() }
+            setActionClickListener {
+                if (coordinatorMode) {
+                    viewModel.pullToRefresh()
+                } else {
+                    postListAdapter.retry()
+                }
+            }
         }
     }
 
@@ -143,7 +157,11 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             launch {
                 viewModel.contentPreferences.collect {
                     binding.infoRetry.hide()
-                    postListAdapter.contentPreferences = it
+                    if (coordinatorMode) {
+                        feedListAdapter.contentPreferences = it
+                    } else {
+                        postListAdapter.contentPreferences = it
+                    }
                 }
             }
 
@@ -155,13 +173,54 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
             launch {
                 viewModel.fetchData.collect {
-                    binding.infoRetry.hide()
+                    if (!coordinatorMode) {
+                        binding.infoRetry.hide()
+                    }
                 }
             }
 
+            // Legacy Paging home feed (every source except the official one).
             launch {
                 viewModel.postDataFlow.collectLatest {
+                    if (coordinatorMode) return@collectLatest
                     postListAdapter.submitData(it)
+                }
+            }
+
+            // Progressive home feed (official source only): live cache-first render.
+            launch {
+                viewModel.feedState.collectLatest { state ->
+                    if (!coordinatorMode) return@collectLatest
+                    binding.infoRetry.hide()
+                    feedListAdapter.cachedIds = if (state.fromCacheOnly) {
+                        emptySet()
+                    } else {
+                        state.posts.map { it.id }.toSet() - state.freshIds
+                    }
+                    feedListAdapter.submitList(state.posts)
+
+                    // Progress header: spinner + "Fetching r/X — done / total" while filling.
+                    val progress = state.progress
+                    val showingProgress = state.refreshing
+                    binding.feedProgress.root.isVisible = showingProgress && progress != null
+                    if (showingProgress && progress != null) {
+                        val label = progress.lastFinished?.let { "r/$it" } ?: ""
+                        binding.feedProgress.feedProgressText.text =
+                            getString(R.string.feed_progress_loading, label, progress.done, progress.total)
+                    }
+
+                    state.error?.let {
+                        if (!coordinatorMode) return@collectLatest
+                        binding.infoRetry.setMessage(it.take(400))
+                        binding.infoRetry.show()
+                    }
+                }
+            }
+
+            // Switch the list between the legacy Paging feed and the progressive one.
+            launch {
+                viewModel.usesCoordinator.collect { active ->
+                    applyListMode(active)
                 }
             }
 
@@ -176,8 +235,8 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                     binding.appBar.profileImage.setText(it.name)
                 }
             }
-            
-            launch { 
+
+            launch {
                 viewModel.lastRefresh.collect {
                     val time = getString(R.string.last_refresh, DateUtil.getLocalizedTime(it))
                     (binding.pullRefresh.refreshView as? PullToRefreshView)?.setLastRefresh(time)
@@ -232,6 +291,9 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     private fun initRecyclerView() {
         postListAdapter = PostListAdapter(repository, this, this).apply {
             addLoadStateListener { loadState ->
+                // The Paging listener only drives UI in legacy mode.
+                if (coordinatorMode) return@addLoadStateListener
+
                 val isLoading = loadState.source.refresh is LoadState.Loading
 
                 binding.run {
@@ -257,6 +319,23 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             }
         }
 
+        // Progressive (coordinator) adapter: plain ListAdapter, no Paging.
+        feedListAdapter = FeedListAdapter(this)
+
+        // Scroll-triggered "load more" for the progressive feed.
+        progressiveScrollListener = object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
+                if (!coordinatorMode || dy <= 0) return
+                val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+                val total = lm.itemCount
+                if (total == 0) return
+                val lastVisible = lm.findLastVisibleItemPosition()
+                if (lastVisible >= total - LOAD_MORE_THRESHOLD) {
+                    viewModel.loadMoreFeed()
+                }
+            }
+        }
+
         binding.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
             layoutManager = LinearLayoutManager(requireContext())
@@ -272,6 +351,33 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             postListAdapter.onRefreshFromNetwork {
                 scrollToTop()
             }
+        }
+    }
+
+    /**
+     * Swap the list between the legacy Paging feed and the progressive coordinator feed.
+     * Never leaves the list without an adapter, so the home feed can never go blank
+     * when the source preference resolves or changes.
+     */
+    private fun applyListMode(coordinator: Boolean) {
+        if (coordinator == coordinatorMode) return
+        coordinatorMode = coordinator
+
+        val list = binding.listPost
+        if (coordinator) {
+            // The legacy adapter's withLoadStateHeaderAndFooter composite owns the
+            // RecyclerView's current adapter; replace it wholesale.
+            list.adapter = feedListAdapter
+            progressiveScrollListener?.let { list.addOnScrollListener(it) }
+            binding.pullRefresh.isVisible = true
+            binding.loadingCradle.isVisible = false
+        } else {
+            progressiveScrollListener?.let { list.removeOnScrollListener(it) }
+            list.adapter = postListAdapter.withLoadStateHeaderAndFooter(
+                header = NetworkLoadStateAdapter { postListAdapter.retry() },
+                footer = NetworkLoadStateAdapter { postListAdapter.retry() }
+            )
+            binding.feedProgress.root.isVisible = false
         }
     }
 
@@ -331,7 +437,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     }
 
     override fun onRefresh() {
-        postListAdapter.refresh()
+        if (coordinatorMode) {
+            viewModel.pullToRefresh()
+            binding.pullRefresh.setRefreshing(false)
+        } else {
+            postListAdapter.refresh()
+        }
     }
 
     override fun onBackPressed() {
@@ -362,5 +473,8 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         const val TAG = "PostListFragment"
 
         private const val SCALE_FACTOR = 10
+
+        /** Fire load-more when this many items from the end become visible. */
+        private const val LOAD_MORE_THRESHOLD = 8
     }
 }

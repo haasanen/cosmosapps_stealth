@@ -47,6 +47,10 @@ class PreferencesViewModel @Inject constructor(
         .getPrivacyEnhancerEnabled()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
 
+    val cacheTtlHours: SharedFlow<Int> = preferencesRepository
+        .getCacheTtlHours()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), 1)
+
     var tedditInstances: List<String> = emptyList()
         private set
 
@@ -103,6 +107,12 @@ class PreferencesViewModel @Inject constructor(
             preferencesRepository.setRedditSource(source)
             currentSource.setRedditSource(source)
             instance?.let { preferencesRepository.setRedditSourceInstance(it) }
+        }
+    }
+
+    fun setCacheTtlHours(hours: Int) {
+        viewModelScope.launch {
+            preferencesRepository.setCacheTtlHours(hours)
         }
     }
 }

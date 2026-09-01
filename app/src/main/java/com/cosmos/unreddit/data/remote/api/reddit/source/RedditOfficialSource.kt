@@ -37,9 +37,17 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.util.Collections
+import java.util.LinkedHashSet
+import java.util.Random
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.Buffer
@@ -210,6 +218,128 @@ class RedditOfficialSource @Inject constructor(
         }
     }
 
+    //region Progressive fan-out (home feed)
+
+    /**
+     * A snapshot of fan-out progress for the UI's progress header: how many
+     * subreddits are done of the total, which are in flight right now, and which
+     * one just finished.
+     */
+    data class FanOutProgress(
+        val total: Int,
+        val done: Int,
+        val noData: Int,
+        val inFlight: List<String>,
+        val lastFinished: String?
+    )
+
+    /**
+     * One emission of the progressive fan-out.
+     *
+     * [FanOutPage.perSub] holds the finished subreddits' posts, aligned to the
+     * ORIGINAL subreddit order (not completion order), so the collector can re-merge
+     * on every emission — with cache, with its own priority rules — without the
+     * content reshuffling between updates. When streaming (home-feed page 1) an
+     * emission happens after every subreddit finishes; otherwise exactly one final
+     * emission is produced.
+     */
+    data class FanOutPage(
+        val perSub: List<List<PostChild>>,
+        val cursors: Map<String, String?>,
+        val progress: FanOutProgress,
+        val isFinal: Boolean
+    )
+
+    /**
+     * A multiredd feed, one subreddit at a time — the streaming sibling of
+     * [getSubredditFanOut], used by the home feed.
+     *
+     * Subreddits are fetched in a SHUFFLED order per call so the same subs are
+     * never the first the user sees (a user who does not wait for the full load
+     * would otherwise never see the late ones). Concurrency is
+     * [FANOUT_CONCURRENCY] and every sub gets a random pre-delay: reddit.com's
+     * Cloudflare layer blocks repeated identical request patterns, so the
+     * timing varies between requests and between runs.
+     *
+     * [after] has the same shape as in [getSubredditFanOut]: one `after` cursor
+     * per subreddit, aligned to the subreddit order of [multiredd], joined with
+     * [FANOUT_CURSOR_SEP].
+     *
+     * A subreddit that fails (challenge, 404, empty) is skipped rather than
+     * blanking the feed; its [FanOutPage.cursors] entry is null so deeper pages
+     * simply stop for that sub.
+     */
+    fun getSubredditFanOutProgressive(
+        multiredd: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?,
+        stream: Boolean
+    ): Flow<FanOutPage> = flow {
+        val subs = multiredd.split("+").map { it.trim() }.filter { it.isNotEmpty() }
+        val afterParts = after?.split(FANOUT_CURSOR_SEP)
+        val cursors = subs.zip(
+            (0 until subs.size).map { afterParts?.getOrNull(it)?.takeIf { c -> c.isNotBlank() } }
+        ).toMap()
+
+        val results = ConcurrentHashMap<String, List<PostChild>>()
+        val cursorsOut = ConcurrentHashMap<String, String?>()
+        val doneCount = AtomicInteger()
+        val noDataCount = AtomicInteger()
+        val inFlight = Collections.synchronizedSet(LinkedHashSet<String>())
+        val lastFinished = AtomicReference<String?>(null)
+        val semaphore = Semaphore(FANOUT_CONCURRENCY)
+        val random = Random()
+
+        // Emission order is the ORIGINAL subreddit order, not completion order,
+        // so the interleave is stable across emissions (no reshuffling of the same
+        // content between updates). The collector re-merges perSub on each emission.
+        suspend fun emitSnapshot(final: Boolean) {
+            val finished = subs.mapNotNull { results[it] }
+            emit(
+                FanOutPage(
+                    perSub = finished,
+                    cursors = cursorsOut.toMap(),
+                    progress = FanOutProgress(
+                        total = subs.size,
+                        done = doneCount.get(),
+                        noData = noDataCount.get(),
+                        inFlight = ArrayList(inFlight).take(3),
+                        lastFinished = lastFinished.get()
+                    ),
+                    isFinal = final
+                )
+            )
+        }
+
+        coroutineScope {
+            subs.shuffled().map { sub ->
+                async {
+                    semaphore.withPermit {
+                        inFlight.add(sub)
+                        try {
+                            // Stagger starts: a burst of 73 identical requests at once
+                            // is exactly the pattern CF looks for.
+                            delay(random.nextInt(FANOUT_JITTER_MS.toInt()).toLong())
+                            val posts = fetchSubPostsLenient(sub, sort, timeSorting, cursors[sub])
+                            results[sub] = posts
+                            cursorsOut[sub] = nextPostCursor(posts)
+                            if (posts.isEmpty()) noDataCount.incrementAndGet()
+                        } finally {
+                            inFlight.remove(sub)
+                            doneCount.incrementAndGet()
+                            lastFinished.set(sub)
+                        }
+                        if (stream) emitSnapshot(false)
+                    }
+                }
+            }.awaitAll()
+        }
+        emitSnapshot(true)
+    }
+
+    //endregion
+
     override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
         val doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$subreddit/"))
         AboutChild(buildAboutData(subreddit, doc))
@@ -228,13 +358,12 @@ class RedditOfficialSource @Inject constructor(
      * they default to 0 (the Arctic source shows the same limitation on its multiredd
      * feeds).
      */
-    private suspend fun getSubredditViaAtom(
+    suspend fun getSubredditViaAtom(
         multiredd: String,
         sort: Sort,
         timeSorting: TimeSorting?,
         after: String?
-    ): Listing {
-        val url = buildString {
+    ): Listing {        val url = buildString {
             append("https://www.reddit.com/r/").append(multiredd).append('/')
             append(feedSortPath(sort)).append("/.rss?over18=1")
             if (sort == Sort.TOP || sort == Sort.CONTROVERSIAL) {
@@ -343,6 +472,69 @@ class RedditOfficialSource @Inject constructor(
                 .replace(Regex("\\.\\d+$"), "")
             java.time.OffsetDateTime.parse(cleaned).toEpochSecond()
         }.getOrDefault(0L)
+    }
+
+    /**
+     * A user's posts via reddit's Atom endpoint — the same `entry` format as the
+     * subreddit feed, so the shared [atomPostFromEntry] pipeline applies unchanged.
+     * Used by the "Reddit (Atom)" source; same limitation (no scores/comment counts).
+     */
+    suspend fun getUserPostsViaAtom(
+        user: String,
+        sort: Sort,
+        timeSorting: TimeSorting?,
+        after: String?
+    ): Listing {
+        val url = buildString {
+            append("https://www.reddit.com/user/").append(user).append("/submitted/.rss?count=").append(PAGE_SIZE)
+            append("&sort=").append(feedSortPath(sort))
+            if (sort == Sort.TOP || sort == Sort.CONTROVERSIAL) {
+                timeSorting?.type?.let { append("&t=").append(it) }
+            }
+            if (!after.isNullOrBlank()) append("&after=").append(after)
+        }
+        val xml = fetchAtomBody(url)
+        val doc = Jsoup.parse(xml)
+        val entries = doc.select("entry").mapNotNull { atomPostFromEntry(it) }
+        if (entries.isEmpty()) {
+            val entryCount = doc.select("entry").size
+            throw IOException(
+                "reddit.com returned no posts for $url (feed ${xml.length} chars, " +
+                    "entries=$entryCount)"
+            )
+        }
+        return Listing(KIND_LISTING, ListingData(null, entries.size, entries, nextPostCursor(entries), null))
+    }
+
+    /**
+     * Shared Atom fetch: `Accept: application/atom+xml` with the same retries as the
+     * SSR path, so a challenged or throttled request is handled identically.
+     */
+    private suspend fun fetchAtomBody(url: String): String {
+        var lastError = "no response from server"
+        var body: String? = null
+        for (attempt in 0 until SSR_RETRIES) {
+            val req = newRequest(url, "GET", forPartial = false)
+                .newBuilder()
+                .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
+                .build()
+            val resp = runCatching { okHttpClient.newCall(req).execute() }.getOrNull()
+            if (resp != null) {
+                resp.use {
+                    if (it.isSuccessful) {
+                        val b = it.body?.string()
+                        if (!b.isNullOrBlank()) { body = b } else { lastError = "empty response body" }
+                    } else {
+                        lastError = "HTTP ${it.code}"
+                    }
+                }
+            } else {
+                lastError = "connection failed"
+            }
+            if (body != null) break
+            if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
+        }
+        return body ?: throw IOException("reddit.com Atom feed $url failed ($lastError)")
     }
 
     override suspend fun searchInSubreddit(
@@ -837,6 +1029,9 @@ class RedditOfficialSource @Inject constructor(
     private fun parsePostCards(doc: Document): List<PostChild> =
         doc.select("shreddit-post").mapNotNull { postChildFromElement(it) }
 
+    /** Test-only: parse a single SSR post card (thumbnail selection, defaults, mapping). */
+    internal fun parsePostCardForTest(el: Element): PostChild? = postChildFromElement(el)
+
     private fun postChildFromElement(el: Element): PostChild? {
         val name = el.attr("id").takeIf { it.startsWith("t3_") } ?: return null
         val sub = el.attr("subreddit-name").ifBlank { "unknown" }
@@ -873,13 +1068,48 @@ class RedditOfficialSource @Inject constructor(
             "upvote_ratio" to (ratio ?: 0.0),
             "link_flair_richtext" to emptyList<Any>()
         )
-        el.select("img").firstOrNull {
-            val src = it.attr("src")
-            src.contains("redd.it") || src.contains("redditmedia")
-        }?.attr("src")?.let { map["thumbnail"] = it }
+        // Prefer the post's own preview/poster. The card's first redd.it/redditmedia
+        // <img> is often the AUTHOR or COMMUNITY avatar (styles.redditmedia.com/
+        // .../profileIcon, a.thumbs.redditmedia.com, redditstatic.com/avatars), which
+        // would render as a broken/irrelevant thumbnail. So: pick a genuine preview
+        // first, and only fall back to any non-avatar redd.it/redditmedia image.
+        val imgSources = el.select("img").mapNotNull { img ->
+            img.attr("src").takeIf { it.isNotBlank() }
+                ?: img.attr("data-src").takeIf { it.isNotBlank() }
+        }
+        val thumbnail = imgSources.firstOrNull(::isPreviewImageUrl)
+            ?: imgSources.firstOrNull {
+                (it.contains("redd.it") || it.contains("redditmedia")) && !isAvatarImageUrl(it)
+            }
+        thumbnail?.let { map["thumbnail"] = it }
 
         return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
     }
+
+    /**
+     * A genuine post preview/poster: Reddit serves image-post thumbnails on
+     * `*.preview.redd.it` (cf.preview) and video/link-post cards on
+     * `external-preview.redd.it`. Avatars (profileIcon), subreddit icons and the
+     * `a.thumbs` community badges are never a post preview.
+     *
+     * `external-preview.redd.it` is matched explicitly — its host does NOT contain
+     * the `.preview.redd.it` substring (hyphen, not dot), so relying on that check
+     * alone would only catch it via the non-avatar fallback.
+     */
+    private fun isPreviewImageUrl(url: String): Boolean =
+        ".preview.redd.it" in url ||
+            "external-preview.redd.it" in url ||
+            url.contains("preview-image")
+
+    /**
+     * Anything that identifies a user or community rather than the post media.
+     */
+    private fun isAvatarImageUrl(url: String): Boolean =
+        "profileIcon" in url ||
+            "styles.redditmedia.com" in url ||
+            "redditstatic.com/avatars" in url ||
+            "a.thumbs.redditmedia.com" in url ||
+            "emoji.redditmedia.com" in url
 
     //endregion
 
@@ -1281,9 +1511,15 @@ class RedditOfficialSource @Inject constructor(
         // does not challenge a burst of per-sub feed requests (73 subs at 4-wide
         // finished in seconds in live tests, 2026-09-01).
         private const val FANOUT_CONCURRENCY = 4
+        // Random 0..FANOUT_JITTER_MS pre-delay per subreddit request so the burst
+        // does not look like one identical pattern (CF shaping).
+        private const val FANOUT_JITTER_MS = 700L
         // Separator for the per-sub cursor list threaded through the opaque cursor
         // string. Subreddit names never contain ';'; `after` t3_ ids are base36.
         private const val FANOUT_CURSOR_SEP = ";"
+
+        /** Public alias of [FANOUT_CURSOR_SEP] for the feed coordinator. */
+        const val FANOUT_CURSOR_SEPARATOR = FANOUT_CURSOR_SEP
         // The JS-challenge solve may need to repeat: a flagged network can answer a solved
         // resubmit with a *new* challenge (fresh token) before finally returning the feed.
         // The browser rides this flow; we allow a few rounds before giving up.

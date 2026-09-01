@@ -21,13 +21,18 @@ class CurrentSource @Inject constructor(
     private val redditScrapingSource: RedditScrapingSource,
     private val tedditSource: TedditSource,
     private val arcticShiftSource: ArcticShiftSource,
-    private val redditOfficialSource: RedditOfficialSource
+    private val redditOfficialSource: RedditOfficialSource,
+    private val redditAtomSource: RedditAtomSource
 ) : BaseRedditSource {
 
     private val mutex = Mutex()
 
     private var source: BaseRedditSource
-    private var sourceType: DataPreferences.RedditSource
+
+    /** The currently selected reddit source; exposed so the UI can adapt (e.g. only the
+     *  official source drives the progressive cached home feed). */
+    var sourceType: DataPreferences.RedditSource
+        private set
 
     init {
         val sourceValue = runBlocking { preferencesRepository.getRedditSource().first() }
@@ -143,6 +148,7 @@ class CurrentSource @Inject constructor(
             DataPreferences.RedditSource.REDDIT_SCRAP -> redditScrapingSource
             DataPreferences.RedditSource.ARCTIC -> arcticShiftSource
             DataPreferences.RedditSource.REDDIT_OFFICIAL -> redditOfficialSource
+            DataPreferences.RedditSource.REDDIT_ATOM -> redditAtomSource
         }
     }
 }

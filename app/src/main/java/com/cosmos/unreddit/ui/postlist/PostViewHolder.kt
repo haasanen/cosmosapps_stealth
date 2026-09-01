@@ -31,6 +31,9 @@ abstract class PostViewHolder(
     private val title = itemView.findViewById<TextView>(R.id.text_post_title)
     private val awards = itemView.findViewById<AwardView>(R.id.awards)
 
+    /** The post timestamp, exposed so list adapters can decorate it (e.g. a "(cached)" suffix). */
+    val postInfoTextPostDate: TextView? = postInfoBinding.root.findViewById(R.id.text_post_date)
+
     init {
         itemView.apply {
             setOnClickListener {

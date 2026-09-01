@@ -6,12 +6,14 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.cosmos.unreddit.data.local.dao.CommentDao
+import com.cosmos.unreddit.data.local.dao.FeedCacheDao
 import com.cosmos.unreddit.data.local.dao.HistoryDao
 import com.cosmos.unreddit.data.local.dao.PostDao
 import com.cosmos.unreddit.data.local.dao.ProfileDao
 import com.cosmos.unreddit.data.local.dao.RedirectDao
 import com.cosmos.unreddit.data.local.dao.SubscriptionDao
 import com.cosmos.unreddit.data.model.Comment
+import com.cosmos.unreddit.data.model.db.FeedCache
 import com.cosmos.unreddit.data.model.db.History
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.Profile
@@ -25,9 +27,10 @@ import com.cosmos.unreddit.data.model.db.Subscription
         Profile::class,
         PostEntity::class,
         Comment.CommentEntity::class,
-        Redirect::class
+        Redirect::class,
+        FeedCache::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -44,6 +47,8 @@ abstract class RedditDatabase : RoomDatabase() {
     abstract fun commentDao(): CommentDao
 
     abstract fun redirectDao(): RedirectDao
+
+    abstract fun feedCacheDao(): FeedCacheDao
 
     class Callback : RoomDatabase.Callback() {
         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -183,6 +188,25 @@ abstract class RedditDatabase : RoomDatabase() {
                         PRIMARY KEY(`service`)
                     )
                     """.trimIndent())
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `feed_cache` (
+                        `post_id` TEXT NOT NULL,
+                        `subreddit` TEXT NOT NULL,
+                        `permalink` TEXT NOT NULL,
+                        `post_json` TEXT NOT NULL,
+                        `fetched_at` INTEGER NOT NULL,
+                        `profile_id` INTEGER NOT NULL,
+                        PRIMARY KEY(`post_id`, `profile_id`),
+                        FOREIGN KEY(`profile_id`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_cache_fetched_at` ON `feed_cache` (`fetched_at`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_cache_subreddit_profile_id` ON `feed_cache` (`subreddit`, `profile_id`)")
             }
         }
     }
