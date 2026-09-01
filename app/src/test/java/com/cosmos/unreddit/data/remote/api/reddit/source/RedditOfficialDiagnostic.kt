@@ -109,15 +109,42 @@ class RedditOfficialDiagnostic {
             ).joinToString("+")
             try {
                 val listing = source.getSubreddit(multi, Sort.HOT, null, null)
-                println("LIVE USER-MULTI OK: ${listing.data.children.size} posts in ${System.currentTimeMillis() - t0}ms for ${multi.length}-char (${multi.count { it == '+' } + 1}-sub) multiredd")
-                println("LIVE USER-MULTI first 5: " + listing.data.children.take(5)
-                    .map { (it as? PostChild)?.data?.title ?: "?" }.joinToString())
-                println("LIVE USER-MULTI subs present: " + listing.data.children
-                    .map { (it as? PostChild)?.data?.subreddit ?: "?" }
-                    .distinct().take(12).joinToString())
+                val posts = listing.data.children.mapNotNull { it as? PostChild }.map { it.data }
+                val withScore = posts.count { it.score > 0 }
+                val withComments = posts.count { it.commentsNumber > 0 }
+                val withThumb = posts.count { it.thumbnail != null }
+                val top = posts.maxByOrNull { it.score }
+                println("LIVE USER-MULTI OK: ${posts.size} posts in ${System.currentTimeMillis() - t0}ms for ${multi.count { it == '+' } + 1}-sub multiredd")
+                println("LIVE USER-MULTI scores: $withScore/${posts.size} nonzero; comments: $withComments/${posts.size} nonzero; media: $withThumb/${posts.size}")
+                if (top != null) println("LIVE USER-MULTI top: score=${top.score} comments=${top.commentsNumber} r/${top.subreddit} title=${top.title.take(50)} thumb=${top.thumbnail?.take(60)}")
+                println("LIVE USER-MULTI subs present: " + posts.map { it.subreddit }.distinct().take(12).joinToString())
+                val cursor = listing.data.after
+                println("LIVE USER-MULTI page1 cursor parts=${cursor?.split(";")?.size ?: 0} (per-sub cursors threaded for page 2)")
             } catch (t: Throwable) {
                 println("LIVE USER-MULTI FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
                 t.cause?.let { println("LIVE USER-MULTI cause: ${it::class.java.simpleName}: ${it.message}") }
+            }
+        }
+    }
+
+    @Test
+    fun livePostDetailSlugless() {
+        runBlocking {
+            val source = RedditOfficialSource(client(), NetworkModule.provideRedditMoshi(), Dispatchers.IO)
+            // Slugless permalink — the exact form the multiredd/home feed links use.
+            // Reddit serves these as a JS-redirect stub; getPost must follow the
+            // redirect to the slugged URL and return the post + comments.
+            val slugless = "/r/EarthCam/comments/1vpgtb5/"
+            val t0 = System.currentTimeMillis()
+            try {
+                val result = source.getPost(slugless, 25, Sort.BEST)
+                val listing = result.first()
+                val op = (listing.data.children.first() as PostChild).data
+                val comments = (result.getOrNull(1)?.data?.children ?: emptyList()).size
+                println("LIVE POST-DETAIL OK: slugless loaded in ${System.currentTimeMillis() - t0}ms: r/${op.subreddit} score=${op.score} comments-listed=${comments} title=${op.title.take(50)}")
+            } catch (t: Throwable) {
+                println("LIVE POST-DETAIL FAIL after ${System.currentTimeMillis() - t0}ms: ${t::class.java.simpleName}: ${t.message}")
+                t.cause?.let { println("LIVE POST-DETAIL cause: ${it::class.java.simpleName}: ${it.message}") }
             }
         }
     }
