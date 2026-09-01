@@ -42,6 +42,9 @@ import com.cosmos.unreddit.util.extension.setSortingListener
 import com.google.android.material.appbar.AppBarLayout
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -179,12 +182,27 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                 }
             }
 
-            // Legacy Paging home feed (every source except the official one).
+            // Legacy Paging home feed (every source EXCEPT the official one).
+            // The legacy flow is `by lazy`: it builds and fires its own 73-sub fan-out
+            // the MOMENT anything subscribes to it (a plain `combine` would, at
+            // collection start, even if the result is discarded). So the subscription
+            // itself must be gated: only when the source preference has RESOLVED
+            // (usesCoordinator != null, i.e. the datastore has loaded) and the official
+            // source is NOT selected do we attach to it. While the official source is
+            // active, `emptyFlow()` keeps the chain warm without a single legacy
+            // request. Previously the legacy flow was collected unconditionally and a
+            // guard inside `collectLatest` skipped its output — but by then the second
+            // parallel 73-sub fan-out was already in flight, doubling the reddit.com
+            // load and throttling both fan-outs through CF (blank first launch).
             launch {
-                viewModel.postDataFlow.collectLatest {
-                    if (coordinatorMode) return@collectLatest
-                    postListAdapter.submitData(it)
-                }
+                viewModel.usesCoordinator
+                    .filterNotNull()
+                    .flatMapLatest { active ->
+                        if (active) emptyFlow() else viewModel.postDataFlow
+                    }
+                    .collectLatest { pagingData ->
+                        postListAdapter.submitData(pagingData)
+                    }
             }
 
             // Progressive home feed (official source only): live cache-first render.
@@ -204,9 +222,16 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                     val showingProgress = state.refreshing
                     binding.feedProgress.root.isVisible = showingProgress && progress != null
                     if (showingProgress && progress != null) {
-                        val label = progress.lastFinished?.let { "r/$it" } ?: ""
-                        binding.feedProgress.feedProgressText.text =
-                            getString(R.string.feed_progress_loading, label, progress.done, progress.total)
+                        if (progress.done == 0 && progress.lastFinished == null) {
+                            // First frame: nothing has finished yet (cold start / CF
+                            // challenge warming up) — no subreddit name to show.
+                            binding.feedProgress.feedProgressText.text =
+                                getString(R.string.feed_progress_warming, progress.done, progress.total)
+                        } else {
+                            val label = progress.lastFinished?.let { "r/$it" } ?: ""
+                            binding.feedProgress.feedProgressText.text =
+                                getString(R.string.feed_progress_loading, label, progress.done, progress.total)
+                        }
                     }
 
                     state.error?.let {
@@ -218,9 +243,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             }
 
             // Switch the list between the legacy Paging feed and the progressive one.
+            // `null` = the source preference has not resolved yet (DataStore still
+            // loading); the list keeps its initial (legacy) adapter and nothing is
+            // re-swapped until a real value arrives.
             launch {
                 viewModel.usesCoordinator.collect { active ->
-                    applyListMode(active)
+                    if (active != null) applyListMode(active)
                 }
             }
 

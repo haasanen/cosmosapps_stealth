@@ -110,10 +110,15 @@ class PostListViewModel
      * True when the home feed should be driven by the progressive [feedCoordinator]
      * (cache-first render, live subreddit-by-subreddit fill, local cache, configurable TTL
      * and per-post "(cached)" badge) instead of the legacy Paging feed.
+     *
+     * `null` until the DataStore has RESOLVED the source preference: seeding the
+     * StateFlow with a concrete default (e.g. `false`) would make the legacy Paging
+     * flow — which must not start while the official source is selected — fire its
+     * fan-out for the milliseconds before the DataStore finishes loading.
      */
-    val usesCoordinator: StateFlow<Boolean> = preferencesRepository.getRedditSource()
+    val usesCoordinator: StateFlow<Boolean?> = preferencesRepository.getRedditSource()
         .map { it == DataPreferences.RedditSource.REDDIT_OFFICIAL.value }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** Live progressive state from the coordinator (official source). */
     val feedState: StateFlow<FeedCoordinator.FeedState> = feedCoordinator.state
@@ -148,7 +153,7 @@ class PostListViewModel
         // ordering), so `usesCoordinator` must be part of the trigger itself.
         viewModelScope.launch {
             combine(fetchData, coordinatorCtx, usesCoordinator) { fetch, ctx, active ->
-                Trigger(ctx, fetch.query, fetch.sorting.generalSorting, active)
+                Trigger(ctx, fetch.query, fetch.sorting.generalSorting, active == true)
             }.distinctUntilChanged { a, b ->
                 a.subs == b.subs && a.sort == b.sort && a.ctx == b.ctx && a.active == b.active
             }.collect { t ->
@@ -176,7 +181,7 @@ class PostListViewModel
 
     /** Pull-to-refresh: re-run the coordinator cycle (official) or the paging refresh. */
     fun pullToRefresh() {
-        if (!usesCoordinator.value) return
+        if (usesCoordinator.value != true) return
         val fetch = fetchData.value
         val ctx = coordinatorCtx.value
         if (fetch.query.isNotEmpty()) {
@@ -195,7 +200,7 @@ class PostListViewModel
 
     /** Load the next page of the progressive home feed (scroll-triggered). */
     fun loadMoreFeed() {
-        if (!usesCoordinator.value) return
+        if (usesCoordinator.value != true) return
         val fetch = fetchData.value
         val ctx = coordinatorCtx.value
         if (fetch.query.isNotEmpty()) {
