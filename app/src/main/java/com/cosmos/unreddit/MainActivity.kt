@@ -51,6 +51,12 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
 
     private var policyDisclaimerSnackbar: Snackbar? = null
 
+    override fun attachBaseContext(base: android.content.Context) {
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: entry")
+        super.attachBaseContext(base)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: done (Hilt injection runs after this)")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: entry")
         setTheme(unredditApplication.appTheme)
