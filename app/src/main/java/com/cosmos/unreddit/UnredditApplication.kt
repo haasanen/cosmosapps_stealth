@@ -2,6 +2,7 @@ package com.cosmos.unreddit
 
 import android.app.Application
 import android.os.Build
+import android.os.SystemClock
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -40,13 +41,32 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
     override fun onCreate() {
         super.onCreate()
+        com.cosmos.unreddit.ui.postlist.FeedDebug.init(this)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: begin")
 
-        runBlocking {
-            val nightMode = preferencesRepository.getNightMode().first()
+        val dsT0 = SystemClock.elapsedRealtime()
+        try {
+            val nightMode = runBlocking { preferencesRepository.getNightMode().first() }
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log("DataStore nightMode read: ${nightMode} (${SystemClock.elapsedRealtime() - dsT0}ms)")
             appTheme = nightMode
+        } catch (t: Throwable) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log("DataStore nightMode read FAILED: $t")
         }
 
-        Thread.setDefaultUncaughtExceptionHandler(FileUncaughtExceptionHandler(this))
+        Thread.setDefaultUncaughtExceptionHandler(object : Thread.UncaughtExceptionHandler {
+            private val inner = FileUncaughtExceptionHandler(this@UnredditApplication)
+            override fun uncaughtException(t: Thread, e: Throwable) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("UNCAUGHT on ${t.name}: ${e.javaClass.name}: ${e.message}")
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("    at ${e.stackTraceOrNull(3)}")
+                inner.uncaughtException(t, e)
+            }
+        })
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: done")
+    }
+
+    private fun Throwable.stackTraceOrNull(n: Int): String {
+        val st = stackTrace ?: return "(no stack)"
+        return st.take(n).joinToString(" / ") { "${it.className}.${it.methodName}" }
     }
 
     override fun newImageLoader(): ImageLoader {

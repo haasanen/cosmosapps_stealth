@@ -21,8 +21,10 @@ import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
 import com.cosmos.unreddit.data.feed.FeedCoordinator
 import com.cosmos.unreddit.data.model.db.Profile
+import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.data.remote.api.reddit.source.RedditOfficialSource
 import com.cosmos.unreddit.data.repository.PostListRepository
+import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.databinding.FragmentPostBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
@@ -100,12 +102,17 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     @Inject
     lateinit var repository: PostListRepository
 
+    @Inject
+    lateinit var preferencesRepository: PreferencesRepository
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
+        FeedDebug.log("PostListFragment.onCreateView")
         _binding = FragmentPostBinding.inflate(layoutInflater, container, false)
+        FeedDebug.log("PostListFragment layout inflated")
         return binding.root
     }
 
@@ -115,7 +122,9 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         initAppBar()
         initRecyclerView()
         initDrawer()
+        FeedDebug.log("PostListFragment initAppBar/initRecyclerView/initDrawer done")
         bindViewModel()
+        FeedDebug.log("PostListFragment.bindViewModel done (collectors attached)")
 
         binding.infoRetry.apply {
             applyMarginWindowInsets(left = false, right = false, bottom = false)
@@ -203,6 +212,10 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                         if (active) emptyFlow() else viewModel.postDataFlow
                     }
                     .collectLatest { pagingData ->
+                        val n = FeedDebug.legacyEmissions.incrementAndGet()
+                        if (n <= 5 || n % 50 == 0) {
+                            FeedDebug.log("legacy paging emission #$n")
+                        }
                         postListAdapter.submitData(pagingData)
                     }
             }
@@ -213,7 +226,17 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             // mode flips (states emitted before the flip must not be lost).
             launch {
                 viewModel.feedState.collectLatest { state ->
-                    if (coordinatorMode) renderFeedState(state)
+                    val n = FeedDebug.feedStates.incrementAndGet()
+                    if (n <= 10) {
+                        FeedDebug.log("feedState #$n: posts=${state.posts.size} refresh=${state.refreshing} " +
+                            "prog=${state.progress?.done ?: "-"}/${state.progress?.total ?: "-"} " +
+                            "offline=${state.offline} err=${state.error ?: "null"}")
+                    }
+                    if (coordinatorMode) {
+                        renderFeedState(state)
+                    } else {
+                        FeedDebug.log("feedState #$n DROPPED (coordinatorMode=false)")
+                    }
                 }
             }
 
@@ -223,7 +246,16 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             // re-swapped until a real value arrives.
             launch {
                 viewModel.usesCoordinator.collect { active ->
+                    FeedDebug.log("usesCoordinator -> $active")
                     if (active != null) applyListMode(active)
+                }
+            }
+
+            // TEMP diagnostics: resolve the raw source preference for the panel.
+            launch {
+                preferencesRepository.getRedditSource().collect { v ->
+                    FeedDebug.lastSourcePref.set("$v")
+                    FeedDebug.log("source pref = $v")
                 }
             }
 

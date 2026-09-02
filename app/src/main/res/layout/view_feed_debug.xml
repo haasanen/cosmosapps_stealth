@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/feed_debug"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#E6111111">
+
+    <TextView
+        android:id="@+id/feed_debug_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:textColor="#FF00FF88"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:maxLines="8"
+        tools:text="src=REDDIT_OFFICIAL(4) coord?=true mode=coord&#10;state#12 posts=142 refresh=1 prog=3/73&#10;legacy=0" />
+
+</LinearLayout>

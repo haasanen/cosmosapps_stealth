@@ -59,8 +59,12 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.feedDebug.root.visibility = android.view.View.VISIBLE
+        com.cosmos.unreddit.ui.postlist.FeedDebug.startPanel(binding.feedDebug.feedDebugText)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity content view set (theme=${unredditApplication.appTheme})")
 
         initNavigation()
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.initNavigation done")
 
         launchRepeat(Lifecycle.State.STARTED) {
             launch {
@@ -90,6 +94,7 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
                 }
             }
         }
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate END")
     }
 
     private fun initNavigation() {

@@ -22,11 +22,26 @@
             android:id="@+id/bottom_navigation"
             android:layout_width="@dimen/bottom_navigation_size"
             android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
             app:elevation="@dimen/bottom_navigation_elevation"
             app:itemIconTint="@drawable/navigation_color_selector"
             app:labelVisibilityMode="unlabeled"
             app:menu="@menu/navigation_menu"/>
 
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+    <!-- TEMP DIAGNOSTIC PANEL: always-visible launch milestone trail.
+         Declared AFTER the fragment container so it draws on top of all
+         fragment content. Removed once the blank-launch issue is root-caused. -->
+    <include
+        android:id="@+id/feed_debug"
+        layout="@layout/view_feed_debug"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
