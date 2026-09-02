@@ -57,6 +57,18 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
             private val inner = FileUncaughtExceptionHandler(this@UnredditApplication)
             override fun uncaughtException(t: Thread, e: Throwable) {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("UNCAUGHT on ${t.name}: ${e.javaClass.name}: ${e.message}")
+                // TEMP: full cause chain — the outer frame alone never identifies the root cause.
+                var cause: Throwable? = e.cause
+                var depth = 1
+                while (cause != null && depth <= 8) {
+                    val st = cause.stackTrace
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                        "  CAUSE#$depth ${cause.javaClass.name}: ${cause.message} " +
+                                "at ${st.take(4).joinToString(" / ") { "${it.className}.${it.methodName}" }}"
+                    )
+                    cause = cause.cause
+                    depth++
+                }
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("    at ${e.stackTraceOrNull(3)}")
                 inner.uncaughtException(t, e)
             }
