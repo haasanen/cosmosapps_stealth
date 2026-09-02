@@ -157,8 +157,9 @@ class FeedCoordinator @Inject constructor(
             //     fan-out is still warming up. Without this, a cold launch (empty cache)
             //     sits on a blank list until the first subreddit survives CF's challenge
             //     dance — minutes in the worst case — with nothing on screen but the logo.
+            //     The first few subs are named so a stuck load is screenshot-able.
             _state.update { s ->
-                s.copy(progress = RedditOfficialSource.FanOutProgress(subs.size, 0, 0, emptyList(), null))
+                s.copy(progress = RedditOfficialSource.FanOutProgress(subs.size, 0, 0, subs.take(4), null))
             }
 
             if (!isOnline()) {
