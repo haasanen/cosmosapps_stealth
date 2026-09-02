@@ -52,16 +52,19 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
     private var policyDisclaimerSnackbar: Snackbar? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: entry")
         setTheme(unredditApplication.appTheme)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: setTheme done")
         super.onCreate(savedInstanceState)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: super done")
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: decorFitsSystemWindows done")
 
         binding = ActivityMainBinding.inflate(layoutInflater)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: binding inflated")
         setContentView(binding.root)
-        binding.feedDebug.root.visibility = android.view.View.VISIBLE
-        com.cosmos.unreddit.ui.postlist.FeedDebug.startPanel(binding.feedDebug.feedDebugText)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity content view set (theme=${unredditApplication.appTheme})")
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: content view set (theme=${unredditApplication.appTheme})")
 
         initNavigation()
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.initNavigation done")
