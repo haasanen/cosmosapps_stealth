@@ -218,6 +218,12 @@ class FeedCoordinator @Inject constructor(
                         s.copy(posts = posts, progress = page.progress, refreshing = true, freshIds = freshIds)
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // refresh() cancels the previous in-flight cycle (new trigger, pull-to-
+                // refresh, datastore re-emission); the old cycle's collect throws this.
+                // A cancellation is NOT a refresh error — must propagate, otherwise it
+                // becomes a user-visible "…was cancelled" banner (2026-09-02 screenshot).
+                throw e
             } catch (e: Exception) {
                 // CF hard-challenge or network death mid-cycle: keep whatever we have.
                 _state.update { s ->
@@ -301,6 +307,9 @@ class FeedCoordinator @Inject constructor(
                         refreshing = false
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Propagate: scope cancellation is not a loadMore failure.
+                throw e
             } catch (e: Exception) {
                 _state.update { s -> s.copy(refreshing = false) }
             }
