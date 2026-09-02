@@ -193,12 +193,13 @@ abstract class RedditDatabase : RoomDatabase() {
 
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
+                dropStaleFeedCache(database)
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS `feed_cache` (
                         `post_id` TEXT NOT NULL,
                         `subreddit` TEXT NOT NULL,
                         `permalink` TEXT NOT NULL,
-                        `post_json` TEXT NOT NULL,
+                        `postJson` TEXT NOT NULL,
                         `fetched_at` INTEGER NOT NULL,
                         `profile_id` INTEGER NOT NULL,
                         PRIMARY KEY(`post_id`, `profile_id`),
@@ -207,6 +208,35 @@ abstract class RedditDatabase : RoomDatabase() {
                     """.trimIndent())
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_cache_fetched_at` ON `feed_cache` (`fetched_at`)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_cache_subreddit_profile_id` ON `feed_cache` (`subreddit`, `profile_id`)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_feed_cache_permalink_profile_id` ON `feed_cache` (`permalink`, `profile_id`)")
+            }
+
+            /**
+             * Recovery for installs that already ran the broken first version of this
+             * migration: it created `feed_cache` with column `post_json` and without the
+             * unique permalink index, Room's post-migration verification failed, and the
+             * database version rolled back to 4 — so every launch re-ran this migration
+             * against the stale table and crashed (IllegalStateException: "Migration
+             * didn't properly handle: feed_cache").
+             *
+             * `feed_cache` is pure cache by design (nothing in the database references
+             * its rows), so the only correct recovery is dropping the stale table and
+             * rebuilding it with the exact entity schema.
+             */
+            private fun dropStaleFeedCache(database: SupportSQLiteDatabase) {
+                var hasTable = false
+                var hasCurrentSchema = false
+                database.query("PRAGMA table_info(feed_cache)").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        hasTable = true
+                        if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == "postJson") {
+                            hasCurrentSchema = true
+                        }
+                    }
+                }
+                if (hasTable && !hasCurrentSchema) {
+                    database.execSQL("DROP TABLE `feed_cache`")
+                }
             }
         }
     }
