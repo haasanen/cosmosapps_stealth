@@ -38,6 +38,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -275,7 +276,7 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?,
         stream: Boolean
-    ): Flow<FanOutPage> = flow {
+    ): Flow<FanOutPage> = channelFlow {
         val subs = multiredd.split("+").map { it.trim() }.filter { it.isNotEmpty() }
         val afterParts = after?.split(FANOUT_CURSOR_SEP)
         val cursors = subs.zip(
@@ -283,7 +284,9 @@ class RedditOfficialSource @Inject constructor(
         ).toMap()
 
         val results = ConcurrentHashMap<String, List<PostChild>>()
-        val cursorsOut = ConcurrentHashMap<String, String?>()
+        // Null-tolerant: a sub with no next page has a null cursor. (ConcurrentHashMap
+        // rejects null values — the 2026-09-02 test caught the resulting NPE.)
+        val cursorsOut = Collections.synchronizedMap(LinkedHashMap<String, String?>())
         val doneCount = AtomicInteger()
         val noDataCount = AtomicInteger()
         val inFlight = Collections.synchronizedSet(LinkedHashSet<String>())
@@ -294,9 +297,13 @@ class RedditOfficialSource @Inject constructor(
         // Emission order is the ORIGINAL subreddit order, not completion order,
         // so the interleave is stable across emissions (no reshuffling of the same
         // content between updates). The collector re-merges perSub on each emission.
-        suspend fun emitSnapshot(final: Boolean) {
+        // channelFlow (not flow): several fan-out workers finish concurrently and
+        // each sends a snapshot; `flow`'s collect{}-based emit is not thread-safe
+        // and throws "Emission from another coroutine is detected" (see the
+        // device crash of 2026-09-02). channel.send() serializes the sends.
+        suspend fun sendSnapshot(final: Boolean) {
             val finished = subs.mapNotNull { results[it] }
-            emit(
+            channel.send(
                 FanOutPage(
                     perSub = finished,
                     cursors = cursorsOut.toMap(),
@@ -323,6 +330,8 @@ class RedditOfficialSource @Inject constructor(
                             delay(random.nextInt(FANOUT_JITTER_MS.toInt()).toLong())
                             val posts = fetchSubPostsLenient(sub, sort, timeSorting, cursors[sub])
                             results[sub] = posts
+                            // nextPostCursor is null when the sub has no next page;
+                            // ConcurrentHashMap rejects null values — use the null-tolerant map.
                             cursorsOut[sub] = nextPostCursor(posts)
                             if (posts.isEmpty()) noDataCount.incrementAndGet()
                         } finally {
@@ -330,12 +339,12 @@ class RedditOfficialSource @Inject constructor(
                             doneCount.incrementAndGet()
                             lastFinished.set(sub)
                         }
-                        if (stream) emitSnapshot(false)
+                        if (stream) sendSnapshot(false)
                     }
                 }
             }.awaitAll()
         }
-        emitSnapshot(true)
+        sendSnapshot(true)
     }
 
     //endregion
