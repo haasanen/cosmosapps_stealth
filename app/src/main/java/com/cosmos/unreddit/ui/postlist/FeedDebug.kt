@@ -48,7 +48,14 @@ object FeedDebug {
     fun init(context: Context) {
         try {
             logFile = File(context.getExternalFilesDir(null), "launch_diag.txt")
-            logFile?.appendText("\n=== launch ${System.currentTimeMillis()} ===\n")
+            // Stamp the build identity: two releases can carry the same version name,
+            // so a log without a version code cannot tell which build produced it
+            // (2026-09-02: v29 and v30 both read "2.5.0").
+            logFile?.appendText(
+                "\n=== launch ${System.currentTimeMillis()} " +
+                    "build ${com.cosmos.unreddit.BuildConfig.VERSION_NAME} " +
+                    "(${com.cosmos.unreddit.BuildConfig.VERSION_CODE}) ===\n"
+            )
         } catch (t: Throwable) {
             logFile = null
         }

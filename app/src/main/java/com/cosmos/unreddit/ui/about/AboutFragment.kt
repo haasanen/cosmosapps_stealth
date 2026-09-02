@@ -87,7 +87,10 @@ class AboutFragment : BaseFragment() {
     }
 
     private fun initAboutSection() {
-        binding.appVersion.text = BuildConfig.VERSION_NAME
+        // Show the version code alongside the name: two builds can share a version
+        // name, and the code is the only thing that distinguishes them (2026-09-02:
+        // v29 and v30 both read "2.5.0" and were indistinguishable in the app).
+        binding.appVersion.text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
     }
 
     private fun initAppBar() {
