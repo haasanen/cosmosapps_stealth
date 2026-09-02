@@ -19,7 +19,9 @@ import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
+import com.cosmos.unreddit.data.feed.FeedCoordinator
 import com.cosmos.unreddit.data.model.db.Profile
+import com.cosmos.unreddit.data.remote.api.reddit.source.RedditOfficialSource
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.databinding.FragmentPostBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
@@ -206,39 +208,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             }
 
             // Progressive home feed (official source only): live cache-first render.
+            // The renderer itself lives in renderFeedState() so the SAME path runs
+            // both for live emissions and for the immediate re-render when the list
+            // mode flips (states emitted before the flip must not be lost).
             launch {
                 viewModel.feedState.collectLatest { state ->
-                    if (!coordinatorMode) return@collectLatest
-                    binding.infoRetry.hide()
-                    feedListAdapter.cachedIds = if (state.fromCacheOnly) {
-                        emptySet()
-                    } else {
-                        state.posts.map { it.id }.toSet() - state.freshIds
-                    }
-                    feedListAdapter.submitList(state.posts)
-
-                    // Progress header: spinner + "Fetching r/X — done / total" while filling.
-                    val progress = state.progress
-                    val showingProgress = state.refreshing
-                    binding.feedProgress.root.isVisible = showingProgress && progress != null
-                    if (showingProgress && progress != null) {
-                        if (progress.done == 0 && progress.lastFinished == null) {
-                            // First frame: nothing has finished yet (cold start / CF
-                            // challenge warming up) — no subreddit name to show.
-                            binding.feedProgress.feedProgressText.text =
-                                getString(R.string.feed_progress_warming, progress.done, progress.total)
-                        } else {
-                            val label = progress.lastFinished?.let { "r/$it" } ?: ""
-                            binding.feedProgress.feedProgressText.text =
-                                getString(R.string.feed_progress_loading, label, progress.done, progress.total)
-                        }
-                    }
-
-                    state.error?.let {
-                        if (!coordinatorMode) return@collectLatest
-                        binding.infoRetry.setMessage(it.take(400))
-                        binding.infoRetry.show()
-                    }
+                    if (coordinatorMode) renderFeedState(state)
                 }
             }
 
@@ -399,6 +374,20 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             progressiveScrollListener?.let { list.addOnScrollListener(it) }
             binding.pullRefresh.isVisible = true
             binding.loadingCradle.isVisible = false
+            // Re-render the latest state NOW: anything emitted while the list was still
+            // on the legacy adapter (mode not flipped yet) would otherwise be lost,
+            // leaving the progressive list blank until the next emission. If the
+            // coordinator has not emitted at all yet (preferences still resolving,
+            // profile still loading) the screen must STILL not be blank: show the
+            // initial header.
+            val latest = latestFeedState
+            if (latest != null) {
+                renderFeedState(latest)
+            } else {
+                binding.feedProgress.root.isVisible = true
+                binding.feedProgress.feedProgressText.text =
+                    getString(R.string.feed_progress_initial)
+            }
         } else {
             progressiveScrollListener?.let { list.removeOnScrollListener(it) }
             list.adapter = postListAdapter.withLoadStateHeaderAndFooter(
@@ -407,6 +396,85 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             )
             binding.feedProgress.root.isVisible = false
         }
+    }
+
+    /**
+     * The latest progressive feed state, kept so [applyListMode] can re-render it the
+     * moment the list flips into coordinator mode (states emitted earlier must not be
+     * lost to the mode race).
+     */
+    private var latestFeedState: FeedCoordinator.FeedState? = null
+
+    /**
+     * Render one progressive feed state.
+     *
+     * THE NEVER-BLANK RULE: while the official source is active the screen must always
+     * show exactly one of — posts, the live progress header, or the error bar. A blank
+     * screen (no posts, no header, no error) is a bug, not a state.
+     */
+    private fun renderFeedState(state: FeedCoordinator.FeedState) {
+        latestFeedState = state
+        binding.infoRetry.hide()
+
+        feedListAdapter.cachedIds = if (state.fromCacheOnly) {
+            emptySet()
+        } else {
+            state.posts.map { it.id }.toSet() - state.freshIds
+        }
+        feedListAdapter.submitList(state.posts)
+
+        // Progress header: visible whenever a refresh is in flight, with a label that
+        // says WHAT is loading so a stuck load is screenshot-able. Never shown when the
+        // feed is served from cache offline (that would claim to be loading).
+        val progress = state.progress
+        val showingProgress = state.refreshing ||
+            (state.posts.isEmpty() && state.error == null && !state.offline)
+        binding.feedProgress.root.isVisible = showingProgress
+        if (showingProgress) {
+            binding.feedProgress.feedProgressText.text = progressLabel(progress)
+        }
+
+        if (state.offline && state.posts.isEmpty()) {
+            // Offline with an empty cache: nothing to show and nothing to fetch —
+            // say so, instead of leaving a blank screen.
+            binding.infoRetry.setMessage(getString(R.string.feed_offline))
+            binding.infoRetry.show()
+        }
+
+        state.error?.let {
+            binding.infoRetry.setMessage(it.take(400))
+            binding.infoRetry.show()
+        }
+    }
+
+    /**
+     * One label for the progress header, ordered by how much we know:
+     *  - a sub just finished  -> "Loading r/Steam — 12 / 73"
+     *  - requests in flight    -> "Loading r/Steam + r/Games + r/PC… — 2 / 73"
+     *  - nothing has finished  -> "Loading your 73 subreddits…"
+     *  - refresh in flight but the fan-out hasn't emitted its first progress yet ->
+     *    the same "your 73 subreddits" line (never an empty string).
+     */
+    private fun progressLabel(progress: RedditOfficialSource.FanOutProgress?): String {
+        if (progress == null) {
+            return getString(R.string.feed_progress_initial)
+        }
+        if (progress.done > 0 && progress.lastFinished != null) {
+            return getString(
+                R.string.feed_progress_loading,
+                "r/${progress.lastFinished}", progress.done, progress.total
+            )
+        }
+        val inFlight = progress.inFlight
+        if (inFlight.isNotEmpty()) {
+            val names = inFlight.take(3).joinToString(" + ") { "r/$it" } +
+                if (inFlight.size > 3) "…" else ""
+            return getString(R.string.feed_progress_inflight, names, progress.done, progress.total)
+        }
+        if (progress.total > 0 && progress.done == 0) {
+            return getString(R.string.feed_progress_subs, progress.total)
+        }
+        return getString(R.string.feed_progress_warming, progress.done, progress.total)
     }
 
     private fun initAppBar() {

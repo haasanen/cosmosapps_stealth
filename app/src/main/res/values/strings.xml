@@ -285,6 +285,9 @@
     <string name="last_refresh">Last refresh: %s</string>
     <string name="feed_progress_loading">Loading %1$s — %2$d / %3$d</string>
     <string name="feed_progress_warming">Loading — %1$d / %2$d</string>
+    <string name="feed_progress_initial">Loading your subreddits…</string>
+    <string name="feed_progress_inflight">Loading %1$s — %2$d / %3$d</string>
+    <string name="feed_progress_subs">Loading your %1$d subreddits…</string>
     <string name="feed_progress_done">%1$d of %2$d subreddits loaded</string>
     <string name="feed_offline">Offline — showing cached feed</string>
 
