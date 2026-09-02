@@ -153,6 +153,8 @@ dependencies {
     implementation("com.drakeet.drawer:drawer:${Dependencies.Versions.drawer}")
 
     testImplementation("junit:junit:${Dependencies.Versions.jUnit}")
+    testImplementation("androidx.sqlite:sqlite:2.1.0")
+    testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 
     androidTestImplementation("androidx.test:runner:${Dependencies.Versions.testRunner}")
     androidTestImplementation("androidx.test.ext:junit:${Dependencies.Versions.test}")
