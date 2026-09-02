@@ -855,13 +855,22 @@ class RedditOfficialSource @Inject constructor(
         return null
     }
 
-    private suspend fun doGet(url: String, method: String, forPartial: Boolean): String? =
-        runCatching {
+    private suspend fun doGet(url: String, method: String, forPartial: Boolean): String? {
+        // TEMP diagnostics (JVM-safe in FeedDebug; removed once root cause is found).
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP ${method} $url")
+        val t0 = System.currentTimeMillis()
+        val result = runCatching {
             val req = newRequest(url, method, forPartial)
             okHttpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             }
-        }.getOrNull()
+        }.getOrElse { e ->
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP FAILED ${System.currentTimeMillis() - t0}ms: ${e.javaClass.simpleName}: ${e.message}")
+            return null
+        }
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP done ${System.currentTimeMillis() - t0}ms (body=${result?.length ?: 0})")
+        return result
+    }
 
     private fun newRequest(url: String, method: String, forPartial: Boolean): Request {
         val builder = Request.Builder().url(url)

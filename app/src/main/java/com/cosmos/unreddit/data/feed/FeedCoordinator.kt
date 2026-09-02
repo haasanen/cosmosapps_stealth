@@ -125,8 +125,18 @@ class FeedCoordinator @Inject constructor(
         this.ttlMs = ttlMs
         this.showNsfw = showNsfw
         val multiredd = subs.joinToString("+")
-        if (multiredd.isBlank()) return
+        if (multiredd.isBlank()) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log("refresh: SKIPPED blank multiredd")
+            return
+        }
         activeCycle?.cancel()
+
+        com.cosmos.unreddit.ui.postlist.FeedDebug.lastRefreshArgs.set(
+            "profile=$profileId subs=${subs.size}"
+        )
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            "refresh START profile=$profileId subs=${subs.size} sort=$sort online=${isOnline()}"
+        )
 
         activeCycle = scope.launch {
             pendingRows.clear()
@@ -146,6 +156,9 @@ class FeedCoordinator @Inject constructor(
 
             // 1. Instant first paint from the cache.
             val cached = runCatching { loadCache(profileId) }.getOrElse { emptyList() }
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "cache load: ${cached.size} rows"
+            )
             val seenSet = historyIds.toHashSet()
             val savedSet = savedIds.toHashSet()
             val cachedPosts = mapToEntities(cached, seenSet, savedSet)
@@ -177,6 +190,7 @@ class FeedCoordinator @Inject constructor(
             // 2. Progressive fan-out. Each emission is cumulative; merge with cache.
             var lastMerged: List<PostData> = emptyList()
             try {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
                 officialSource.getSubredditFanOutProgressive(
                     multiredd = multiredd,
                     sort = sort,
@@ -184,6 +198,11 @@ class FeedCoordinator @Inject constructor(
                     after = null,
                     stream = true
                 ).collect { page ->
+                    val n = com.cosmos.unreddit.ui.postlist.FeedDebug.fanOutEmissions.incrementAndGet()
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                        "fan-out page #$n: done=${page.progress.done}/${page.progress.total} " +
+                            "inFlight=${page.progress.inFlight.size} posts=${page.perSub.flatten().size}"
+                    )
                     val mergedData = FeedMerge.merge(page.perSub, cached, sort).map { it.data }
                     lastMerged = mergedData
                     val posts = mapToEntities(mergedData, seenSet, savedSet)
@@ -212,6 +231,9 @@ class FeedCoordinator @Inject constructor(
             }
 
             // 3. Persist fresh results, then purge.
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "fan-out COMPLETE: merged=${lastMerged.size} posts, persisting"
+            )
             persistFresh(profileId, lastMerged)
             runPurge(profileId)
 

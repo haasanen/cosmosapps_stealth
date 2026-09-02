@@ -159,6 +159,13 @@ class PostListViewModel
             }.collect { t ->
                 if (!t.active) return@collect
                 if (t.subs.isEmpty()) return@collect
+                com.cosmos.unreddit.ui.postlist.FeedDebug.refreshCalls.incrementAndGet()
+                com.cosmos.unreddit.ui.postlist.FeedDebug.lastTrigger.set(
+                    "profile=${t.ctx.profileId} subs=${t.subs.size} sort=${t.sort}"
+                )
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                    "trigger -> refresh (profile=${t.ctx.profileId} subs=${t.subs.size} sort=${t.sort})"
+                )
                 feedCoordinator.refresh(
                     profileId = t.ctx.profileId,
                     subs = t.subs,
