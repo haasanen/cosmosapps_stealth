@@ -291,7 +291,7 @@
     <string name="feed_progress_inflight">Loading %1$s — %2$d / %3$d</string>
     <string name="feed_progress_subs">Loading your %1$d subreddits…</string>
     <string name="feed_progress_done">%1$d of %2$d subreddits loaded</string>
-    <string name="feed_offline">Offline — showing cached feed</string>
+    <string name="feed_offline">Offline — no cached posts to show.</string>
 
     <string name="toast_clipboard_copied_email">Email copied to clipboard</string>
 </resources>

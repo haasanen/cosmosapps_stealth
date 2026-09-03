@@ -235,6 +235,65 @@ class RedditOfficialFanOutConcurrencyTest {
         }
     }
 
+    /**
+     * Regression for the 2026-09-03 device failure: reddit.com answered all 73 subs with
+     * 200 OK pages of ~8.4 KB (uniform size, a per-sub nonce) that parse to ZERO post
+     * cards and match NO Cloudflare marker ("just a moment", "cf-chl", "blocked by
+     * network security", …). fetchSubPostsLenient used to treat each as a merely empty
+     * subreddit, so the whole cycle ended as a silent blank feed (masked at the time by
+     * a separate concurrency crash). A real feed page — even a genuinely EMPTY
+     * subreddit — is a full 30 KB+ SSR document, so a small zero-card page is reported
+     * as a confirmed block: this test stubs exactly that shape and expects the
+     * actionable [RedditOfficialSource.FeedBlockedException], and the early-abort keeps
+     * it fast.
+     */
+    @Test
+    fun streamingFanOutWithSmallMarkerlessBlockPagesThrowsFeedBlocked() {
+        val source = RedditOfficialSource(
+            okHttpClient = stubClientSmallBlockPages(),
+            moshi = testMoshi(),
+            ioDispatcher = Dispatchers.IO
+        )
+        assertThrows(RedditOfficialSource.FeedBlockedException::class.java) {
+            runBlocking {
+                withTimeout(60_000) {
+                    source.getSubredditFanOutProgressive(
+                        multiredd = testSubs,
+                        sort = com.cosmos.unreddit.data.model.Sort.HOT,
+                        timeSorting = null,
+                        after = null,
+                        stream = true
+                    ).toList()
+                }
+            }
+        }
+    }
+
+    /**
+     * OkHttp stub answering 200 with a small (~8.4 KB) page that carries no post cards
+     * and no recognizable Cloudflare marker — the exact shape the device saw on
+     * 2026-09-03 (73 x ~8,410 bytes, body=8409..8418 in the log).
+     */
+    private fun stubClientSmallBlockPages(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(Interceptor { chain ->
+            val nonce = java.util.UUID.randomUUID().toString()
+            val blockPage =
+                "<html><head><title>Some interstitial</title></head>" +
+                    "<body><!-- $nonce -->" +
+                    " ".repeat(8400) +
+                    "</body></html>"
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(blockPage.toResponseBody(null))
+                .build()
+        })
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
+
     /** OkHttp stub that answers every request with a Cloudflare block page. */
     private fun stubClientCfBlock(): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(Interceptor { chain ->
