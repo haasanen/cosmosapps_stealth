@@ -160,3 +160,12 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:${Dependencies.Versions.test}")
     androidTestImplementation("androidx.test.espresso:espresso-core:${Dependencies.Versions.espresso}")
 }
+
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showCauses = true
+    }
+}
