@@ -256,15 +256,19 @@ class FeedCoordinator @Inject constructor(
                 // cache-rendered posts, and surface the (actionable) error. There is
                 // deliberately no silent switch to another endpoint or source — Atom
                 // and Arctic Shift are independent, selectable sources in Settings.
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                    "fan-out FAILED: ${e.javaClass.simpleName}: ${e.message}"
-                )
+                //
+                // Message-less exceptions (NullPointerException et al.) would render
+                // as the bare "refresh failed" fallback with nothing to diagnose —
+                // so log the full stack AND put the exception class in the banner
+                // when the message is blank (2026-09-03 device screenshot).
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("fan-out FAILED", e)
                 if (lastMerged.isNotEmpty()) persistFresh(profileId, lastMerged)
+                val msg = e.message?.takeIf { it.isNotBlank() }
                 _state.update { s ->
                     s.copy(
                         refreshing = false,
                         progress = null,
-                        error = e.message ?: "refresh failed"
+                        error = msg ?: "refresh failed (${e.javaClass.simpleName})"
                     )
                 }
                 return@launch
