@@ -372,14 +372,7 @@ class RedditOfficialSource @Inject constructor(
         sort: Sort,
         timeSorting: TimeSorting?,
         after: String?
-    ): Listing {        val url = buildString {
-            append("https://www.reddit.com/r/").append(multiredd).append('/')
-            append(feedSortPath(sort)).append("/.rss?over18=1")
-            if (sort == Sort.TOP || sort == Sort.CONTROVERSIAL) {
-                timeSorting?.type?.let { append("&t=").append(it) }
-            }
-            if (!after.isNullOrBlank()) append("&after=").append(after)
-        }
+    ): Listing {        val url = getSubredditViaAtomUrl(multiredd, sort, after)
         var lastError = "no response from server"
         var body: String? = null
         for (attempt in 0 until SSR_RETRIES) {
@@ -417,6 +410,37 @@ class RedditOfficialSource @Inject constructor(
             KIND_LISTING,
             ListingData(null, entries.size, entries, nextPostCursor(entries), null)
         )
+    }
+
+    /**
+     * Atom feed for a (possibly joined) subreddit list — the last-resort data source
+     * when CF blocks every SSR fetch. Tries the joined URL first; a joined list that
+     * is not a resolvable multiredd yields zero entries for anonymous clients, in
+     * which case each subreddit's own Atom feed is fetched (sequential: this path
+     * runs only when the whole SSR fan-out already failed).
+     */
+    suspend fun getSubredditFanOutAtom(multiredd: String, sort: Sort): List<PostChild> {
+        val doc = runCatching {
+            Jsoup.parse(fetchAtomBody(getSubredditViaAtomUrl(multiredd, sort, null)))
+        }.getOrNull() ?: return emptyList()
+        val joined = doc.select("entry").mapNotNull { atomPostFromEntry(it) }
+        if (joined.isNotEmpty()) return joined
+        val subs = multiredd.split("+").map { it.trim() }.filter { it.isNotEmpty() }
+        // Bounded: this path runs only when the whole SSR fan-out failed, and each
+        // Atom fetch retries with backoff — an unbounded 73-sub loop could stall the
+        // feed for minutes while CF keeps blocking. Ten subs is enough to fill the
+        // home screen.
+        val all = mutableListOf<PostChild>()
+        val seen = joined.mapTo(HashSet()) { it.data.name }
+        for (sub in subs.take(FANOUT_ATOM_FALLBACK_SUBS)) {
+            val d = runCatching {
+                Jsoup.parse(fetchAtomBody(getSubredditViaAtomUrl(sub, sort, null)))
+            }.getOrNull() ?: continue
+            d.select("entry").mapNotNull { atomPostFromEntry(it) }
+                .filter { seen.add(it.data.name) }
+                .forEach(all::add)
+        }
+        return all
     }
 
     /** Maps one Atom `<entry>` to a [PostChild] using the shared [parsePost] pipeline. */
@@ -909,8 +933,13 @@ class RedditOfficialSource @Inject constructor(
     }
 
     private fun isCloudflareChallenge(body: String): Boolean {
-        if (body.length > 30_000) return false // real pages are large
         val s = body.lowercase()
+        // CF's "blocked by network security" page (observed 2026-09-03): a full HTML
+        // document ~167KB, far above the classic challenge size, so the length cap
+        // below would let it pass as a real page. It parses to zero post cards, which
+        // is exactly the silent blank-feed symptom.
+        if (s.contains("blocked by network security")) return true
+        if (body.length > 30_000) return false // real pages are large
         return s.contains("just a moment") ||
             s.contains("cf-chl") ||
             s.contains("challenge-platform") ||
@@ -978,6 +1007,14 @@ class RedditOfficialSource @Inject constructor(
     //endregion
 
     //region URL builders
+
+    /** The Atom feed URL for a (possibly joined) subreddit list. */
+    private fun getSubredditViaAtomUrl(multiredd: String, sort: Sort, after: String?): String =
+        buildString {
+            append("https://www.reddit.com/r/").append(multiredd).append('/')
+            append(feedSortPath(sort)).append("/.rss?over18=1")
+            if (!after.isNullOrBlank()) append("&after=").append(after)
+        }
 
     private fun subredditFeedUrl(
         subreddit: String,
@@ -1590,6 +1627,9 @@ class RedditOfficialSource @Inject constructor(
         // Separator for the per-sub cursor list threaded through the opaque cursor
         // string. Subreddit names never contain ';'; `after` t3_ ids are base36.
         private const val FANOUT_CURSOR_SEP = ";"
+
+        /** Max subreddits fetched in the Atom fallback loop (see [getSubredditFanOutAtom]). */
+        private const val FANOUT_ATOM_FALLBACK_SUBS = 10
 
         /** Public alias of [FANOUT_CURSOR_SEP] for the feed coordinator. */
         const val FANOUT_CURSOR_SEPARATOR = FANOUT_CURSOR_SEP
