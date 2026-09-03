@@ -106,6 +106,7 @@
     <dimen name="flair_image_size">16dp</dimen>
 
     <dimen name="comment_offset">8dp</dimen>
+    <dimen name="comment_body_spacing">4dp</dimen>
     <dimen name="comment_padding_horizontal">16dp</dimen>
     <dimen name="comment_padding_vertical">8dp</dimen>
     <dimen name="comment_icon_size">16dp</dimen>

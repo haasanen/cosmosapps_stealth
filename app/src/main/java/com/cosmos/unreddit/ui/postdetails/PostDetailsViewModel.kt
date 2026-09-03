@@ -1,6 +1,7 @@
 package com.cosmos.unreddit.ui.postdetails
 
 import androidx.lifecycle.viewModelScope
+import com.cosmos.unreddit.data.feed.FeedCoordinator
 import com.cosmos.unreddit.data.local.mapper.CommentMapper2
 import com.cosmos.unreddit.data.local.mapper.PostMapper2
 import com.cosmos.unreddit.data.model.Comment
@@ -13,6 +14,7 @@ import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.updateValue
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,6 +39,7 @@ import javax.inject.Inject
 class PostDetailsViewModel @Inject constructor(
     preferencesRepository: PreferencesRepository,
     private val repository: PostListRepository,
+    private val feedCoordinator: FeedCoordinator,
     private val postMapper: PostMapper2,
     private val commentMapper: CommentMapper2,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -107,7 +110,7 @@ class PostDetailsViewModel @Inject constructor(
             ) {
                 currentPermalink = _permalink.value
                 currentSorting = _sorting.value
-                loadPost(_permalink.value!!, _sorting.value)
+                loadPost(_permalink.value!!, _sorting.value, forceUpdate)
             }
         } else {
             _post.value = Resource.Error()
@@ -115,12 +118,52 @@ class PostDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun loadPost(permalink: String, sorting: Sorting) {
+    /**
+     * Explicit refresh (pull-to-refresh, error retry, "refresh" menu item).
+     * Always hits the network; the result updates both this screen and the feed cache.
+     */
+    fun refreshPost() {
+        val permalink = _permalink.value ?: return
+        loadPost(permalink, _sorting.value, forceUpdate = true)
+    }
+
+    private fun loadPost(permalink: String, sorting: Sorting, forceUpdate: Boolean) {
+        viewModelScope.launch {
+            val profile = currentProfile.value
+            val postId = postIdFromPermalink(permalink)
+            val cached = profile?.let {
+                postId?.let { id -> feedCoordinator.getPostFromCache(it.id, id) }
+            }
+            if (!forceUpdate && cached != null) {
+                // Cache first: the post body renders immediately from the feed cache
+                // and is NOT refetched. Only an explicit refresh (pull-down, retry,
+                // menu) hits the network — going back to a freshly opened post
+                // must stay on the cached copy.
+                FeedDebug.log("detail load: cache hit id=${cached.name}")
+                _post.value = Resource.Success(cached)
+            } else {
+                if (cached != null) {
+                    FeedDebug.log("detail load: cached, forcing refresh id=${cached.name}")
+                    // Even on a forced refresh, show the cached body first so the
+                    // screen is never blank while the network is in flight.
+                    _post.value = Resource.Success(cached)
+                } else {
+                    FeedDebug.log("detail load: no cache, network only")
+                }
+                loadFromNetwork(permalink, sorting, profile?.id)
+            }
+        }
+    }
+
+    private fun loadFromNetwork(permalink: String, sorting: Sorting, profileId: Int?) {
         viewModelScope.launch {
             repository.getPost(permalink, sorting)
                 .onStart {
-                    _post.value = Resource.Loading()
-                    _comments.value = Resource.Loading()
+                    if (_post.value !is Resource.Success) {
+                        // Nothing cached to show yet — the screen shows the loader.
+                        _post.value = Resource.Loading()
+                        _comments.value = Resource.Loading()
+                    }
                 }
                 .catch { e ->
                     when (e) {
@@ -147,10 +190,28 @@ class PostDetailsViewModel @Inject constructor(
                         )
                         getComments(list, DEPTH_LIMIT)
                     }
-                    _post.value = Resource.Success(post.await())
+                    val postEntity = post.await()
+                    _post.value = Resource.Success(postEntity)
                     _comments.value = Resource.Success(comments.await())
+
+                    // The network copy is now the freshest: persist it back to the feed
+                    // cache and update the single row in the in-memory feed list, so
+                    // the post list shows the new score / comment count immediately.
+                    val data = PostUtil.getPostData(listings)
+                    profileId?.let { feedCoordinator.applyPostUpdate(it, data) }
+                    FeedDebug.log("detail load: network ok id=${data.name}")
                 }
         }
+    }
+
+    /**
+     * The feed-cache key of a post from its permalink.
+     * `t3_<base36 id>` is the name the official source stores (`PostData.name`);
+     * permalinks carry the bare base36 id after `/comments/`.
+     */
+    private fun postIdFromPermalink(permalink: String): String? {
+        val id = PERMALINK_ID_REGEX.find(permalink)?.groupValues?.getOrNull(1)
+        return if (id != null) "t3_$id" else null
     }
 
     fun setSorting(sorting: Sorting) {
@@ -172,5 +233,6 @@ class PostDetailsViewModel @Inject constructor(
     companion object {
         private const val DEPTH_LIMIT = 3
         private val DEFAULT_SORTING = Sorting(Sort.BEST)
+        private val PERMALINK_ID_REGEX = Regex("/comments/([a-z0-9]+)/?")
     }
 }

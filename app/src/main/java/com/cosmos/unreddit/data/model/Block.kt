@@ -13,6 +13,17 @@ import com.cosmos.unreddit.util.ClickableMovementMethod
 sealed class Block {
     data class TextBlock(val text: CharSequence) : Block()
 
+    /**
+     * An inline image inside a comment/post body. [url] is the full-resolution target
+     * (the tap-to-expand destination); [width]/[height] are the inline display size in px
+     * so the image occupies the same space it would in a browser.
+     */
+    data class ImageBlock(
+        val url: String,
+        val width: Int,
+        val height: Int
+    ) : Block()
+
     class TableBlock : Block() {
         private val rows = mutableListOf<Row>()
 

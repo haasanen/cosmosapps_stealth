@@ -120,7 +120,8 @@ class FeedCoordinator @Inject constructor(
         historyIds: List<String> = emptyList(),
         savedIds: List<String> = emptyList(),
         showNsfw: Boolean = false,
-        ttlMs: Long = FeedPurge.DEFAULT_TTL_MS
+        ttlMs: Long = FeedPurge.DEFAULT_TTL_MS,
+        manual: Boolean = false
     ) {
         this.ttlMs = ttlMs
         this.showNsfw = showNsfw
@@ -155,10 +156,12 @@ class FeedCoordinator @Inject constructor(
             }
 
             // 1. Instant first paint from the cache.
-            val cached = runCatching { loadCache(profileId) }.getOrElse { emptyList() }
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                "cache load: ${cached.size} rows"
-            )
+            val cached = runCatching { loadCache(profileId) }.getOrElse { e ->
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                    "cache load FAILED: ${e.javaClass.simpleName}: ${e.message}"
+                )
+                emptyList()
+            }
             val seenSet = historyIds.toHashSet()
             val savedSet = savedIds.toHashSet()
             val cachedPosts = mapToEntities(cached, seenSet, savedSet)
@@ -188,6 +191,29 @@ class FeedCoordinator @Inject constructor(
             }
 
             // 2. Progressive fan-out. Each emission is cumulative; merge with cache.
+            //
+            // Cache-first policy: a NON-manual refresh (returning to the tab, reopening
+            // the app, or the trigger re-firing after the datastore settles) never hits
+            // the network while the cache already has posts — the user must land on the
+            // same list they last saw. Only a manual pull-to-refresh (manual = true) or
+            // a genuinely empty cache triggers a fresh fan-out.
+            if (!manual && cachedPosts.isNotEmpty()) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                    "cache-first: serving ${cachedPosts.size} cached posts, skipping fan-out"
+                )
+                _state.update { s ->
+                    s.copy(
+                        posts = cachedPosts,
+                        refreshing = false,
+                        progress = null,
+                        offline = false,
+                        fromCacheOnly = true,
+                        lastRefresh = System.currentTimeMillis(),
+                        freshIds = emptySet()
+                    )
+                }
+                return@launch
+            }
             var lastMerged: List<PostData> = emptyList()
             try {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
@@ -371,12 +397,69 @@ class FeedCoordinator @Inject constructor(
 
     //endregion
 
+    /**
+     * Post-detail network reload succeeded: update ONLY this post.
+     *
+     * 1. The feed_cache row (postJson + fetchedAt) is re-written from the fresh
+     *    [PostData] — the same row the feed reads back on the next cache load, so
+     *    score/comment count stay fresh there.
+     * 2. The in-memory feed state list has the one matching entity replaced (score,
+     *    comment count, upvote ratio, flair) — the whole feed is NOT re-fetched and
+     *    posts that aren't in the current list are untouched.
+     *
+     * Called from the post-details screen after a pull-down reload.
+     */
+    fun applyPostUpdate(profileId: Int, data: PostData) {
+        scope.launch {
+            val entity = runCatching { postMapper.dataToEntity(data) }.getOrNull()
+            // 1. Cache row (only if this post was already cached for the profile —
+            //    we must not create cache rows for posts outside the home feed).
+            if (db.feedCacheDao().byPostId(profileId, data.name) != null) {
+                runCatching {
+                    db.feedCacheDao().upsertAll(
+                        listOf(
+                            FeedCache(
+                                postId = data.name,
+                                subreddit = data.subreddit,
+                                permalink = data.permalink,
+                                postJson = toJson(data),
+                                fetchedAt = System.currentTimeMillis(),
+                                profileId = profileId
+                            )
+                        )
+                    )
+                }
+            }
+            // 2. In-memory feed list: replace only the one matching entity.
+            val current = _state.value
+            if (current.profileId == profileId && entity != null) {
+                val idx = current.posts.indexOfFirst { it.id == entity.id }
+                if (idx >= 0) {
+                    val kept = current.posts[idx]
+                    // Keep list-owned UI state (seen/saved); take the fresh metrics.
+                    val updated = entity.copy(seen = kept.seen, saved = kept.saved)
+                    _state.update { s ->
+                        s.copy(posts = s.posts.toMutableList().also { it[idx] = updated })
+                    }
+                }
+            }
+        }
+    }
+
     //region Cache internals
 
-    private suspend fun loadCache(profileId: Int): List<PostData> =
-        db.feedCacheDao().allFromProfile(profileId)
-            .mapNotNull { toPostData(it.postJson) }
-            .take(FeedPurge.DEFAULT_ROW_CAP)
+    private suspend fun loadCache(profileId: Int): List<PostData> {
+        val rows = db.feedCacheDao().allFromProfile(profileId)
+        val parsed = rows.mapNotNull { toPostData(it.postJson) }
+        // TEMP cache diagnostics: "raw" = rows in the table, "parsed" = rows whose
+        // postJson deserialized back into a PostData. raw > parsed means stored JSON
+        // is corrupt or blank (a persist-time toJson failure writes postJson = "").
+        val empty = rows.count { it.postJson.isBlank() }
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            "cache load: raw=${rows.size} parsed=${parsed.size} emptyJson=$empty"
+        )
+        return parsed.take(FeedPurge.DEFAULT_ROW_CAP)
+    }
 
     private suspend fun persistFresh(profileId: Int, fresh: List<PostData>) {
         if (fresh.isEmpty()) return
@@ -391,11 +474,24 @@ class FeedCoordinator @Inject constructor(
                 profileId = profileId
             )
         }
+        // TEMP cache diagnostics: a blank postJson means toJson threw for that post
+        // (runCatching -> ""). Such rows are written but deserialized back as null,
+        // so they are invisible to the cache — exactly the "persisted but not loaded"
+        // symptom. If emptyJson > 0 here, the next "cache load" line will show the drop.
+        val emptyJson = rows.count { it.postJson.isBlank() }
+        var failedBatches = 0
         for (i in rows.indices step UPSERT_BATCH) {
-            runCatching {
-                db.feedCacheDao().upsertAll(rows.subList(i, minOf(i + UPSERT_BATCH, rows.size)))
+            val batch = rows.subList(i, minOf(i + UPSERT_BATCH, rows.size))
+            if (!runCatching { db.feedCacheDao().upsertAll(batch) }.isSuccess) {
+                failedBatches++
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                    "persist FAILED batch=${i / UPSERT_BATCH + 1} size=${batch.size}"
+                )
             }
         }
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            "persist: rows=${rows.size} emptyJson=$emptyJson failedBatches=$failedBatches"
+        )
     }
 
     private suspend fun runPurge(profileId: Int) {

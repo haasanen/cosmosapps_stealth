@@ -83,6 +83,7 @@ class MediaViewerViewModel
     }
 
     private suspend fun retrieveMedia(link: String, mediaType: MediaType) {
+        System.out.println("[MediaViewer] resolve type=$mediaType url=$link")
         when (mediaType) {
             MediaType.IMGUR_IMAGE, MediaType.IMAGE -> {
                 setMedia(GalleryMedia.singleton(Type.IMAGE, link))
@@ -98,9 +99,12 @@ class MediaViewerViewModel
                 setMedia(GalleryMedia.singleton(Type.VIDEO, link))
             }
             MediaType.REDDIT_VIDEO -> {
-                setMedia(
-                    GalleryMedia.singleton(Type.VIDEO, link, LinkUtil.getRedditSoundTrack(link))
-                )
+                // Only DASH mp4 sources carry a separate audio track. An HLS playlist
+                // embeds its audio, so a "soundtrack" (which would be the same playlist
+                // URL) must not be merged on top — that would double-play and fail.
+                val sound = if (link.contains("DASH_")) LinkUtil.getRedditSoundTrack(link) else null
+                System.out.println("[MediaViewer] REDDIT_VIDEO url=$link sound=$sound")
+                setMedia(GalleryMedia.singleton(Type.VIDEO, link, sound))
             }
             MediaType.GFYCAT -> {
                 val id = LinkUtil.getGfycatId(link)

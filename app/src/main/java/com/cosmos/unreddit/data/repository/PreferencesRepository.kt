@@ -213,6 +213,9 @@ class PreferencesRepository @Inject constructor(
     //endregion
 
     //region Policy Disclaimer
+    // DEAD CODE: the UI that used these was removed in v32 (the API-policy
+    // disclaimer no longer applies). Kept only so the orphaned
+    // PolicyDisclaimer* classes still compile until they are deleted.
 
     fun getPolicyDisclaimerShown(defaultValue: Boolean): Flow<Boolean> {
         return preferencesDatastore.getValue(

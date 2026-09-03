@@ -4,6 +4,7 @@ import com.cosmos.unreddit.data.model.GalleryMedia
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.NullToEmptyString
+import com.cosmos.unreddit.util.LinkUtil
 import com.cosmos.unreddit.util.extension.mimeType
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -186,6 +187,10 @@ data class PostData(
                 crossposts?.firstOrNull()?.mediaUrl
                     ?: media?.redditVideoPreview?.fallbackUrl
                     ?: mediaPreview?.videoPreview?.fallbackUrl
+                    // The official HTML source does not expose a fallback_url; the bare
+                    // v.redd.it base URL it carries now redirects to an HTML page, which
+                    // breaks the player. Fall back to the HLS playlist the web player uses.
+                    ?: LinkUtil.getRedditVideoHlsUrl(url)
             }
 
             MediaType.VIDEO -> {

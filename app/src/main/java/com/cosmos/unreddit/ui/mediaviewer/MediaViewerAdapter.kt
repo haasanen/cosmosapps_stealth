@@ -182,6 +182,7 @@ class MediaViewerAdapter(
     ) : RecyclerView.ViewHolder(binding.root), Player.Listener {
 
         fun bind(video: GalleryMedia) {
+            System.out.println("[VideoPlayer] bind url=${video.url} sound=${video.sound}")
             val url = video.url.toHttpUrlOrNull() ?: return
 
             if (url.host.contains("redgifs", ignoreCase = true)) {
@@ -286,6 +287,10 @@ class MediaViewerAdapter(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            System.out.println(
+                "[VideoPlayer] ERROR code=${error.errorCode} " +
+                    "msg=${error.message} cause=${error.cause}"
+            )
             binding.infoRetry.show()
         }
 
