@@ -101,7 +101,6 @@ class RedditView @JvmOverloads constructor(
             }
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             adjustViewBounds = true
-            maximumWidth = context.resources.displayMetrics.widthPixels
             contentDescription = null
             isClickable = true
             isFocusable = true
@@ -110,7 +109,7 @@ class RedditView @JvmOverloads constructor(
                 onLinkClickListener?.onLinkLongClick(imageBlock.url)
                 true
             }
-            load(imageBlock.url)
+            load(imageBlock.url, blur = false)
         }
         addView(imageView)
     }

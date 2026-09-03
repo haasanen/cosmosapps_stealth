@@ -16,6 +16,7 @@ import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
 import com.cosmos.unreddit.ui.base.BaseViewModel
 import com.cosmos.unreddit.ui.postlist.FeedDebug
 import com.cosmos.unreddit.util.PostUtil
+import com.cosmos.unreddit.util.extension.latest
 import com.cosmos.unreddit.util.extension.updateValue
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -129,10 +130,10 @@ class PostDetailsViewModel @Inject constructor(
 
     private fun loadPost(permalink: String, sorting: Sorting, forceUpdate: Boolean) {
         viewModelScope.launch {
-            val profile = currentProfile.value
+            val profile = currentProfile.latest
             val postId = postIdFromPermalink(permalink)
-            val cached = profile?.let {
-                postId?.let { id -> feedCoordinator.getPostFromCache(it.id, id) }
+            val cached = profile?.let { p ->
+                postId?.let { id -> feedCoordinator.getPostFromCache(p.id, id) }
             }
             if (!forceUpdate && cached != null) {
                 // Cache first: the post body renders immediately from the feed cache
