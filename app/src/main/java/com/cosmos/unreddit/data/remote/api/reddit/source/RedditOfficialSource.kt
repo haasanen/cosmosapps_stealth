@@ -1125,15 +1125,16 @@ class RedditOfficialSource @Inject constructor(
     /**
      * The SSR gallery pages of a post: every `media-lightbox-img` is one gallery page,
      * in card order (later pages are lazy: `data-lazy-src` instead of `src`).
-     * Returns API-shaped objects — `gallery_data.items[]` (ordered captions/ids) and
-     * `media_metadata` (id → item map, the shape MediaMetadataAdapter expects) — keyed
-     * by generated media ids so `PostData.gallery` can join the two.
+     * Returns API-shaped objects — `gallery_data.items[]` (ordered media ids) and
+     * `media_metadata` as an id → GalleryItem object (the shape the custom
+     * MediaMetadataAdapter expects: beginObject, skipName, one GalleryItem per value) —
+     * so `PostData.gallery` can join media_id → GalleryItem.
      */
     private data class SsrGallery(val data: Map<String, Any?>, val metadata: Map<String, Any?>)
 
     private fun parseSsrGallery(el: Element, postId: String): SsrGallery {
         val dataItems = mutableListOf<Map<String, Any?>>()
-        val metadataItems = mutableListOf<Map<String, Any?>>()
+        val metadataById = LinkedHashMap<String, Any?>()
         var index = 0
         for (img in el.select("img.media-lightbox-img")) {
             // Gallery pages are served on cf.preview.redd.it — only exclude avatars.
@@ -1143,22 +1144,19 @@ class RedditOfficialSource @Inject constructor(
                 ?: continue
             val mediaId = "t3_${postId}_${index}"
             dataItems.add(mapOf("media_id" to mediaId, "caption" to null))
-            // MediaMetadata.items[] — one GalleryItem per page; PostData.gallery
-            // joins media_id → GalleryItem.id, then reads GalleryItem.s (the image).
-            metadataItems.add(
-                mapOf(
-                    "id" to mediaId,
-                    "m" to "image/jpeg",
-                    "s" to mapOf(
-                        "u" to url,
-                        "x" to (img.attr("width").toIntOrNull() ?: 0),
-                        "y" to (img.attr("height").toIntOrNull() ?: 0)
-                    )
+            // media_metadata[mediaId] = GalleryItem { id, m, s{u,x,y} }.
+            metadataById[mediaId] = mapOf(
+                "id" to mediaId,
+                "m" to "image/jpeg",
+                "s" to mapOf(
+                    "u" to url,
+                    "x" to (img.attr("width").toIntOrNull() ?: 0),
+                    "y" to (img.attr("height").toIntOrNull() ?: 0)
                 )
             )
             index++
         }
-        return SsrGallery(mapOf("items" to dataItems), mapOf("items" to metadataItems))
+        return SsrGallery(mapOf("items" to dataItems), metadataById)
     }
 
     /**
