@@ -263,6 +263,21 @@ class FeedCoordinator @Inject constructor(
             }
 
             // 3. Persist fresh results, then purge.
+            // CF hard-block of every SSR fetch (all subs -> 0 posts) is a normal,
+            // recoverable state: degrade to reddit.com's own Atom feed for the same
+            // multiredd so the home screen is not blank. Atom entries have no scores
+            // or comment counts (they default to 0) — it is still reddit.com content.
+            if (lastMerged.isEmpty()) {
+                val atom = runCatching {
+                    officialSource.getSubredditFanOutAtom(multiredd, sort).map { it.data }
+                }.getOrNull()
+                if (!atom.isNullOrEmpty()) {
+                    lastMerged = atom
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                        "fan-out: all SSR fetches blocked; Atom fallback = ${atom.size} posts"
+                    )
+                }
+            }
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
                 "fan-out COMPLETE: merged=${lastMerged.size} posts, persisting"
             )
@@ -458,6 +473,16 @@ class FeedCoordinator @Inject constructor(
         com.cosmos.unreddit.ui.postlist.FeedDebug.log(
             "cache load: raw=${rows.size} parsed=${parsed.size} emptyJson=$empty"
         )
+        // Self-heal: blank postJson rows can never deserialize back (they are the
+        // legacy corruption from the empty MediaMetadataAdapter.toJson). Delete them
+        // instead of keeping them around to be re-counted on every launch.
+        if (empty > 0) {
+            val blankIds = rows.filter { it.postJson.isBlank() }.map { it.postId }
+            runCatching { db.feedCacheDao().deleteByIds(profileId, blankIds) }
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "cache load: purged $empty corrupt (blank JSON) rows"
+            )
+        }
         return parsed.take(FeedPurge.DEFAULT_ROW_CAP)
     }
 

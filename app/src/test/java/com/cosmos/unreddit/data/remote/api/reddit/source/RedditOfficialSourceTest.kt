@@ -445,5 +445,35 @@ class RedditOfficialSourceTest {
         // page URL assertion (a cf.preview.redd.it image, not an avatar/badge).
     }
 
+    @Test
+    fun `post json round-trip survives the cache layer`() {
+        // Regression for the 2026-09-03 "no posts loaded" bug: the cache persists
+        // posts via PostData.toJson and reads them back with fromJson. The custom
+        // MediaMetadataAdapter.toJson used to write NOTHING for a non-null value,
+        // so the serialized JSON was invalid and every cache row came back null
+        // (1123 rows written, 0 parseable, all with blank postJson).
+        val moshi = NetworkModule.provideRedditMoshi()
+        val adapter = moshi.adapter(PostData::class.java)
+
+        val doc = org.jsoup.Jsoup.parse(loadFixture("post_gallery.html"))
+        val galleryCard = doc.select("shreddit-post")
+            .first { it.attr("view-context") == "CommentsPage" }
+        val data = source.parsePostCardForTest(galleryCard)?.data
+        assertNotNull("gallery card did not parse", data)
+        val d = data!!
+        assertNotNull("gallery post must carry mediaMetadata (the field that broke toJson)", d.mediaMetadata)
+
+        val json = adapter.toJson(d)
+        assertTrue("serialized PostData must not be blank (cache row would be emptyJson)", json.isNotBlank())
+
+        val back = adapter.fromJson(json)
+        assertNotNull("PostData must deserialize back from its own JSON (cache load)", back)
+        val r = back!!
+        assertEquals("round-trip lost the post id", d.name, r.name)
+        assertEquals("round-trip lost the subreddit", d.subreddit, r.subreddit)
+        assertNotNull("round-trip lost mediaMetadata", r.mediaMetadata)
+        assertEquals("round-trip lost gallery pages", 8, r.mediaMetadata!!.items.size)
+    }
+
     //endregion
 }

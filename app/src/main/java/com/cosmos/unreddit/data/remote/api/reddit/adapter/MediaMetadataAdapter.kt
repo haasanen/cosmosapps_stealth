@@ -37,6 +37,21 @@ class MediaMetadataAdapter(
     }
 
     override fun toJson(writer: JsonWriter, value: MediaMetadata?) {
+        if (value == null) {
+            writer.nullValue()
+            return
+        }
+        // Write the same shape fromJson reads: an id-keyed object whose values are
+        // GalleryItems. The keys are ignored on read (skipName), so index keys keep
+        // the JSON stable across round-trips. This method used to be empty, which
+        // made Moshi emit {} for every post with media metadata — every cache row
+        // then deserialized back to null (2026-09-03: 1123/1123 rows postJson blank).
+        writer.beginObject()
+        value.items.forEachIndexed { i, item ->
+            writer.name(item.id ?: i.toString())
+            galleryItemAdapter.toJson(writer, item)
+        }
+        writer.endObject()
     }
 
     object Factory : JsonAdapter.Factory {
