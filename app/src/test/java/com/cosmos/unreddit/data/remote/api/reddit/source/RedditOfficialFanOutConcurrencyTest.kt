@@ -11,6 +11,8 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.TimeUnit
@@ -151,6 +153,106 @@ class RedditOfficialFanOutConcurrencyTest {
                 assertTrue("it must be the final one", emissions.single().isFinal)
             }
         }
+
+    /**
+     * A confirmed Cloudflare block page (the content-based "blocked by network
+     * security" page from the 2026-09-03 device log) must surface as an
+     * actionable [RedditOfficialSource.FeedBlockedException] — NOT a silent
+     * switch to the Atom endpoint, and NOT a plain empty feed. The streaming
+     * path throws it after the final snapshot; the non-streaming multiredd
+     * path throws it instead of returning an empty listing.
+     */
+    @Test
+    fun streamingFanOutWithConfirmedCfBlockThrowsFeedBlocked() {
+        val source = RedditOfficialSource(
+            okHttpClient = stubClientCfBlock(),
+            moshi = testMoshi(),
+            ioDispatcher = Dispatchers.IO
+        )
+        assertThrows(RedditOfficialSource.FeedBlockedException::class.java) {
+            runBlocking {
+                withTimeout(60_000) {
+                    source.getSubredditFanOutProgressive(
+                        multiredd = testSubs,
+                        sort = com.cosmos.unreddit.data.model.Sort.HOT,
+                        timeSorting = null,
+                        after = null,
+                        stream = true
+                    ).toList()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun nonStreamingMultireddCfBlockThrowsFeedBlocked() {
+        val source = RedditOfficialSource(
+            okHttpClient = stubClientCfBlock(),
+            moshi = testMoshi(),
+            ioDispatcher = Dispatchers.IO
+        )
+        assertThrows(RedditOfficialSource.FeedBlockedException::class.java) {
+            runBlocking {
+                withTimeout(60_000) {
+                    source.getSubreddit(
+                        testSubs,
+                        com.cosmos.unreddit.data.model.Sort.HOT,
+                        null,
+                        null
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * A transient failure that is NOT a CF block page (a bare 404) must still end
+     * the cycle as an empty feed — no FeedBlockedException. This is the regression
+     * guard that the hard-block error only fires on a *confirmed* block page, not on
+     * any zero-post result (a genuinely empty subreddit must not report "blocked").
+     */
+    @Test
+    fun streamingFanOutWithTransient404DoesNotThrowFeedBlocked() {
+        val source = RedditOfficialSource(
+            okHttpClient = stubClientAlways404(),
+            moshi = testMoshi(),
+            ioDispatcher = Dispatchers.IO
+        )
+        runBlocking {
+            withTimeout(30_000) {
+                val emissions = source.getSubredditFanOutProgressive(
+                    multiredd = "a+b+c",
+                    sort = com.cosmos.unreddit.data.model.Sort.HOT,
+                    timeSorting = null,
+                    after = null,
+                    stream = true
+                ).toList()
+                // Completes with a final empty snapshot; no exception.
+                assertTrue("must end with the final snapshot", emissions.last().isFinal)
+                assertTrue("final per-sub lists must all be empty (404s -> lenient)",
+                    emissions.last().perSub.all { it.isEmpty() })
+            }
+        }
+    }
+
+    /** OkHttp stub that answers every request with a Cloudflare block page. */
+    private fun stubClientCfBlock(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(Interceptor { chain ->
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(
+                    "<html><head><title>Blocked</title></head>" +
+                        "<body>blocked by network security</body></html>"
+                        .toResponseBody(null)
+                )
+                .build()
+        })
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
 
     /**
      * Sanity check: the streaming variant with a single sub must produce two

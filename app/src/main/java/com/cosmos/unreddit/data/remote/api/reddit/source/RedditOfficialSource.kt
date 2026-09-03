@@ -158,6 +158,7 @@ class RedditOfficialSource @Inject constructor(
         val cursors = subs.indices.map { i ->
             after?.split(FANOUT_CURSOR_SEP)?.getOrNull(i)?.takeIf { it.isNotBlank() }
         }
+        val confirmedBlock = java.util.concurrent.atomic.AtomicBoolean(false)
         val semaphore = Semaphore(FANOUT_CONCURRENCY)
         val perSub = coroutineScope {
             subs.mapIndexed { i, sub ->
@@ -167,7 +168,8 @@ class RedditOfficialSource @Inject constructor(
                             fetchSubPostsLenient(sub, sort, timeSorting, cursors[i])
                         } catch (e: CfBlockException) {
                             // CF is blocking this whole connection; treat the sub as empty
-                            // — the merged-empty check below degrades to the Atom feed.
+                            // — the merged-empty check below reports the block as an error.
+                            confirmedBlock.set(true)
                             emptyList()
                         }
                     }
@@ -176,12 +178,18 @@ class RedditOfficialSource @Inject constructor(
         }
         val merged = mergeFanOut(perSub, sort)
         if (merged.isEmpty()) {
-            // Every per-sub fetch failed (e.g. reddit.com's CF layer is challenging this
-            // client hard right now). Degrade to reddit.com's own Atom feed so the home
-            // screen is not blank. The Atom feed has no scores/comment counts; it is
-            // still reddit.com, not a third-party source.
-            System.out.println("[RedditOfficialSource] Multiredd fan-out produced no posts; falling back to the Atom feed")
-            return getSubredditViaAtom(multiredd, sort, timeSorting, null)
+            if (confirmedBlock.get()) {
+                // At least one feed answered with a CONFIRMED CF block page and nothing
+                // else got through: report the block as an actionable error. There is
+                // deliberately no silent switch to another endpoint or source — Atom and
+                // Arctic Shift are independent, explicitly selectable sources in Settings.
+                throw FeedBlockedException()
+            }
+            // No confirmed block page (transient errors or genuinely empty subreddits):
+            // return an empty listing; the UI shows its usual "no posts" state.
+            val nextCursors = perSub.map { nextPostCursor(it) }
+            val encoded = nextCursors.joinToString(FANOUT_CURSOR_SEP) { it ?: "" }
+            return Listing(KIND_LISTING, ListingData(null, 0, emptyList(), encoded, null))
         }
         val nextCursors = perSub.map { nextPostCursor(it) }
         val encoded = nextCursors.joinToString(FANOUT_CURSOR_SEP) { it ?: "" }
@@ -281,6 +289,12 @@ class RedditOfficialSource @Inject constructor(
      * A subreddit that fails (challenge, 404, empty) is skipped rather than
      * blanking the feed; its [FanOutPage.cursors] entry is null so deeper pages
      * simply stop for that sub.
+     *
+     * After the final snapshot, a whole cycle that produced no posts while at
+     * least one worker saw a confirmed Cloudflare block page throws
+     * [FeedBlockedException] so the caller can report an actionable error. A
+     * quiet-but-reachable feed (transient 404s, genuinely empty subs) still ends
+     * with a final empty snapshot, as before.
      */
     fun getSubredditFanOutProgressive(
         multiredd: String,
@@ -307,13 +321,17 @@ class RedditOfficialSource @Inject constructor(
         val random = Random()
         // Total-block early-abort: CF serving a block page to the whole IP means
         // every sub will parse to 0 posts, so the remaining fetches can only add
-        // latency before the Atom fallback (the coordinator's last resort) runs.
-        // A few empty subs are normal (quiet subreddits); FANOUT_ABORT_CONSECUTIVE
-        // empty results in one fan-out is a network-level block. No retry is
-        // attempted here — retrying against a CF block is the hammering pattern
-        // the stagger/jitter is meant to avoid.
+        // latency before the block is reported as an error. A few empty subs are
+        // normal (quiet subreddits); FANOUT_ABORT_CONSECUTIVE empty results in one
+        // fan-out is a network-level block. No retry is attempted here — retrying
+        // against a CF block is the hammering pattern the stagger/jitter is meant
+        // to avoid.
         // AtomicBoolean: set by one worker's thread, read by the other workers' threads.
         val aborting = java.util.concurrent.atomic.AtomicBoolean(false)
+        // Set when at least one worker saw a CONFIRMED CF block page (distinct from
+        // "parses as an empty feed"): only then is a zero-post result reported as
+        // a hard block instead of a genuinely empty feed.
+        val confirmedBlock = java.util.concurrent.atomic.AtomicBoolean(false)
 
         // Emission order is the ORIGINAL subreddit order, not completion order,
         // so the interleave is stable across emissions (no reshuffling of the same
@@ -366,11 +384,18 @@ class RedditOfficialSource @Inject constructor(
                                     // Backstop abort: a confirmed CF block page raises
                                     // [CfBlockException] below and aborts immediately; this
                                     // also covers the case where the page parses as a "real"
-                                    // feed with zero posts but is effectively blocked.
-                                    if (noDataCount.get() >= FANOUT_ABORT_CONSECUTIVE) aborting.set(true)
+                                    // feed with zero posts but is effectively blocked. Only
+                                    // once NO sub has produced any post yet — an empty sub
+                                    // alongside a filled one is just a quiet subreddit.
+                                    if (noDataCount.get() >= FANOUT_ABORT_CONSECUTIVE &&
+                                        results.values.all { it.isEmpty() }
+                                    ) aborting.set(true)
                                 }
                             } catch (e: CfBlockException) {
-                                // Definitive network-level block: stop all remaining subs.
+                                // Definitive network-level block: stop all remaining subs
+                                // and flag the cycle as hard-blocked so it is reported as
+                                // an error instead of an empty feed.
+                                confirmedBlock.set(true)
                                 aborting.set(true)
                                 results[sub] = emptyList()
                                 cursorsOut[sub] = null
@@ -386,6 +411,13 @@ class RedditOfficialSource @Inject constructor(
             }.awaitAll()
         }
         sendSnapshot(true)
+        // A confirmed CF block page (and nothing else got through): the whole cycle
+        // produced no data. Report it as an actionable error — there is deliberately
+        // no silent switch to another endpoint or source (Atom and Arctic Shift are
+        // independent, explicitly selectable sources in Settings).
+        if (confirmedBlock.get() && results.values.all { it.isEmpty() }) {
+            throw FeedBlockedException()
+        }
     }
 
     //endregion
@@ -451,37 +483,6 @@ class RedditOfficialSource @Inject constructor(
             KIND_LISTING,
             ListingData(null, entries.size, entries, nextPostCursor(entries), null)
         )
-    }
-
-    /**
-     * Atom feed for a (possibly joined) subreddit list — the last-resort data source
-     * when CF blocks every SSR fetch. Tries the joined URL first; a joined list that
-     * is not a resolvable multiredd yields zero entries for anonymous clients, in
-     * which case each subreddit's own Atom feed is fetched (sequential: this path
-     * runs only when the whole SSR fan-out already failed).
-     */
-    suspend fun getSubredditFanOutAtom(multiredd: String, sort: Sort): List<PostChild> {
-        val doc = runCatching {
-            Jsoup.parse(fetchAtomBody(getSubredditViaAtomUrl(multiredd, sort, null)))
-        }.getOrNull() ?: return emptyList()
-        val joined = doc.select("entry").mapNotNull { atomPostFromEntry(it) }
-        if (joined.isNotEmpty()) return joined
-        val subs = multiredd.split("+").map { it.trim() }.filter { it.isNotEmpty() }
-        // Bounded: this path runs only when the whole SSR fan-out failed, and each
-        // Atom fetch retries with backoff — an unbounded 73-sub loop could stall the
-        // feed for minutes while CF keeps blocking. Ten subs is enough to fill the
-        // home screen.
-        val all = mutableListOf<PostChild>()
-        val seen = joined.mapTo(HashSet()) { it.data.name }
-        for (sub in subs.take(FANOUT_ATOM_FALLBACK_SUBS)) {
-            val d = runCatching {
-                Jsoup.parse(fetchAtomBody(getSubredditViaAtomUrl(sub, sort, null)))
-            }.getOrNull() ?: continue
-            d.select("entry").mapNotNull { atomPostFromEntry(it) }
-                .filter { seen.add(it.data.name) }
-                .forEach(all::add)
-        }
-        return all
     }
 
     /** Maps one Atom `<entry>` to a [PostChild] using the shared [parsePost] pipeline. */
@@ -828,17 +829,36 @@ class RedditOfficialSource @Inject constructor(
     //region HTTP
 
     /**
-     * Fetches a full page, solving the JS challenge when reddit.com answers with one,
-     * retrying on failure, then throws if still unusable. Throws [CfBlockException]
-     * (distinct from a generic error) when every attempt got a CF *block* page: that
-     * is a network-level condition — retrying the same host cannot help, and callers
-     * (the multiredd fan-out) use it to abort their remaining requests early and hand
-     * the feed to the Atom fallback.
+     * Thrown when the whole multiredd feed could not be fetched at all — every
+     * subreddit returned no posts, usually because reddit.com's Cloudflare layer is
+     * serving a block page to this connection. Distinct from a per-sub error: this
+     * is a network-level condition the caller must surface as an actionable error
+     * (retry, or switch to another source in Settings). It is NOT a silent fallback
+     * to another source: Atom and Arctic Shift are independent, selectable sources.
+     */
+    class FeedBlockedException : IOException(
+        "reddit.com returned no feed posts (the connection is likely being blocked " +
+            "by Cloudflare). Try again in a moment, or switch the source to " +
+            "'Reddit (Atom RSS)' or 'Arctic Shift' in Settings."
+    )
+
+    /**
+     * Internal: a confirmed Cloudflare *block* page (not a solvable JS challenge).
+     * The multiredd fan-out catches it to stop fetching the remaining subreddits
+     * early; it never escapes [getSubreddit].
      */
     private class CfBlockException : IOException(
         "reddit.com is refusing this connection (Cloudflare block page)"
     )
 
+    /**
+     * Fetches a full page, solving the JS challenge when reddit.com answers with one,
+     * retrying on failure, then throws if still unusable. Throws [CfBlockException]
+     * (distinct from a generic error) when every attempt got a CF *block* page: that
+     * is a network-level condition — retrying the same host cannot help, and the
+     * multiredd fan-out uses it to abort the remaining requests early so the block
+     * is reported (as [FeedBlockedException]) within seconds.
+     */
     private suspend fun fetchPage(url: String): String {
         var lastError = "no response from server"
         var lastWasBlock = false
@@ -1673,12 +1693,13 @@ class RedditOfficialSource @Inject constructor(
         // does not challenge a burst of per-sub feed requests (73 subs at 4-wide
         // finished in seconds in live tests, 2026-09-01).
         private const val FANOUT_CONCURRENCY = 4
-        // Total-block early-abort: this many empty sub results in one fan-out means
-        // CF is serving the whole IP a block page, so the remaining fetches can only
-        // return the same 0 posts. 12 is above what genuinely-quiet subreddits
-        // produce (a few at most) and below the 73 of a hard block, so the Atom
-        // fallback in the feed coordinator starts within seconds instead of after
-        // the full drain (2026-09-03 device log: 73 empty pages over 9s).
+        // Total-block early-abort: this many empty sub results (with no sub having
+        // produced any post yet) means CF is serving the whole IP a block page, so
+        // the remaining fetches can only return the same 0 posts. 12 is above what
+        // genuinely-quiet subreddits produce (a few at most) and below the 73 of a
+        // hard block, so the block is reported (FeedBlockedException) within seconds
+        // instead of after the full drain (2026-09-03 device log: 73 empty pages
+        // over 9s).
         private const val FANOUT_ABORT_CONSECUTIVE = 12
         // Random 0..FANOUT_JITTER_MS pre-delay per subreddit request so the burst
         // does not look like one identical pattern (CF shaping).
@@ -1686,9 +1707,6 @@ class RedditOfficialSource @Inject constructor(
         // Separator for the per-sub cursor list threaded through the opaque cursor
         // string. Subreddit names never contain ';'; `after` t3_ ids are base36.
         private const val FANOUT_CURSOR_SEP = ";"
-
-        /** Max subreddits fetched in the Atom fallback loop (see [getSubredditFanOutAtom]). */
-        private const val FANOUT_ATOM_FALLBACK_SUBS = 10
 
         /** Public alias of [FANOUT_CURSOR_SEP] for the feed coordinator. */
         const val FANOUT_CURSOR_SEPARATOR = FANOUT_CURSOR_SEP
