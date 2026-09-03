@@ -285,13 +285,20 @@ class FeedCoordinator @Inject constructor(
             runPurge(profileId)
 
             _state.update { s ->
+                // If the SSR fan-out came back empty and the Atom fallback filled
+                // lastMerged, the collect loop never showed any posts — surface them
+                // now instead of the "no posts loaded" banner.
+                val posts = if (s.posts.isEmpty() && lastMerged.isNotEmpty()) {
+                    mapToEntities(lastMerged, seenSet, savedSet)
+                } else s.posts
                 s.copy(
+                    posts = posts,
                     refreshing = false,
                     progress = null,
                     offline = false,
                     fromCacheOnly = false,
                     lastRefresh = System.currentTimeMillis(),
-                    error = if (s.posts.isEmpty()) "no posts loaded" else null
+                    error = if (posts.isEmpty()) "no posts loaded" else null
                 )
             }
         }
