@@ -210,7 +210,19 @@ class RedditOfficialSource @Inject constructor(
         val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
         val body = fetchPage(url)
         val doc = Jsoup.parse(body)
-        loadFeedContinuation(doc, parsePostCards(doc))
+        val posts = loadFeedContinuation(doc, parsePostCards(doc))
+        // A real feed page — even a genuinely EMPTY subreddit — is a full SSR document
+        // (tens of KB of chrome around the cards). A SMALL page with zero post cards is
+        // a block/interstitial variant that matches no challenge marker: the 2026-09-03
+        // device log showed 73 x ~8.4 KB pages, all with 0 posts, all answered 200 —
+        // treated as "empty" subs, the feed silently went blank. Report it as a
+        // confirmed block so the fan-out aborts early and the caller can surface the
+        // actionable FeedBlockedException. (Large zero-card pages stay "empty feed":
+        // they may be a real layout change, and the backstop abort still bounds them.)
+        if (posts.isEmpty() && body.length < EMPTY_FEED_PAGE_MIN_CHARS) {
+            throw CfBlockException()
+        }
+        posts
     } catch (e: CancellationException) {
         throw e
     } catch (e: CfBlockException) {
@@ -342,15 +354,23 @@ class RedditOfficialSource @Inject constructor(
         // device crash of 2026-09-02). channel.send() serializes the sends.
         suspend fun sendSnapshot(final: Boolean) {
             val finished = subs.mapNotNull { results[it] }
+            // Copy both shared collections under their locks: Collections.synchronizedSet/Map
+            // lock individual operations, NOT iteration. Several fan-out workers send
+            // snapshots concurrently (up to the full burst after the early-abort trips),
+            // while other workers add/remove inFlight and write cursorsOut — an
+            // unsynchronized iterator throws ConcurrentModificationException (device log
+            // 2026-09-03: "fan-out FAILED: ConcurrentModificationException: null").
+            val inFlightNow = synchronized(inFlight) { ArrayList(inFlight).take(3) }
+            val cursorsNow = synchronized(cursorsOut) { HashMap(cursorsOut) }
             channel.send(
                 FanOutPage(
                     perSub = finished,
-                    cursors = cursorsOut.toMap(),
+                    cursors = cursorsNow,
                     progress = FanOutProgress(
                         total = subs.size,
                         done = doneCount.get(),
                         noData = noDataCount.get(),
-                        inFlight = ArrayList(inFlight).take(3),
+                        inFlight = inFlightNow,
                         lastFinished = lastFinished.get()
                     ),
                     isFinal = final
@@ -469,7 +489,7 @@ class RedditOfficialSource @Inject constructor(
             if (body != null) break
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
-        val xml = body ?: throw IOException("reddit.com multiredd feed $url failed ($lastError)")
+        val xml = body ?: throw IOException("Reddit.com multiredd feed $url failed ($lastError)")
         val doc = Jsoup.parse(xml)
         val entries = doc.select("entry").mapNotNull { atomPostFromEntry(it) }
         if (entries.isEmpty()) {
@@ -609,7 +629,7 @@ class RedditOfficialSource @Inject constructor(
             if (body != null) break
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
-        return body ?: throw IOException("reddit.com Atom feed $url failed ($lastError)")
+        return body ?: throw IOException("Reddit.com Atom feed $url failed ($lastError)")
     }
 
     override suspend fun searchInSubreddit(
@@ -837,7 +857,7 @@ class RedditOfficialSource @Inject constructor(
      * to another source: Atom and Arctic Shift are independent, selectable sources.
      */
     class FeedBlockedException : IOException(
-        "reddit.com returned no feed posts (the connection is likely being blocked " +
+        "Reddit.com returned no feed posts (the connection is likely being blocked " +
             "by Cloudflare). Try again in a moment, or switch the source to " +
             "'Reddit (Atom RSS)' or 'Arctic Shift' in Settings."
     )
@@ -848,7 +868,9 @@ class RedditOfficialSource @Inject constructor(
      * early; it never escapes [getSubreddit].
      */
     private class CfBlockException : IOException(
-        "reddit.com is refusing this connection (Cloudflare block page)"
+        "Reddit.com returned no feed posts (the connection is likely being blocked " +
+            "by Cloudflare). Try again in a moment, or switch the source to " +
+            "'Reddit (Atom RSS)' or 'Arctic Shift' in Settings."
     )
 
     /**
@@ -877,7 +899,7 @@ class RedditOfficialSource @Inject constructor(
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
         if (lastWasBlock) throw CfBlockException()
-        throw IOException("reddit.com did not return a usable page ($lastError). Please try again.")
+        throw IOException("Reddit.com did not return a usable page ($lastError). Please try again.")
     }
     /**
      * If [body] is a JS challenge page, solves it over plain HTTP (doubled-literal solution
@@ -1070,7 +1092,7 @@ class RedditOfficialSource @Inject constructor(
             "partial" to ("faceplate-partial" in body)
         ).filter { it.second }.joinToString(", ")
         throw IOException(
-            "reddit.com returned no posts for $url " +
+            "Reddit.com returned no posts for $url " +
                 "(page ${body.length} chars, title \"$title\"; markers: ${markers.ifBlank { "none recognized" }}). " +
                 "The page layout may have changed — please report this."
         )
@@ -1704,6 +1726,11 @@ class RedditOfficialSource @Inject constructor(
         // Random 0..FANOUT_JITTER_MS pre-delay per subreddit request so the burst
         // does not look like one identical pattern (CF shaping).
         private const val FANOUT_JITTER_MS = 700L
+        // A feed page below this size that parses to zero post cards is a
+        // block/interstitial variant, not a (possibly empty) subreddit feed: real
+        // SSR feed pages are full documents (the same 30 KB heuristic the challenge
+        // detection uses — "real pages are large"). See fetchSubPostsLenient.
+        private const val EMPTY_FEED_PAGE_MIN_CHARS = 30_000
         // Separator for the per-sub cursor list threaded through the opaque cursor
         // string. Subreddit names never contain ';'; `after` t3_ ids are base36.
         private const val FANOUT_CURSOR_SEP = ";"

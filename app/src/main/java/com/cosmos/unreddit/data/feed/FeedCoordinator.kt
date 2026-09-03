@@ -261,6 +261,11 @@ class FeedCoordinator @Inject constructor(
                 // as the bare "refresh failed" fallback with nothing to diagnose —
                 // so log the full stack AND put the exception class in the banner
                 // when the message is blank (2026-09-03 device screenshot).
+                //
+                // CONVENTION (2026-09-03): every user-visible feed error is a
+                // complete sentence — capitalised first letter, period at the end.
+                // Real exceptions carry that text in their message; the fallback
+                // below follows the same rule so the banner never mixes styles.
                 com.cosmos.unreddit.ui.postlist.FeedDebug.logException("fan-out FAILED", e)
                 if (lastMerged.isNotEmpty()) persistFresh(profileId, lastMerged)
                 val msg = e.message?.takeIf { it.isNotBlank() }
@@ -268,7 +273,7 @@ class FeedCoordinator @Inject constructor(
                     s.copy(
                         refreshing = false,
                         progress = null,
-                        error = msg ?: "refresh failed (${e.javaClass.simpleName})"
+                        error = msg ?: "Refresh failed (${e.javaClass.simpleName}). Please try again."
                     )
                 }
                 return@launch
@@ -288,7 +293,7 @@ class FeedCoordinator @Inject constructor(
                     offline = false,
                     fromCacheOnly = false,
                     lastRefresh = System.currentTimeMillis(),
-                    error = if (s.posts.isEmpty()) "no posts loaded" else null
+                    error = if (s.posts.isEmpty()) "No posts loaded." else null
                 )
             }
         }
