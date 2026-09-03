@@ -140,11 +140,11 @@ class PostDetailsViewModel @Inject constructor(
                 // and is NOT refetched. Only an explicit refresh (pull-down, retry,
                 // menu) hits the network — going back to a freshly opened post
                 // must stay on the cached copy.
-                FeedDebug.log("detail load: cache hit id=${cached.name}")
+                FeedDebug.log("detail load: cache hit id=${cached.id}")
                 _post.value = Resource.Success(cached)
             } else {
                 if (cached != null) {
-                    FeedDebug.log("detail load: cached, forcing refresh id=${cached.name}")
+                    FeedDebug.log("detail load: cached, forcing refresh id=${cached.id}")
                     // Even on a forced refresh, show the cached body first so the
                     // screen is never blank while the network is in flight.
                     _post.value = Resource.Success(cached)
