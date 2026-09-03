@@ -251,7 +251,15 @@ class FeedCoordinator @Inject constructor(
                 // becomes a user-visible "…was cancelled" banner (2026-09-02 screenshot).
                 throw e
             } catch (e: Exception) {
-                // CF hard-challenge or network death mid-cycle: keep whatever we have.
+                // CF hard-block (RedditOfficialSource.FeedBlockedException) or network
+                // death mid-cycle: persist whatever the fan-out streamed, keep the
+                // cache-rendered posts, and surface the (actionable) error. There is
+                // deliberately no silent switch to another endpoint or source — Atom
+                // and Arctic Shift are independent, selectable sources in Settings.
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                    "fan-out FAILED: ${e.javaClass.simpleName}: ${e.message}"
+                )
+                if (lastMerged.isNotEmpty()) persistFresh(profileId, lastMerged)
                 _state.update { s ->
                     s.copy(
                         refreshing = false,
@@ -263,21 +271,6 @@ class FeedCoordinator @Inject constructor(
             }
 
             // 3. Persist fresh results, then purge.
-            // CF hard-block of every SSR fetch (all subs -> 0 posts) is a normal,
-            // recoverable state: degrade to reddit.com's own Atom feed for the same
-            // multiredd so the home screen is not blank. Atom entries have no scores
-            // or comment counts (they default to 0) — it is still reddit.com content.
-            if (lastMerged.isEmpty()) {
-                val atom = runCatching {
-                    officialSource.getSubredditFanOutAtom(multiredd, sort).map { it.data }
-                }.getOrNull()
-                if (!atom.isNullOrEmpty()) {
-                    lastMerged = atom
-                    com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                        "fan-out: all SSR fetches blocked; Atom fallback = ${atom.size} posts"
-                    )
-                }
-            }
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
                 "fan-out COMPLETE: merged=${lastMerged.size} posts, persisting"
             )
@@ -285,20 +278,13 @@ class FeedCoordinator @Inject constructor(
             runPurge(profileId)
 
             _state.update { s ->
-                // If the SSR fan-out came back empty and the Atom fallback filled
-                // lastMerged, the collect loop never showed any posts — surface them
-                // now instead of the "no posts loaded" banner.
-                val posts = if (s.posts.isEmpty() && lastMerged.isNotEmpty()) {
-                    mapToEntities(lastMerged, seenSet, savedSet)
-                } else s.posts
                 s.copy(
-                    posts = posts,
                     refreshing = false,
                     progress = null,
                     offline = false,
                     fromCacheOnly = false,
                     lastRefresh = System.currentTimeMillis(),
-                    error = if (posts.isEmpty()) "no posts loaded" else null
+                    error = if (s.posts.isEmpty()) "no posts loaded" else null
                 )
             }
         }
