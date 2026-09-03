@@ -26,7 +26,6 @@ import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.R
 import com.cosmos.unreddit.data.model.preferences.DataPreferences.RedditSource.TEDDIT
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.databinding.LayoutPreferenceListBinding
-import com.cosmos.unreddit.ui.policydisclaimer.PolicyDisclaimerDialogFragment
 import com.cosmos.unreddit.ui.redditsource.RedditSourceDialogFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.getNavOptions
@@ -57,7 +56,6 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     private var cacheTtlPreference: Preference? = null
     private var privacyEnhancerPreference: Preference? = null
     private var aboutPreference: Preference? = null
-    private var policyDisclaimerPreference: Preference? = null
 
     private val navOptions: NavOptions by lazy { getNavOptions() }
 
@@ -182,13 +180,6 @@ class PreferencesFragment : PreferenceFragmentCompat() {
         aboutPreference = findPreference<Preference>("about")?.apply {
             setOnPreferenceClickListener {
                 openAbout()
-                true
-            }
-        }
-
-        policyDisclaimerPreference = findPreference<Preference>("policy_disclaimer")?.apply {
-            setOnPreferenceClickListener {
-                showPolicyDisclaimer()
                 true
             }
         }
@@ -447,10 +438,6 @@ class PreferencesFragment : PreferenceFragmentCompat() {
 
     private fun openAbout() {
         findNavController().navigate(PreferencesFragmentDirections.openAbout(), navOptions)
-    }
-
-    private fun showPolicyDisclaimer() {
-        PolicyDisclaimerDialogFragment.show(parentFragmentManager)
     }
 
     private fun openPrivacyEnhancer() {

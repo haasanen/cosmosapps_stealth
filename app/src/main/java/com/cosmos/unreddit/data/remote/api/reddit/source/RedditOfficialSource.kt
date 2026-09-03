@@ -868,12 +868,17 @@ class RedditOfficialSource @Inject constructor(
         // TEMP diagnostics (JVM-safe in FeedDebug; removed once root cause is found).
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP ${method} $url")
         val t0 = System.currentTimeMillis()
-        val result = runCatching {
+        val result = try {
             val req = newRequest(url, method, forPartial)
             okHttpClient.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) resp.body?.string() else null
             }
-        }.getOrElse { e ->
+        } catch (e: CancellationException) {
+            // Never swallow cancellation: the caller's scope must be able to cancel this
+            // request. Swallowing it here made the caller believe the network call had
+            // simply returned null and keep working (or retrying) after cancellation.
+            throw e
+        } catch (e: Exception) {
             com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP FAILED ${System.currentTimeMillis() - t0}ms: ${e.javaClass.simpleName}: ${e.message}")
             return null
         }
@@ -1101,7 +1106,59 @@ class RedditOfficialSource @Inject constructor(
             }
         thumbnail?.let { map["thumbnail"] = it }
 
+        // SSR cards do not embed gallery_data / media_metadata (those only exist in the
+        // JSON API). Gallery pages render each page as a media-lightbox-img element
+        // (src or data-lazy-src), in order — inject them as the API-shaped objects so
+        // the standard gallery pipeline (mediaType, gallery, previewUrl) works.
+        if (el.attr("gallery").isNotBlank() || postType == "gallery") {
+            val gallery = parseSsrGallery(el, name.removePrefix("t3_"))
+            if (gallery.data.isNotEmpty()) {
+                map["is_gallery"] = true
+                map["gallery_data"] = gallery.data
+                map["media_metadata"] = gallery.metadata
+            }
+        }
+
         return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+    }
+
+    /**
+     * The SSR gallery pages of a post: every `media-lightbox-img` is one gallery page,
+     * in card order (later pages are lazy: `data-lazy-src` instead of `src`).
+     * Returns API-shaped objects — `gallery_data.items[]` (ordered captions/ids) and
+     * `media_metadata` (id → item map, the shape MediaMetadataAdapter expects) — keyed
+     * by generated media ids so `PostData.gallery` can join the two.
+     */
+    private data class SsrGallery(val data: Map<String, Any?>, val metadata: Map<String, Any?>)
+
+    private fun parseSsrGallery(el: Element, postId: String): SsrGallery {
+        val dataItems = mutableListOf<Map<String, Any?>>()
+        val metadataItems = mutableListOf<Map<String, Any?>>()
+        var index = 0
+        for (img in el.select("img.media-lightbox-img")) {
+            // Gallery pages are served on cf.preview.redd.it — only exclude avatars.
+            val url = (img.attr("src").ifBlank { img.attr("data-src") })
+                .ifBlank { img.attr("data-lazy-src") }
+                .takeIf { it.isNotBlank() && !isAvatarImageUrl(it) }
+                ?: continue
+            val mediaId = "t3_${postId}_${index}"
+            dataItems.add(mapOf("media_id" to mediaId, "caption" to null))
+            // MediaMetadata.items[] — one GalleryItem per page; PostData.gallery
+            // joins media_id → GalleryItem.id, then reads GalleryItem.s (the image).
+            metadataItems.add(
+                mapOf(
+                    "id" to mediaId,
+                    "m" to "image/jpeg",
+                    "s" to mapOf(
+                        "u" to url,
+                        "x" to (img.attr("width").toIntOrNull() ?: 0),
+                        "y" to (img.attr("height").toIntOrNull() ?: 0)
+                    )
+                )
+            )
+            index++
+        }
+        return SsrGallery(mapOf("items" to dataItems), mapOf("items" to metadataItems))
     }
 
     /**

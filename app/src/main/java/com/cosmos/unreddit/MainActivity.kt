@@ -6,7 +6,6 @@ import android.view.ViewGroup
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
-import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,23 +19,18 @@ import com.cosmos.unreddit.MainActivity.BottomNavigationState.LEFT_HANDED
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.NOT_INITIALIZED
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.RIGHT_HANDED
 import com.cosmos.unreddit.databinding.ActivityMainBinding
-import com.cosmos.unreddit.ui.policydisclaimer.PolicyDisclaimerDialogFragment
 import com.cosmos.unreddit.ui.postlist.PostListFragment
 import com.cosmos.unreddit.util.HideBottomViewBehavior
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
 import com.cosmos.unreddit.util.extension.currentNavigationFragment
-import com.cosmos.unreddit.util.extension.isPast
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.unredditApplication
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.shape.CornerFamily
 import com.google.android.material.shape.MaterialShapeDrawable
-import com.google.android.material.snackbar.Snackbar
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedListener {
@@ -48,8 +42,6 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
     private lateinit var navController: NavController
 
     private var bottomNavigationState: BottomNavigationState = NOT_INITIALIZED
-
-    private var policyDisclaimerSnackbar: Snackbar? = null
 
     override fun attachBaseContext(base: android.content.Context) {
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: entry")
@@ -89,16 +81,6 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
                         NOT_INITIALIZED -> initBottomNavigationView(leftHandedMode)
                         RIGHT_HANDED -> if (leftHandedMode) initBottomNavigationView(true)
                         LEFT_HANDED -> if (!leftHandedMode) initBottomNavigationView(false)
-                    }
-                }
-            }
-
-            launch {
-                viewModel.policyDisclaimerShown.collect { shown ->
-                    if (!shown && POLICY_DISCLAIMER_DATE.isPast) {
-                        // Don't show the snackbar right away
-                        delay(POLICY_DISCLAIMER_DELAY)
-                        showPolicyDisclaimerSnackbar()
                     }
                 }
             }
@@ -204,24 +186,6 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
         }
     }
 
-    private fun showPolicyDisclaimerSnackbar() {
-        policyDisclaimerSnackbar = Snackbar
-            .make(
-                binding.root,
-                getString(
-                    R.string.snackbar_policy_disclaimer_message,
-                    getString(R.string.app_name)
-                ),
-                Snackbar.LENGTH_INDEFINITE
-            )
-            .setAction(R.string.snackbar_policy_disclaimer_action) {
-                PolicyDisclaimerDialogFragment.show(supportFragmentManager)
-                policyDisclaimerSnackbar = null
-            }
-            .setActionTextColor(ContextCompat.getColor(this, R.color.white))
-            .apply { show() }
-    }
-
     override fun onDestinationChanged(
         controller: NavController,
         destination: NavDestination,
@@ -241,20 +205,10 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
 
     override fun onDestroy() {
         super.onDestroy()
-        policyDisclaimerSnackbar = null
         bottomNavigationState = NOT_INITIALIZED
     }
 
     private enum class BottomNavigationState {
         NOT_INITIALIZED, RIGHT_HANDED, LEFT_HANDED
-    }
-
-    companion object {
-        private val POLICY_DISCLAIMER_DATE = Calendar
-            .getInstance()
-            .apply { set(1900 + 123, 5, 10) }
-            .timeInMillis
-
-        private const val POLICY_DISCLAIMER_DELAY: Long = 5000
     }
 }

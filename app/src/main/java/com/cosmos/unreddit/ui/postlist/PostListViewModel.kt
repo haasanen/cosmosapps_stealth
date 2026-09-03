@@ -199,7 +199,8 @@ class PostListViewModel
                 historyIds = ctx.historyIds,
                 savedIds = ctx.savedIds,
                 showNsfw = ctx.showNsfw,
-                ttlMs = ctx.ttlMs
+                ttlMs = ctx.ttlMs,
+                manual = true
             )
         }
         _lastRefresh.value = System.currentTimeMillis()

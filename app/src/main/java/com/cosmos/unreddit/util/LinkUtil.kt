@@ -62,6 +62,23 @@ object LinkUtil {
         return link.contains(REDDIT_SOUNDTRACK_NAME)
     }
 
+    /**
+     * Builds the HLS playlist URL for a v.redd.it video from its bare base URL.
+     *
+     * The bare base URL (e.g. `https://v.redd.it/<id>`) no longer serves the video
+     * directly — it 302-redirects to an HTML page, which breaks ExoPlayer ("Something
+     * went wrong"). The unsigned HLS playlist endpoint (`/<id>/HLSPlaylist.m3u8?f=hd`)
+     * is served for every video and is the same URL reddit's own web player uses.
+     * Returns null when [url] is not a bare v.redd.it base URL.
+     */
+    fun getRedditVideoHlsUrl(url: String): String? {
+        val httpUrl = url.toHttpUrlOrNull() ?: return null
+        if (httpUrl.host != "v.redd.it") return null
+        val id = httpUrl.pathSegments.firstOrNull() ?: return null
+        if (id.isEmpty()) return null
+        return "https://v.redd.it/$id/HLSPlaylist.m3u8?f=hd"
+    }
+
     fun getGfycatId(link: String): String {
         return link.toHttpUrlOrNull()?.pathSegments?.lastOrNull() ?: return link
     }

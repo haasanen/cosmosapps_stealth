@@ -413,5 +413,35 @@ class RedditOfficialSourceTest {
         }
     }
 
+    @Test
+    fun `gallery cards parse every lightbox page in order`() = runBlocking {
+        // Real captured gallery post page (t3_1w5dwo8, the "garbage detail" report).
+        // SSR cards carry no gallery_data / media_metadata — the pages are the
+        // media-lightbox-img elements (first pages: src, later pages: data-lazy-src).
+        val doc = org.jsoup.Jsoup.parse(loadFixture("post_gallery.html"))
+        val galleryCard = doc.select("shreddit-post")
+            .first { it.attr("view-context") == "CommentsPage" }
+        assertEquals("t3_1w5dwo8", galleryCard.attr("id"))
+        assertEquals("gallery", galleryCard.attr("post-type"))
+
+        val post = source.parsePostCardForTest(galleryCard)
+        assertNotNull("gallery card did not parse", post)
+        val data = post!!.data
+
+        assertTrue("gallery card not detected as REDDIT_GALLERY", data.mediaType.name == "REDDIT_GALLERY")
+        assertEquals("gallery page count wrong", 8, data.gallery.size)
+        // In card order: the first pages use src, later pages data-lazy-src.
+        assertEquals(
+            "first gallery page url wrong",
+            "https://cf.preview.redd.it/homemade-my-take-on-shepherds-pie-v0-z1vz54t2n4nh1.jpg?width=640&crop=smart&auto=webp&s=52a109880c343207276052c5aafe30462c3ad713",
+            data.gallery[0].url
+        )
+        assertTrue("gallery url out of order: ${data.gallery.map { it.url }}",
+            data.gallery.map { it.url }.all { it.contains("shepherds-pie") })
+        assertNotNull("gallery card got no previewUrl", data.previewUrl)
+        assertTrue("gallery previewUrl is an avatar: ${data.previewUrl}",
+            (data.previewUrl ?: "").contains("preview.redd.it"))
+    }
+
     //endregion
 }

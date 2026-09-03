@@ -31,6 +31,7 @@ import com.cosmos.unreddit.di.DispatchersModule.MainImmediateDispatcher
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.commentmenu.CommentMenuFragment
 import com.cosmos.unreddit.ui.common.ElasticDragDismissFrameLayout
+import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
 import com.cosmos.unreddit.ui.loadstate.ResourceStateAdapter
 import com.cosmos.unreddit.ui.sort.SortFragment
 import com.cosmos.unreddit.util.extension.applyWindowInsets
@@ -52,7 +53,8 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class PostDetailsFragment : BaseFragment(),
-    ElasticDragDismissFrameLayout.ElasticDragDismissCallback, PopupMenu.OnMenuItemClickListener {
+    ElasticDragDismissFrameLayout.ElasticDragDismissCallback,
+    PullToRefreshLayout.OnRefreshListener, PopupMenu.OnMenuItemClickListener {
 
     private var _binding: FragmentPostDetailsBinding? = null
     private val binding get() = _binding!!
@@ -165,6 +167,12 @@ class PostDetailsFragment : BaseFragment(),
             layoutManager = LinearLayoutManager(requireContext())
             adapter = concatAdapter
         }
+        binding.pullRefresh.setOnRefreshListener(this)
+    }
+
+    override fun onRefresh() {
+        // Pull-to-refresh on the detail screen: network reload of this one post.
+        viewModel.refreshPost()
     }
 
     private fun bindViewModel() {
@@ -193,6 +201,12 @@ class PostDetailsFragment : BaseFragment(),
                     resourceStateAdapter.resource = it
                     when (it) {
                         is Resource.Success -> commentAdapter.submitList(it.data)
+                        is Resource.Error -> {
+                            // Reload failed (pull-to-refresh or retry): stop the spinner.
+                            if (binding.pullRefresh.isRefreshing) {
+                                binding.pullRefresh.setRefreshing(false)
+                            }
+                        }
                         else -> {
                             // ignore
                         }
@@ -325,7 +339,7 @@ class PostDetailsFragment : BaseFragment(),
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.refresh -> viewModel.loadPost(true)
+            R.id.refresh -> viewModel.refreshPost()
             else -> {
                 return false
             }

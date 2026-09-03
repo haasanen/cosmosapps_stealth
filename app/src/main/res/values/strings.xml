@@ -163,14 +163,16 @@
 
     <string name="preference_backup">Import/Export</string>
     <string name="preference_cache_ttl">Feed cache duration</string>
+    <string name="preference_cache_ttl_4h">4 hours</string>
     <string name="preference_cache_ttl_12h">12 hours</string>
-    <string name="preference_cache_ttl_24h">24 hours</string>
-    <string name="preference_cache_ttl_48h">48 hours</string>
-    <string name="preference_cache_ttl_72h">72 hours</string>
+    <string name="preference_cache_ttl_1d">1 day</string>
+    <string name="preference_cache_ttl_2d">2 days</string>
+    <string name="preference_cache_ttl_3d">3 days</string>
     <string name="preference_cache_ttl_1w">1 week</string>
+    <string name="preference_cache_ttl_2w">2 weeks</string>
+    <string name="preference_cache_ttl_1mo">1 month</string>
 
     <string name="preference_about">About</string>
-    <string name="preference_policy_disclaimer">Reddit\'s API Policy Change</string>
 
     <string name="preference_privacy_enhancer">Privacy Enhancer</string>
     <string name="preference_privacy_enhancer_summary">Redirect links to privacy-friendly frontends</string>
@@ -293,9 +295,8 @@
 
     <string name="toast_clipboard_copied_email">Email copied to clipboard</string>
 
+    <!-- DEAD CODE: referenced only by the orphaned PolicyDisclaimer dialog files,
+         which are kept until Simo approves their deletion in v32. -->
     <string name="dialog_policy_disclaimer_title">Reddit\'s API Policy Change</string>
     <string name="dialog_policy_disclaimer_message">In the coming weeks, a new policy regarding Reddit\'s API will come into effect. Reddit will stop providing a free API (among other things), thus putting a stop to most third-party apps, including Stealth.\n\nTo try to circumvent that issue, a new source for the content has been implemented (available in the preferences, under Reddit Source) based on old.reddit.com. It might not work for long after the policy change, or even at all, but at least it does not rely on any API.\n\nYou can find more information about the new policy <a href="https://www.reddit.com/r/reddit/comments/12qwagm/an_update_regarding_reddits_api/">here</a>.\n\nPlease feel free to use the contact information available in the About section (email, GitLab, or the Matrix channel) if you have any questions.</string>
-
-    <string name="snackbar_policy_disclaimer_message">%1$s might stop working soon</string>
-    <string name="snackbar_policy_disclaimer_action">Learn More</string>
 </resources>

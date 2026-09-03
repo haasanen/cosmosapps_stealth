@@ -15,19 +15,25 @@
     </string-array>
 
     <string-array name="pref_cache_ttl_labels">
+        <item>@string/preference_cache_ttl_4h</item>
         <item>@string/preference_cache_ttl_12h</item>
-        <item>@string/preference_cache_ttl_24h</item>
-        <item>@string/preference_cache_ttl_48h</item>
-        <item>@string/preference_cache_ttl_72h</item>
+        <item>@string/preference_cache_ttl_1d</item>
+        <item>@string/preference_cache_ttl_2d</item>
+        <item>@string/preference_cache_ttl_3d</item>
         <item>@string/preference_cache_ttl_1w</item>
+        <item>@string/preference_cache_ttl_2w</item>
+        <item>@string/preference_cache_ttl_1mo</item>
     </string-array>
 
     <string-array name="pref_cache_ttl_values">
+        <item>4</item>
         <item>12</item>
         <item>24</item>
         <item>48</item>
         <item>72</item>
         <item>168</item>
+        <item>336</item>
+        <item>720</item>
     </string-array>
     
 </resources>
