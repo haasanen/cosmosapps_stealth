@@ -34,6 +34,7 @@ class InfoBarView @JvmOverloads constructor(
 
     private var textMessageColor: Int = ContextCompat.getColor(context, R.color.text_color)
     private var textActionColor: Int = ContextCompat.getColor(context, R.color.text_color)
+    private var messageMaxLines: Int = 0 // 0 = keep the layout default (4)
 
     @Slide.GravityFlag
     private var slideEdge: Int = Gravity.BOTTOM
@@ -72,6 +73,9 @@ class InfoBarView @JvmOverloads constructor(
                         else -> Gravity.BOTTOM
                     }
                 }
+                if (hasValue(R.styleable.InfoBarView_messageMaxLines)) {
+                    messageMaxLines = getInt(R.styleable.InfoBarView_messageMaxLines, 0)
+                }
             } finally {
                 recycle()
             }
@@ -89,6 +93,9 @@ class InfoBarView @JvmOverloads constructor(
         message.apply {
             text = textMessage
             setTextColor(textMessageColor)
+            if (messageMaxLines > 0) {
+                maxLines = messageMaxLines
+            }
         }
 
         action.apply {

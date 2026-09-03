@@ -93,6 +93,7 @@
                     app:layout_constraintTop_toTopOf="parent"
                     android:layout_marginTop="@dimen/info_bar_margin_top"
                     style="@style/InfoBarStyle"
+                    app:messageMaxLines="8"
                     app:textMessage="@string/network_retry_message"
                     app:textAction="@string/network_retry_action"
                     android:visibility="gone"
