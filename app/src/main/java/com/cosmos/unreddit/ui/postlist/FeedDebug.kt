@@ -78,6 +78,29 @@ object FeedDebug {
         }
     }
 
+    /**
+     * Log a throwable with class, message and a bounded stack trace. Message-less
+     * exceptions (NullPointerException et al.) are invisible in a `class: message`
+     * line alone — the trace is the only way to find the throwing line. The full
+     * stack goes to the file; the event list keeps the first lines only.
+     */
+    fun logException(prefix: String, t: Throwable) {
+        val sw = java.io.StringWriter()
+        try {
+            t.printStackTrace(java.io.PrintWriter(sw))
+        } catch (u: Throwable) {
+            // printStackTrace is total; defensive only.
+        }
+        val full = sw.toString()
+        val first = full.lineSequence().take(12).joinToString("\n") { it.take(300) }
+        log("$prefix: ${t.javaClass.name} — ${t.message ?: "(no message)"}\n$first")
+        try {
+            logFile?.appendText(full + "\n")
+        } catch (u: Throwable) {
+            // File channel is best-effort.
+        }
+    }
+
     /** Starts updating [view] with the milestone trail. Main thread only. */
     fun startPanel(view: TextView) {
         val handler = Handler(Looper.getMainLooper())
