@@ -425,11 +425,11 @@ class RedditOfficialSourceTest {
         assertEquals("gallery", galleryCard.attr("post-type"))
 
         val post = source.parsePostCardForTest(galleryCard)
-        assertNotNull("gallery card did not parse", post)
+        assertNotNull("gallery card did not parse (post-type=${galleryCard.attr("post-type")} gallery-attr='${galleryCard.attr("gallery")}')", post)
         val data = post!!.data
 
-        assertTrue("gallery card not detected as REDDIT_GALLERY", data.mediaType.name == "REDDIT_GALLERY")
-        assertEquals("gallery page count wrong", 8, data.gallery.size)
+        assertTrue("mediaType=${data.mediaType} (expected REDDIT_GALLERY); domain=${data.domain}", data.mediaType.name == "REDDIT_GALLERY")
+        assertEquals("gallery size=${data.gallery.size} urls=${data.gallery.map { it.url.take(60) }}", 8, data.gallery.size)
         // In card order: the first pages use src, later pages data-lazy-src.
         assertEquals(
             "first gallery page url wrong",
