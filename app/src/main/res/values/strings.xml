@@ -294,9 +294,4 @@
     <string name="feed_offline">Offline — showing cached feed</string>
 
     <string name="toast_clipboard_copied_email">Email copied to clipboard</string>
-
-    <!-- DEAD CODE: referenced only by the orphaned PolicyDisclaimer dialog files,
-         which are kept until Simo approves their deletion in v32. -->
-    <string name="dialog_policy_disclaimer_title">Reddit\'s API Policy Change</string>
-    <string name="dialog_policy_disclaimer_message">In the coming weeks, a new policy regarding Reddit\'s API will come into effect. Reddit will stop providing a free API (among other things), thus putting a stop to most third-party apps, including Stealth.\n\nTo try to circumvent that issue, a new source for the content has been implemented (available in the preferences, under Reddit Source) based on old.reddit.com. It might not work for long after the policy change, or even at all, but at least it does not rely on any API.\n\nYou can find more information about the new policy <a href="https://www.reddit.com/r/reddit/comments/12qwagm/an_update_regarding_reddits_api/">here</a>.\n\nPlease feel free to use the contact information available in the About section (email, GitLab, or the Matrix channel) if you have any questions.</string>
 </resources>
