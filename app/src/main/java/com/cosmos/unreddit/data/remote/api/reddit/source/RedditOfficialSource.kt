@@ -162,7 +162,15 @@ class RedditOfficialSource @Inject constructor(
         val perSub = coroutineScope {
             subs.mapIndexed { i, sub ->
                 async {
-                    semaphore.withPermit { fetchSubPostsLenient(sub, sort, timeSorting, cursors[i]) }
+                    semaphore.withPermit {
+                        try {
+                            fetchSubPostsLenient(sub, sort, timeSorting, cursors[i])
+                        } catch (e: CfBlockException) {
+                            // CF is blocking this whole connection; treat the sub as empty
+                            // — the merged-empty check below degrades to the Atom feed.
+                            emptyList()
+                        }
+                    }
                 }
             }.awaitAll()
         }
@@ -196,6 +204,10 @@ class RedditOfficialSource @Inject constructor(
         val doc = Jsoup.parse(body)
         loadFeedContinuation(doc, parsePostCards(doc))
     } catch (e: CancellationException) {
+        throw e
+    } catch (e: CfBlockException) {
+        // A confirmed CF block page: let the fan-out worker see it so it can abort
+        // the remaining subs (retrying the same host is pointless while blocked).
         throw e
     } catch (e: Exception) {
         emptyList()
@@ -293,6 +305,15 @@ class RedditOfficialSource @Inject constructor(
         val lastFinished = AtomicReference<String?>(null)
         val semaphore = Semaphore(FANOUT_CONCURRENCY)
         val random = Random()
+        // Total-block early-abort: CF serving a block page to the whole IP means
+        // every sub will parse to 0 posts, so the remaining fetches can only add
+        // latency before the Atom fallback (the coordinator's last resort) runs.
+        // A few empty subs are normal (quiet subreddits); FANOUT_ABORT_CONSECUTIVE
+        // empty results in one fan-out is a network-level block. No retry is
+        // attempted here — retrying against a CF block is the hammering pattern
+        // the stagger/jitter is meant to avoid.
+        // AtomicBoolean: set by one worker's thread, read by the other workers' threads.
+        val aborting = java.util.concurrent.atomic.AtomicBoolean(false)
 
         // Emission order is the ORIGINAL subreddit order, not completion order,
         // so the interleave is stable across emissions (no reshuffling of the same
@@ -323,21 +344,41 @@ class RedditOfficialSource @Inject constructor(
             subs.shuffled().map { sub ->
                 async {
                     semaphore.withPermit {
-                        inFlight.add(sub)
-                        try {
-                            // Stagger starts: a burst of 73 identical requests at once
-                            // is exactly the pattern CF looks for.
-                            delay(random.nextInt(FANOUT_JITTER_MS.toInt()).toLong())
-                            val posts = fetchSubPostsLenient(sub, sort, timeSorting, cursors[sub])
-                            results[sub] = posts
-                            // nextPostCursor is null when the sub has no next page;
-                            // ConcurrentHashMap rejects null values — use the null-tolerant map.
-                            cursorsOut[sub] = nextPostCursor(posts)
-                            if (posts.isEmpty()) noDataCount.incrementAndGet()
-                        } finally {
-                            inFlight.remove(sub)
-                            doneCount.incrementAndGet()
-                            lastFinished.set(sub)
+                        if (aborting.get()) {
+                            // Total-block already detected: record this sub as empty
+                            // (keeps done-count and cursors complete) and skip the
+                            // fetch — its posts are guaranteed to be the same 0.
+                            results[sub] = emptyList()
+                            cursorsOut[sub] = null
+                        } else {
+                            inFlight.add(sub)
+                            try {
+                                // Stagger starts: a burst of 73 identical requests at once
+                                // is exactly the pattern CF looks for.
+                                delay(random.nextInt(FANOUT_JITTER_MS.toInt()).toLong())
+                                val posts = fetchSubPostsLenient(sub, sort, timeSorting, cursors[sub])
+                                results[sub] = posts
+                                // nextPostCursor is null when the sub has no next page;
+                                // ConcurrentHashMap rejects null values — use the null-tolerant map.
+                                cursorsOut[sub] = nextPostCursor(posts)
+                                if (posts.isEmpty()) {
+                                    noDataCount.incrementAndGet()
+                                    // Backstop abort: a confirmed CF block page raises
+                                    // [CfBlockException] below and aborts immediately; this
+                                    // also covers the case where the page parses as a "real"
+                                    // feed with zero posts but is effectively blocked.
+                                    if (noDataCount.get() >= FANOUT_ABORT_CONSECUTIVE) aborting.set(true)
+                                }
+                            } catch (e: CfBlockException) {
+                                // Definitive network-level block: stop all remaining subs.
+                                aborting.set(true)
+                                results[sub] = emptyList()
+                                cursorsOut[sub] = null
+                            } finally {
+                                inFlight.remove(sub)
+                                doneCount.incrementAndGet()
+                                lastFinished.set(sub)
+                            }
                         }
                         if (stream) sendSnapshot(false)
                     }
@@ -788,14 +829,24 @@ class RedditOfficialSource @Inject constructor(
 
     /**
      * Fetches a full page, solving the JS challenge when reddit.com answers with one,
-     * retrying on failure, then throws if still unusable.
+     * retrying on failure, then throws if still unusable. Throws [CfBlockException]
+     * (distinct from a generic error) when every attempt got a CF *block* page: that
+     * is a network-level condition — retrying the same host cannot help, and callers
+     * (the multiredd fan-out) use it to abort their remaining requests early and hand
+     * the feed to the Atom fallback.
      */
+    private class CfBlockException : IOException(
+        "reddit.com is refusing this connection (Cloudflare block page)"
+    )
+
     private suspend fun fetchPage(url: String): String {
         var lastError = "no response from server"
+        var lastWasBlock = false
         for (attempt in 0 until SSR_RETRIES) {
             val body = doGet(url, "GET", forPartial = false) ?: continue
             if (isCloudflareChallenge(body)) {
                 lastError = "Cloudflare challenge page"
+                lastWasBlock = true
                 if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
                 continue
             }
@@ -805,6 +856,7 @@ class RedditOfficialSource @Inject constructor(
             lastError = "JS challenge could not be solved"
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
+        if (lastWasBlock) throw CfBlockException()
         throw IOException("reddit.com did not return a usable page ($lastError). Please try again.")
     }
     /**
@@ -1621,6 +1673,13 @@ class RedditOfficialSource @Inject constructor(
         // does not challenge a burst of per-sub feed requests (73 subs at 4-wide
         // finished in seconds in live tests, 2026-09-01).
         private const val FANOUT_CONCURRENCY = 4
+        // Total-block early-abort: this many empty sub results in one fan-out means
+        // CF is serving the whole IP a block page, so the remaining fetches can only
+        // return the same 0 posts. 12 is above what genuinely-quiet subreddits
+        // produce (a few at most) and below the 73 of a hard block, so the Atom
+        // fallback in the feed coordinator starts within seconds instead of after
+        // the full drain (2026-09-03 device log: 73 empty pages over 9s).
+        private const val FANOUT_ABORT_CONSECUTIVE = 12
         // Random 0..FANOUT_JITTER_MS pre-delay per subreddit request so the burst
         // does not look like one identical pattern (CF shaping).
         private const val FANOUT_JITTER_MS = 700L
