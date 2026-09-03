@@ -238,16 +238,15 @@ class RedditOfficialFanOutConcurrencyTest {
     /** OkHttp stub that answers every request with a Cloudflare block page. */
     private fun stubClientCfBlock(): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(Interceptor { chain ->
+            val blockPage =
+                "<html><head><title>Blocked</title></head>" +
+                    "<body>blocked by network security</body></html>"
             Response.Builder()
                 .request(chain.request())
                 .protocol(Protocol.HTTP_1_1)
                 .code(200)
                 .message("OK")
-                .body(
-                    "<html><head><title>Blocked</title></head>" +
-                        "<body>blocked by network security</body></html>"
-                        .toResponseBody(null)
-                )
+                .body(blockPage.toResponseBody(null))
                 .build()
         })
         .connectTimeout(5, TimeUnit.SECONDS)
