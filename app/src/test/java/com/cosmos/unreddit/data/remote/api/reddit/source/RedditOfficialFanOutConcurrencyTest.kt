@@ -341,4 +341,81 @@ class RedditOfficialFanOutConcurrencyTest {
                 assertTrue("second emission must be final", emissions[1].isFinal)
             }
         }
+
+    // ── ISSUE A: failed subs vs confirmed-empty subs must be distinguishable ─────────
+    // The home feed keeps a failed sub's cached posts but drops a confirmed-empty
+    // sub's. That decision is driven ENTIRELY by FanOutPage.failedSubs, so the fan-out
+    // itself must populate it precisely: a transient failure (5xx) is FAILED, a 200
+    // page that parses to zero posts is CONFIRMED EMPTY, a normal page is a success.
+
+    /** A 200 page with ZERO post cards but a realistic size (> 30 KB): a "quiet but
+     *  reachable" feed, not a block/interstitial variant. */
+    private fun emptyFeedPage(): String =
+        "<html><head><title>Quiet subreddit</title></head>" +
+            "<body>" + "<p>no posts</p>".repeat(6_000) + "</body></html>"
+
+    /** Stub: [flakySub] answers 500 (transient failure), [emptySub] answers a large
+     *  zero-card feed (confirmed empty), everything else answers the real fixture. */
+    private fun stubClientMixed(flakySub: String, emptySub: String, okFixture: String): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                val path = chain.request().url.encodedPath
+                val isFlaky = path.contains("/$flakySub/")
+                val body = when {
+                    isFlaky -> "boom"
+                    path.contains("/$emptySub/") -> emptyFeedPage()
+                    else -> javaClass.classLoader
+                        .getResourceAsStream("reddit_ssr/$okFixture")
+                        ?.bufferedReader()?.use { it.readText() }
+                        ?: throw IllegalStateException("missing fixture $okFixture")
+                }
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(if (isFlaky) 500 else 200)
+                    .message("stub")
+                    .body(body.toResponseBody(null))
+                    .build()
+            })
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+    @Test
+    fun failedAndConfirmedEmptySubsAreDistinguishedInFinalEmission() =
+        runBlocking {
+            withTimeout(60_000) {
+                val source = RedditOfficialSource(
+                    okHttpClient = stubClientMixed("flaky", "quiet", "ra_android_p1.html"),
+                    moshi = testMoshi(),
+                    ioDispatcher = Dispatchers.IO
+                )
+
+                val emissions = source.getSubredditFanOutProgressive(
+                    multiredd = "oksub+flaky+quiet",
+                    sort = com.cosmos.unreddit.data.model.Sort.HOT,
+                    timeSorting = null,
+                    after = null,
+                    stream = true
+                ).toList()
+
+                val last = emissions.last()
+                assertTrue("last emission must be the final one", last.isFinal)
+
+                // The transient failure (500 -> retries exhausted -> IOException) is the
+                // ONLY failed sub. The confirmed-empty sub (200, zero cards) is NOT a
+                // failure — its cache may be dropped as intended.
+                assertEquals(
+                    "only the 5xx sub is failed; the 200-empty sub is confirmed empty",
+                    setOf("flaky"),
+                    last.failedSubs
+                )
+
+                // perSub stays aligned to the original sub order on the final emission.
+                assertEquals(3, last.perSub.size)
+                assertTrue("the successful sub delivers its posts", last.perSub[0].isNotEmpty())
+                assertTrue("the failed sub yields no new posts this cycle", last.perSub[1].isEmpty())
+                assertTrue("the confirmed-empty sub yields no new posts", last.perSub[2].isEmpty())
+            }
+        }
 }

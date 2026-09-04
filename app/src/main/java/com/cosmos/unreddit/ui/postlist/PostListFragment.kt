@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import android.view.ViewTreeObserver
 import androidx.core.view.GravityCompat
 import androidx.core.view.ViewCompat
@@ -13,6 +14,7 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.paging.LoadState
@@ -20,6 +22,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
 import com.cosmos.unreddit.data.feed.FeedCoordinator
+import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.data.remote.api.reddit.source.RedditOfficialSource
@@ -141,6 +144,19 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     override fun onStart() {
         super.onStart()
         initResultListener()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // ISSUE D: the user is back in front of the list. Two cases:
+        // (a) an emission already consumed the anchor while the details screen was up
+        // (restore applied) — anchor is null, nothing to do;
+        // (b) NO emission fired while the details screen was up, so the list viewport
+        // was never touched and is already on the right spot — clear the stale anchor
+        // so a LATER refresh (after the user scrolled elsewhere) cannot yank the list
+        // back. onResume re-fires on every return from a covering fragment, unlike
+        // onStart (the covered fragment drops to STARTED, not STOPPED).
+        openedPostAnchorId = null
     }
 
     override fun applyInsets(view: View) {
@@ -446,6 +462,35 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
      * lost to the mode race).
      */
     private var latestFeedState: FeedCoordinator.FeedState? = null
+    /** Dedupe key (profileId, failedSubs, lastRefresh) of the last toast shown. */
+    private var lastToastedFailedKey: Pair<Int, List<String>>? = null
+
+    /**
+     * ISSUE D: capture the post the user is about to open. The details screen is a
+     * SIBLING overlay (the list's RecyclerView stays alive), but the coordinator
+     * re-emits feed state while the user is away (a refresh cycle completes, the next
+     * cycle starts) and every emission re-submits the list — which would silently
+     * re-anchor the viewport. Storing the opened post's id lets the next emission
+     * restore the viewport to that post's NEW position (its index can shift when a
+     * refresh prepends/removes posts).
+     */
+    override fun onClick(post: PostEntity) {
+        if (coordinatorMode) {
+            openedPostAnchorId = post.id
+        }
+        super.onClick(post)
+    }
+
+    /**
+     * ISSUE D: the id of the post the user opened from this list. The details screen is a
+     * SIBLING overlay (the list's RecyclerView stays alive), but the coordinator re-emits
+     * feed state while the user is away (a refresh cycle completes, the next cycle starts)
+     * and every emission re-submits the list — which would silently re-anchor the viewport.
+     * On the next emission after the post is opened we restore the viewport to this post's
+     * new position, so "open a post, read it, go back" lands on the same spot. Cleared
+     * once restored.
+     */
+    private var openedPostAnchorId: String? = null
 
     /**
      * Render one progressive feed state.
@@ -472,6 +517,31 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         }
         feedListAdapter.submitList(state.posts)
 
+        // ISSUE D: restore the viewport to the post the user opened before leaving.
+        // Runs on the FIRST emission after the post is opened — typically the emission
+        // triggered by the return from the details screen (or a refresh that completed
+        // while the user was reading). The post's position may have shifted (refresh
+        // prepends/removes posts), so we re-locate it by id in the NEW list. If the id
+        // is gone from the feed entirely we clamp gracefully: scroll to the top of the
+        // nearest surviving tail (position 0) instead of crashing or jumping blindly.
+        val anchorId = openedPostAnchorId
+        if (anchorId != null) {
+            openedPostAnchorId = null
+            binding.listPost.post { recycler ->
+                val lm = recycler.layoutManager as? LinearLayoutManager ?: return@post
+                if (lm.itemCount == 0) return@post
+                val anchorPos = state.posts.indexOfFirst { it.id == anchorId }
+                if (anchorPos >= 0) {
+                    // Smooth-scroll to the anchor's new position.
+                    recycler.smoothScrollToPosition(minOf(anchorPos, lm.itemCount - 1))
+                } else {
+                    // Post is no longer in the feed (removed / pruned by the merge cap):
+                    // degrade to the top rather than a wrong-jump or crash.
+                    recycler.smoothScrollToPosition(0)
+                }
+            }
+        }
+
         // Progress header: visible whenever a refresh is in flight, with a label that
         // says WHAT is loading so a stuck load is screenshot-able. Never shown when the
         // feed is served from cache offline (that would claim to be loading).
@@ -493,6 +563,25 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         state.error?.let {
             binding.infoRetry.setMessage(it.take(400))
             binding.infoRetry.show()
+        }
+
+        // ISSUE A: name the subreddits that did NOT refresh this cycle. Their cached
+        // posts are still shown (kept, not dropped) — the toast tells the user which
+        // subs are stale so they can pull-to-refresh. Fire once per completed cycle:
+        // state re-emits many times while refreshing, and the SAME final state is
+        // re-rendered on config change, so dedupe on (profile, failed-set, timestamp).
+        if (!state.refreshing && state.failedSubs.isNotEmpty()) {
+            val key = state.profileId to state.failedSubs
+            if (key != lastToastedFailedKey) {
+                lastToastedFailedKey = key
+                val names = state.failedSubs.take(3).joinToString(", ") { "r/$it" } +
+                    if (state.failedSubs.size > 3) " …" else ""
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.feed_partial_refresh, names),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

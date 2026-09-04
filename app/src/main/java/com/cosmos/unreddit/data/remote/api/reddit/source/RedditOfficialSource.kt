@@ -169,7 +169,12 @@ class RedditOfficialSource @Inject constructor(
                 async {
                     semaphore.withPermit {
                         try {
-                            fetchSubPostsLenient(sub, sort, timeSorting, cursors[i])
+                            // This path is the subreddit view / single fetch: a failed sub
+                            // simply yields no posts this fetch (there is no per-sub cache
+                            // to preserve here), so a null (transient failure) coerces to
+                            // an empty list. The home-feed progressive path is where a
+                            // failure is distinguished from a genuinely empty subreddit.
+                            fetchSubPostsLenient(sub, sort, timeSorting, cursors[i])?.orEmpty()
                         } catch (e: CfBlockException) {
                             // CF is blocking this whole connection; treat the sub as empty
                             // — the merged-empty check below reports the block as an error.
@@ -210,7 +215,7 @@ class RedditOfficialSource @Inject constructor(
         sort: Sort,
         timeSorting: TimeSorting?,
         after: String?
-    ): List<PostChild> = try {
+    ): List<PostChild>? = try {
         val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
         val body = fetchPage(url)
         val doc = Jsoup.parse(body)
@@ -234,7 +239,12 @@ class RedditOfficialSource @Inject constructor(
         // the remaining subs (retrying the same host is pointless while blocked).
         throw e
     } catch (e: Exception) {
-        emptyList()
+        // A transient failure (timeout, 5xx, unexpected parse error). Return null —
+        // NOT emptyList() — so the fan-out worker can tell "this sub failed to fetch"
+        // apart from "this sub is genuinely empty". Failed subs must keep their cached
+        // posts (ISSUE A: old posts are only dropped once that sub's new posts are
+        // confirmed); a truly empty subreddit is a confirmed empty result.
+        null
     }
 
     /**
@@ -284,7 +294,16 @@ class RedditOfficialSource @Inject constructor(
         val perSub: List<List<PostChild>>,
         val cursors: Map<String, String?>,
         val progress: FanOutProgress,
-        val isFinal: Boolean
+        val isFinal: Boolean,
+        /**
+         * Subreddits whose fetch FAILED this cycle (a transient error, or a subreddit
+         * skipped because the cycle was aborted on a confirmed CF block). These are
+         * NOT confirmed-empty: the caller must keep their cached posts (ISSUE A — old
+         * posts are only dropped once a sub's new result, including a confirmed-empty
+         * result, has been fetched). [perSub] for a failed sub is an empty list, so
+         * failed subs are identifiable by this set, not by an empty perSub entry.
+         */
+        val failedSubs: Set<String> = emptySet()
     )
 
     /**
@@ -335,6 +354,11 @@ class RedditOfficialSource @Inject constructor(
         val lastFinished = AtomicReference<String?>(null)
         val semaphore = Semaphore(FANOUT_CONCURRENCY)
         val random = Random()
+        // Subreddits whose fetch FAILED (transient error) or which were skipped because
+        // the cycle was aborted on a confirmed CF block. Tracked separately from a
+        // confirmed-empty result: a failed sub's old cache must be kept (ISSUE A), so
+        // the caller needs to know which subs did NOT produce a confirmed result.
+        val failedSubs = Collections.synchronizedSet(LinkedHashSet<String>())
         // Total-block early-abort: CF serving a block page to the whole IP means
         // every sub will parse to 0 posts, so the remaining fetches can only add
         // latency before the block is reported as an error. A few empty subs are
@@ -366,6 +390,7 @@ class RedditOfficialSource @Inject constructor(
             // 2026-09-03: "fan-out FAILED: ConcurrentModificationException: null").
             val inFlightNow = synchronized(inFlight) { ArrayList(inFlight).take(3) }
             val cursorsNow = synchronized(cursorsOut) { HashMap(cursorsOut) }
+            val failedNow = synchronized(failedSubs) { HashSet(failedSubs) }
             channel.send(
                 FanOutPage(
                     perSub = finished,
@@ -377,7 +402,8 @@ class RedditOfficialSource @Inject constructor(
                         inFlight = inFlightNow,
                         lastFinished = lastFinished.get()
                     ),
-                    isFinal = final
+                    isFinal = final,
+                    failedSubs = failedNow
                 )
             )
         }
@@ -389,9 +415,11 @@ class RedditOfficialSource @Inject constructor(
                         if (aborting.get()) {
                             // Total-block already detected: record this sub as empty
                             // (keeps done-count and cursors complete) and skip the
-                            // fetch — its posts are guaranteed to be the same 0.
+                            // fetch — its posts are guaranteed to be the same 0. It was
+                            // never fetched, so it is a FAILED sub (its cache is kept).
                             results[sub] = emptyList()
                             cursorsOut[sub] = null
+                            failedSubs.add(sub)
                         } else {
                             inFlight.add(sub)
                             try {
@@ -399,30 +427,44 @@ class RedditOfficialSource @Inject constructor(
                                 // is exactly the pattern CF looks for.
                                 delay(random.nextInt(FANOUT_JITTER_MS.toInt()).toLong())
                                 val posts = fetchSubPostsLenient(sub, sort, timeSorting, cursors[sub])
-                                results[sub] = posts
-                                // nextPostCursor is null when the sub has no next page;
-                                // ConcurrentHashMap rejects null values — use the null-tolerant map.
-                                cursorsOut[sub] = nextPostCursor(posts)
-                                if (posts.isEmpty()) {
-                                    noDataCount.incrementAndGet()
-                                    // Backstop abort: a confirmed CF block page raises
-                                    // [CfBlockException] below and aborts immediately; this
-                                    // also covers the case where the page parses as a "real"
-                                    // feed with zero posts but is effectively blocked. Only
-                                    // once NO sub has produced any post yet — an empty sub
-                                    // alongside a filled one is just a quiet subreddit.
-                                    if (noDataCount.get() >= FANOUT_ABORT_CONSECUTIVE &&
-                                        results.values.all { it.isEmpty() }
-                                    ) aborting.set(true)
+                                if (posts == null) {
+                                    // Transient fetch failure (timeout, 5xx, unparseable).
+                                    // This is NOT a confirmed-empty result: the sub's new
+                                    // posts were never fetched, so mark it FAILED — the
+                                    // caller keeps its cached posts (ISSUE A). Do NOT
+                                    // count it toward the empty-backstop abort.
+                                    results[sub] = emptyList()
+                                    cursorsOut[sub] = null
+                                    failedSubs.add(sub)
+                                } else {
+                                    // Confirmed result (possibly genuinely empty).
+                                    results[sub] = posts
+                                    // nextPostCursor is null when the sub has no next page;
+                                    // ConcurrentHashMap rejects null values — use the null-tolerant map.
+                                    cursorsOut[sub] = nextPostCursor(posts)
+                                    if (posts.isEmpty()) {
+                                        noDataCount.incrementAndGet()
+                                        // Backstop abort: a confirmed CF block page raises
+                                        // [CfBlockException] below and aborts immediately; this
+                                        // also covers the case where the page parses as a "real"
+                                        // feed with zero posts but is effectively blocked. Only
+                                        // once NO sub has produced any post yet — an empty sub
+                                        // alongside a filled one is just a quiet subreddit.
+                                        if (noDataCount.get() >= FANOUT_ABORT_CONSECUTIVE &&
+                                            results.values.all { it.isEmpty() }
+                                        ) aborting.set(true)
+                                    }
                                 }
                             } catch (e: CfBlockException) {
                                 // Definitive network-level block: stop all remaining subs
                                 // and flag the cycle as hard-blocked so it is reported as
-                                // an error instead of an empty feed.
+                                // an error instead of an empty feed. The blocked sub is a
+                                // FAILED sub (its cache is kept).
                                 confirmedBlock.set(true)
                                 aborting.set(true)
                                 results[sub] = emptyList()
                                 cursorsOut[sub] = null
+                                failedSubs.add(sub)
                             } finally {
                                 inFlight.remove(sub)
                                 doneCount.incrementAndGet()
@@ -1253,6 +1295,41 @@ class RedditOfficialSource @Inject constructor(
                 (it.contains("redd.it") || it.contains("redditmedia")) && !isAvatarImageUrl(it)
             }
         thumbnail?.let { map["thumbnail"] = it }
+
+        // Animated SSR cards (GIF / animated WebP) carry a <shreddit-player> whose
+        // `src` is the playable rendition: a signed cf.preview.redd.it / v.redd.it MP4
+        // (200 video/mp4, wire-verified 2026-09-04; the signature is bound to the
+        // exact query, so the card's own src is the playable one — the same file the
+        // web in-feed player streams). The card's `content-href` is the BARE
+        // i.redd.it/v.redd.it URL, which a player cannot open (raw GIF bytes /
+        // redirect to an HTML page). Without this injection a GIF post resolves its
+        // mediaUrl to the raw .gif, so the fullscreen player shows "Something went
+        // wrong" while the list renders a still poster.
+        // Plain v.redd.it video cards are deliberately NOT touched: they already
+        // play through the stable HLS fallback in PostData.mediaUrl (the signed DASH
+        // rendition in `src` is shorter-lived than the derived HLS url).
+        val player = el.selectFirst("shreddit-player")
+        val playerSrc = player?.attr("src").orEmpty()
+        val href = url.substringBefore('?')
+        val isAnimatedCard = (player?.attr("post-type") == "gif") ||
+                href.endsWith(".gif") || href.endsWith(".webp")
+        if (playerSrc.isNotBlank() && isAnimatedCard) {
+            map["is_video"] = true
+            map["media"] = mapOf(
+                "type" to "application/vnd.reddit.media-player",
+                "reddit_video" to mapOf(
+                    "fallback_url" to playerSrc,
+                    "height" to 0,
+                    "width" to 0,
+                    "duration" to 0,
+                    "is_gif" to (player?.attr("post-type") == "gif")
+                )
+            )
+            // Animated list preview: the raw .gif / .webp plays through Coil
+            // (GifDecoder / WebP decoder); the still poster is the fallback on
+            // decode failure.
+            map["thumbnail"] = url
+        }
 
         // SSR cards do not embed gallery_data / media_metadata (those only exist in the
         // JSON API). Gallery pages render each page as a media-lightbox-img element

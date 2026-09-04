@@ -35,8 +35,15 @@ object FeedMerge {
         nowEpochMs: Long = System.currentTimeMillis(),
         maxRows: Int = 500,
         maxCachedOnly: Int = 100,
-        maxCachedRank: Int = 30
+        maxCachedRank: Int = 30,
+        failedSubs: Set<String> = emptySet()
     ): List<PostChild> {
+        // Case-insensitive: a profile stores subreddit names in the user's casing while
+        // the cache/SSR store the display name ("DataHoarder"), and reddit matches subs
+        // case-insensitively. A failed sub is one whose fetch THREW (transient error);
+        // a confirmed-empty sub is NOT here and its cache is dropped as intended.
+        val failedSubsLower = failedSubs.mapTo(HashSet<String>()) { it.lowercase() }
+
         // Dedupe fresh first (cross-sub duplicates are rare but possible via crossposts).
         val seenFresh = HashSet<String>()
         val freshPerSubDeduped = freshPerSub
@@ -53,24 +60,37 @@ object FeedMerge {
         result += freshOrdered
 
         if (cache.isNotEmpty()) {
-            val cacheOnly = cache
-                .filter { p -> !seenFresh.contains(p.name) }
+            // Cache posts from FAILED subs are always kept (they are the only copy; the
+            // sub's new posts were never confirmed, so dropping the old ones would lose
+            // the user's last good data for that sub). They are exempt from the
+            // maxCachedOnly cap — a failed sub's whole cache survives.
+            val cacheFresh = cache.filter { !seenFresh.contains(it.name) }
+            val keptFailedCache = if (failedSubsLower.isNotEmpty()) {
+                cacheFresh.filter { failedSubsLower.contains(it.subreddit.lowercase()) }
+            } else emptyList()
+            // Only cache posts from confirmed (non-failed) subs are subject to the cap;
+            // the failed subs' posts above are already unconditionally kept.
+            val keptFailedNames = keptFailedCache.mapTo(HashSet<String>()) { it.name }
+            val cappedCache = cacheFresh
+                .filter { it.name !in keptFailedNames }
                 .map { p -> p to p.hotRank(nowEpochMs) }
                 .sortedWith(compareByDescending<Pair<PostData, Double>> { it.second }
                     .thenByDescending { it.first.created })
                 .take(maxCachedOnly)
 
             // Build PostChildren for the cache-only rows.
-            val cachedChildren = cacheOnly.map { (post, _) ->
-                PostChild(post)
-            }
+            val failedChildren = keptFailedCache.map { PostChild(it) }
+            val cachedChildren = cappedCache.map { (post, _) -> PostChild(post) }
 
             when (sort) {
-                Sort.NEW -> result += cachedChildren
+                Sort.NEW -> {
+                    result += failedChildren
+                    result += cachedChildren
+                }
                 else -> {
                     // Insert at rank min(i + 1, maxCachedRank) so stale posts stay below
                     // the fresh top block but still interleave into the tail.
-                    cachedChildren.forEachIndexed { i, child ->
+                    (failedChildren + cachedChildren).forEachIndexed { i, child ->
                         val pos = minOf(i + 1, maxCachedRank)
                         result.add(minOf(pos, result.size), child)
                     }
