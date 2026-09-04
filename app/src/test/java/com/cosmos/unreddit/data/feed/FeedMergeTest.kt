@@ -5,6 +5,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.util.extension.interlace
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -183,7 +184,7 @@ class FeedMergeTest {
         // The profile stores "DataHoarder" (user's casing) while the fan-out reports
         // the failure under a different casing. Matching must be case-insensitive, or
         // the failed sub's cache would be silently dropped.
-        val fresh = listOf(listOf()) // sub failed
+        val fresh = listOf(listOf<PostChild>()) // sub failed
         val cache = listOf(post("dh1", subreddit = "DataHoarder"))
         val out = FeedMerge.merge(
             fresh, cache, Sort.HOT, now, failedSubs = setOf("datahoarder")
@@ -198,7 +199,7 @@ class FeedMergeTest {
         // here maxCachedOnly=0 drops them entirely. This is the inverse guard of the
         // test above: failing to distinguish the two would keep dead subs' cache
         // forever.
-        val fresh = listOf(listOf()) // sub confirmed empty
+        val fresh = listOf(listOf<PostChild>()) // sub confirmed empty
         val cache = listOf(post("e1", subreddit = "quietsub"))
         val out = FeedMerge.merge(
             fresh, cache, Sort.HOT, now, maxCachedOnly = 0, failedSubs = emptySet()
