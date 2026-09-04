@@ -174,7 +174,7 @@ class RedditOfficialSource @Inject constructor(
                             // to preserve here), so a null (transient failure) coerces to
                             // an empty list. The home-feed progressive path is where a
                             // failure is distinguished from a genuinely empty subreddit.
-                            fetchSubPostsLenient(sub, sort, timeSorting, cursors[i])?.orEmpty()
+                            fetchSubPostsLenient(sub, sort, timeSorting, cursors[i]) ?: emptyList()
                         } catch (e: CfBlockException) {
                             // CF is blocking this whole connection; treat the sub as empty
                             // — the merged-empty check below reports the block as an error.
