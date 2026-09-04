@@ -22,6 +22,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -216,6 +217,42 @@ class RedditOfficialSourceTest {
             .addInterceptor(stub)
             .build()
         return RedditOfficialSource(client, NetworkModule.provideRedditMoshi(), Dispatchers.Default)
+    }
+
+    @Test
+    fun `live 2026-09-03 challenge page with jsc_token field is solved and returns posts`() = runBlocking {
+        // Regression for the device-wide "refresh failed" / blank feed: reddit.com
+        // renamed the challenge's hidden token field from name="token" to
+        // name="jsc_token". The parser looked only for the old name, returned null,
+        // and the ~8.4 KB challenge page was treated as a real empty feed. This
+        // fixture is the ACTUAL page captured live on 2026-09-03 (byte-identical to
+        // what the device received: same size, same shape, same doubled-literal
+        // script) — if reddit.com renames the field again, this goes red in CI.
+        requestedUrls.clear()
+        resubmits.clear()
+        val challengeSource = buildSourceWith(firstBody = "ch_js_challenge_live.html")
+        val listing = challengeSource.getSubreddit("Android", Sort.HOT, null, null)
+        val children = listing.data.children.filterIsInstance<PostChild>()
+        assertTrue("expected posts after solving the live challenge, got ${children.size}", children.isNotEmpty())
+
+        // Exactly one resubmit happened.
+        assertEquals(1, resubmits.size)
+        val resubmit = resubmits[0]
+        // Absolute URL, resolved from the challenge form's relative action.
+        assertEquals("https", resubmit.scheme)
+        assertEquals("www.reddit.com", resubmit.host)
+        assertEquals("/r/android/new/", resubmit.encodedPath)
+        // The solution is the 16-hex literal from the live page, doubled.
+        val solution = resubmit.queryParameter("solution") ?: ""
+        assertEquals("2dc31c979ec83dbf2dc31c979ec83dbf", solution)
+        // The token round-trips under the DECLARED field name (jsc_token, not token).
+        assertEquals(
+            "7afd7253fec22262ff1c52b1703fe9ecf08f0e9fddfe02909c3e939334c182a7",
+            resubmit.queryParameter("jsc_token")
+        )
+        // The old field name must NOT be sent for the live-format page.
+        assertNull("token= is only for the legacy challenge format", resubmit.queryParameter("token"))
+        assertEquals("", resubmit.queryParameter("jsc_orig_r"))
     }
 
     //endregion
