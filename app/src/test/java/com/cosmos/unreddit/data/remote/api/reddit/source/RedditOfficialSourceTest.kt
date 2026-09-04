@@ -514,4 +514,70 @@ class RedditOfficialSourceTest {
     }
 
     //endregion
+
+    //region Video/GIF player injection (2026-09-04: "Something went wrong" on .gif)
+
+    @Test
+    fun `gif card gets the playable mp4 as its media url, not the raw gif`() = runBlocking {
+        // Real captured hot feed (r/DataHoarder, t3_1w6t82l): the card's content-href
+        // is the BARE i.redd.it .gif URL — raw GIF bytes a player cannot open — while
+        // the shreddit-player src is a signed cf.preview.redd.it MP4 rendition
+        // (verified 200 video/mp4 on the wire). Without the injection the post
+        // resolved mediaUrl to the raw .gif: fullscreen showed "Something went
+        // wrong" and the list rendered a still poster.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("media_gif_p1.html"))
+        val gifCard = doc.select("shreddit-post").first { it.attr("post-type") == "gif" }
+        assertEquals("t3_1w6t82l", gifCard.attr("id"))
+
+        val data = source.parsePostCardForTest(gifCard)?.data
+        assertNotNull("gif card did not parse", data)
+        val d = data!!
+
+        assertEquals("mediaType should be REDDIT_GIF, got ${d.mediaType}", "REDDIT_GIF", d.mediaType.name)
+        assertEquals("postType should be VIDEO", "VIDEO", d.postType.name)
+        assertTrue(
+            "mediaUrl must be the player MP4, got: ${d.mediaUrl}",
+            d.mediaUrl.startsWith("https://cf.preview.redd.it/") && d.mediaUrl.contains("format=mp4")
+        )
+        // The MP4 rendition's PATH still ends in .gif (cf.preview re-encodes it);
+        // what matters is it is NOT the bare i.redd.it .gif bytes a player cannot open.
+        assertFalse(
+            "mediaUrl must not be the raw .gif: ${d.mediaUrl}",
+            d.mediaUrl == "https://i.redd.it/pi3ddoktcfnh1.gif"
+        )
+        // Animated list preview: the parser repoints the card's still poster to the
+        // raw .gif, which Coil animates via GifDecoder. Assert the parser-set
+        // thumbnail directly — PostData.previewUrl funnels into it as its last
+        // fallback for SSR cards, but computing previewUrl touches Android's
+        // MimeTypeMap, which is unmocked in JVM unit tests (suite convention:
+        // never assert previewUrl here).
+        assertEquals("preview must be the raw .gif, not the still poster", "https://i.redd.it/pi3ddoktcfnh1.gif", d.thumbnail)
+        // Round-trip through the cache layer must keep the playable media.
+        val adapter = NetworkModule.provideRedditMoshi().adapter(PostData::class.java)
+        val back = adapter.fromJson(adapter.toJson(d))
+        assertNotNull("round-trip failed", back)
+        assertEquals("round-trip lost media", d.mediaUrl, back!!.mediaUrl)
+        assertEquals("round-trip lost gif type", d.mediaType, back.mediaType)
+    }
+
+    @Test
+    fun `video card keeps the hls playlist as its media url`() = runBlocking {
+        val doc = org.jsoup.Jsoup.parse(loadFixture("media_gif_p1.html"))
+        val videoCard = doc.select("shreddit-post").first { it.attr("post-type") == "video" }
+
+        val data = source.parsePostCardForTest(videoCard)?.data
+        assertNotNull("video card did not parse", data)
+        val d = data!!
+        assertEquals("mediaType should be REDDIT_VIDEO, got ${d.mediaType}", "REDDIT_VIDEO", d.mediaType.name)
+        // Unchanged behavior: a plain v.redd.it video post resolves to the stable
+        // HLS playlist derived from its bare URL (PostData.mediaUrl fallback), NOT
+        // the card's signed src (which is the same playlist for these cards).
+        assertEquals(
+            "mediaUrl must be the derived HLS url, got: ${d.mediaUrl}",
+            "https://v.redd.it/0ugge256z3nh1/HLSPlaylist.m3u8?f=hd",
+            d.mediaUrl
+        )
+    }
+
+    //endregion
 }

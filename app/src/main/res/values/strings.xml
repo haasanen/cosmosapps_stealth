@@ -292,6 +292,12 @@
     <string name="feed_progress_subs">Loading your %1$d subreddits…</string>
     <string name="feed_progress_done">%1$d of %2$d subreddits loaded</string>
     <string name="feed_offline">Offline — no cached posts to show.</string>
+    <string name="feed_partial_refresh">Could not refresh %1$s — showing cached posts for them.</string>
+    <string name="post_removed">This post could not be found — it may have been removed.</string>
+
+    <string name="notification_feed_channel_name">Feed refresh</string>
+    <string name="notification_feed_channel_description">Shown while Unreddit refreshes your feed in the background.</string>
+    <string name="notification_feed_refreshing">Refreshing your feed…</string>
 
     <string name="toast_clipboard_copied_email">Email copied to clipboard</string>
 </resources>

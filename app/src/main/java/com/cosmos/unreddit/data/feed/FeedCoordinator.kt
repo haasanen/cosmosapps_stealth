@@ -78,7 +78,14 @@ class FeedCoordinator @Inject constructor(
          * Posts present in [posts] but NOT in this set were pulled from the local cache
          * (not re-fetched this cycle) and are shown with a "(cached)" timestamp badge.
          */
-        val freshIds: Set<String> = emptySet()
+        val freshIds: Set<String> = emptySet(),
+        /**
+         * Subreddits whose fetch FAILED this cycle (transient error, or skipped on a
+         * confirmed CF block). Unlike a confirmed-empty subreddit, a failed sub's cached
+         * posts are kept. When non-empty the UI shows a toast naming these subs so the
+         * user knows which of their subs did not refresh (ISSUE A).
+         */
+        val failedSubs: List<String> = emptyList()
     ) {
         val isFinished: Boolean get() = !refreshing
     }
@@ -122,13 +129,15 @@ class FeedCoordinator @Inject constructor(
         showNsfw: Boolean = false,
         ttlMs: Long = FeedPurge.DEFAULT_TTL_MS,
         manual: Boolean = false
-    ) {
+    ): Job {
         this.ttlMs = ttlMs
         this.showNsfw = showNsfw
         val multiredd = subs.joinToString("+")
         if (multiredd.isBlank()) {
             com.cosmos.unreddit.ui.postlist.FeedDebug.log("refresh: SKIPPED blank multiredd")
-            return
+            // No cycle starts; a completed job so callers (the background worker) can
+            // still await() it without special-casing the blank case.
+            return Job()
         }
         activeCycle?.cancel()
 
@@ -151,7 +160,12 @@ class FeedCoordinator @Inject constructor(
                     fromCacheOnly = false,
                     error = null,
                     lastRefresh = 0L,
-                    freshIds = emptySet()
+                    freshIds = emptySet(),
+                    // Clear the PREVIOUS cycle's failed-sub list: this cycle hasn't
+                    // fetched anything yet. Without this, the cache-first / offline
+                    // early-return paths below would keep re-surfacing last cycle's
+                    // failures (and re-toast) on a cycle that never fetched.
+                    failedSubs = emptyList()
                 )
             }
 
@@ -215,6 +229,10 @@ class FeedCoordinator @Inject constructor(
                 return@launch
             }
             var lastMerged: List<PostData> = emptyList()
+            var finalFailedSubs: Set<String> = emptySet()
+            // The last snapshot's confirmed (non-failed) per-sub results, aligned to
+            // [subs] — used for the per-sub atomic cache replace (ISSUE A).
+            var lastConfirmed: List<List<PostData>> = emptyList()
             try {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
                 officialSource.getSubredditFanOutProgressive(
@@ -227,10 +245,21 @@ class FeedCoordinator @Inject constructor(
                     val n = com.cosmos.unreddit.ui.postlist.FeedDebug.fanOutEmissions.incrementAndGet()
                     com.cosmos.unreddit.ui.postlist.FeedDebug.log(
                         "fan-out page #$n: done=${page.progress.done}/${page.progress.total} " +
-                            "inFlight=${page.progress.inFlight.size} posts=${page.perSub.flatten().size}"
+                            "inFlight=${page.progress.inFlight.size} posts=${page.perSub.flatten().size} " +
+                            "failed=${page.failedSubs.size}"
                     )
-                    val mergedData = FeedMerge.merge(page.perSub, cached, sort).map { it.data }
+                    val mergedData = FeedMerge.merge(
+                        page.perSub, cached, sort,
+                        failedSubs = page.failedSubs
+                    ).map { it.data }
                     lastMerged = mergedData
+                    finalFailedSubs = page.failedSubs
+                    // Only the FINAL emission is aligned 1:1 to [subs] (intermediate
+                    // snapshots hold only the subs finished so far). The per-sub atomic
+                    // replace needs that alignment, so capture only the final one.
+                    if (page.isFinal) {
+                        lastConfirmed = page.perSub.map { list -> list.map { it.data } }
+                    }
                     val posts = mapToEntities(mergedData, seenSet, savedSet)
                     // Everything the network actually returned this cycle (deduped) is
                     // "fresh"; anything in the merged list that isn't here came from cache.
@@ -267,23 +296,29 @@ class FeedCoordinator @Inject constructor(
                 // Real exceptions carry that text in their message; the fallback
                 // below follows the same rule so the banner never mixes styles.
                 com.cosmos.unreddit.ui.postlist.FeedDebug.logException("fan-out FAILED", e)
-                if (lastMerged.isNotEmpty()) persistFresh(profileId, lastMerged)
+                // Per-sub atomic replace for whatever was CONFIRMED before the failure
+                // (failed subs keep their cache untouched — ISSUE A).
+                persistConfirmed(profileId, subs, lastConfirmed, finalFailedSubs)
                 val msg = e.message?.takeIf { it.isNotBlank() }
                 _state.update { s ->
                     s.copy(
                         refreshing = false,
                         progress = null,
+                        // Surface the failed subs even on the error path: the banner
+                        // shows the failure and the toast names which subs are stale.
+                        failedSubs = finalFailedSubs.toList(),
                         error = msg ?: "Refresh failed (${e.javaClass.simpleName}). Please try again."
                     )
                 }
                 return@launch
             }
 
-            // 3. Persist fresh results, then purge.
+            // 3. Persist fresh results per-subreddit (atomic replace), then purge.
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                "fan-out COMPLETE: merged=${lastMerged.size} posts, persisting"
+                "fan-out COMPLETE: merged=${lastMerged.size} posts, persisting per-sub " +
+                    "(confirmed=${subs.size - finalFailedSubs.size} failed=${finalFailedSubs.size})"
             )
-            persistFresh(profileId, lastMerged)
+            persistConfirmed(profileId, subs, lastConfirmed, finalFailedSubs)
             runPurge(profileId)
 
             _state.update { s ->
@@ -293,10 +328,14 @@ class FeedCoordinator @Inject constructor(
                     offline = false,
                     fromCacheOnly = false,
                     lastRefresh = System.currentTimeMillis(),
+                    failedSubs = finalFailedSubs.toList(),
                     error = if (s.posts.isEmpty()) "No posts loaded." else null
                 )
             }
         }
+        // Expose the cycle job so background callers (FeedRefreshWorker) can await
+        // completion and dismiss their notification. [activeCycle] was just assigned.
+        return activeCycle ?: Job()
     }
 
     /**
@@ -486,6 +525,59 @@ class FeedCoordinator @Inject constructor(
             )
         }
         return parsed.take(FeedPurge.DEFAULT_ROW_CAP)
+    }
+
+    /**
+     * Per-subreddit atomic cache replace (ISSUE A).
+     *
+     * For every subreddit in [subs] that was CONFIRMED this cycle (i.e. not in
+     * [failedSubs]) its entire cached set is atomically replaced by [confirmed]
+     * [i] — even if that new set is empty (a genuinely empty sub drops its stale
+     * posts). Failed subs are skipped entirely: their cache rows stay untouched, so
+     * the user keeps their last good data for those subs until the next successful
+     * fetch. [confirmed] is aligned 1:1 to [subs] (the source's snapshot builds it
+     * with `subs.mapNotNull { results[it] }`, which keeps the request order).
+     */
+    private suspend fun persistConfirmed(
+        profileId: Int,
+        subs: List<String>,
+        confirmed: List<List<PostData>>,
+        failedSubs: Set<String>
+    ) {
+        if (subs.size != confirmed.size) {
+            // Defensive: never index into a misaligned list.
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "persistConfirmed: subs=${subs.size} != confirmed=${confirmed.size}, skipping"
+            )
+            return
+        }
+        val now = System.currentTimeMillis()
+        var replaced = 0
+        var kept = 0
+        for ((i, sub) in subs.withIndex()) {
+            if (failedSubs.any { it.equals(sub, ignoreCase = true) }) {
+                kept++
+                continue
+            }
+            val rows = confirmed[i].map {
+                FeedCache(
+                    postId = it.name,
+                    subreddit = it.subreddit.ifBlank { sub },
+                    permalink = it.permalink,
+                    postJson = toJson(it),
+                    fetchedAt = now,
+                    profileId = profileId
+                )
+            }
+            if (runCatching { db.feedCacheDao().replaceSubreddit(profileId, sub, rows) }.isFailure) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("persistConfirmed: FAILED sub=$sub")
+            } else {
+                replaced++
+            }
+        }
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            "persistConfirmed: replaced=$replaced keptFailed=$kept (total subs=${subs.size})"
+        )
     }
 
     private suspend fun persistFresh(profileId: Int, fresh: List<PostData>) {

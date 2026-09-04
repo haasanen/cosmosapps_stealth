@@ -12,9 +12,9 @@ class FeedMergeTest {
 
     private val now = 1_700_000_000_000L
 
-    private fun post(name: String, score: Int = 100, ageMinutes: Long = 60): PostData =
+    private fun post(name: String, score: Int = 100, ageMinutes: Long = 60, subreddit: String = "test"): PostData =
         PostData(
-            subreddit = "test",
+            subreddit = subreddit,
             linkFlairRichText = emptyList(),
             authorFlairRichText = null,
             title = "title $name",
@@ -145,5 +145,91 @@ class FeedMergeTest {
         val b = listOf(child(post("b1", score = 500)))
         val out = FeedMerge.merge(listOf(a, b), emptyList(), Sort.TOP, now)
         assertEquals(listOf("b1", "a1"), out.map { it.data.name })
+    }
+
+    // ── ISSUE A: failed subs keep their whole cached set ────────────────────────────
+    // A FAILED sub (fetch threw / timed out) is NOT the same as a confirmed-empty sub
+    // (the fetch succeeded and the sub genuinely has no posts). Only the former keeps
+    // its cached posts unconditionally; the latter's cache is dropped like any other
+    // stale cache row. These tests pin that distinction.
+
+    @Test
+    fun failedSubCacheIsKeptInFull_evenWhenSubYieldsNoFreshPosts() {
+        // "gaming" FAILED to fetch (transient error): its fresh list is empty (the
+        // worker substitutes emptyList for a null result) but its CACHE must survive
+        // in full — it is the only copy of the sub's last good data. "android"
+        // succeeded and delivered fresh posts.
+        val fresh = listOf(
+            listOf(), // gaming: failed -> empty
+            listOf(child(post("a1", score = 50, subreddit = "android")))
+        )
+        val cache = listOf(
+            post("g1", score = 90, subreddit = "gaming"),
+            post("g2", score = 80, subreddit = "gaming"),
+            post("g3", score = 70, subreddit = "gaming"),
+            post("a_old", score = 999, subreddit = "android") // stale android row: dropped (sub was refreshed)
+        )
+        val out = FeedMerge.merge(
+            fresh, cache, Sort.HOT, now, failedSubs = setOf("gaming")
+        )
+        val names = out.map { it.data.name }
+        assertTrue("failed sub's whole cache survives", names.containsAll(listOf("g1", "g2", "g3")))
+        assertTrue("fresh post from the successful sub is present", names.contains("a1"))
+        assertFalse("a refreshed sub's stale cache row is dropped", names.contains("a_old"))
+    }
+
+    @Test
+    fun failedSubMatchIsCaseInsensitive() {
+        // The profile stores "DataHoarder" (user's casing) while the fan-out reports
+        // the failure under a different casing. Matching must be case-insensitive, or
+        // the failed sub's cache would be silently dropped.
+        val fresh = listOf(listOf()) // sub failed
+        val cache = listOf(post("dh1", subreddit = "DataHoarder"))
+        val out = FeedMerge.merge(
+            fresh, cache, Sort.HOT, now, failedSubs = setOf("datahoarder")
+        )
+        assertEquals(listOf("dh1"), out.map { it.data.name })
+    }
+
+    @Test
+    fun confirmedEmptySubCacheIsDropped_notTreatedAsFailed() {
+        // The sub was fetched successfully and is genuinely empty: NOT in failedSubs,
+        // so its stale cache rows get the normal treatment (capped, rank-limited) —
+        // here maxCachedOnly=0 drops them entirely. This is the inverse guard of the
+        // test above: failing to distinguish the two would keep dead subs' cache
+        // forever.
+        val fresh = listOf(listOf()) // sub confirmed empty
+        val cache = listOf(post("e1", subreddit = "quietsub"))
+        val out = FeedMerge.merge(
+            fresh, cache, Sort.HOT, now, maxCachedOnly = 0, failedSubs = emptySet()
+        )
+        assertTrue("confirmed-empty sub's cache is dropped", out.isEmpty())
+    }
+
+    @Test
+    fun failedSubCacheIsExemptFromMaxCachedOnlyCap() {
+        // A failed sub with a big cache (more than maxCachedOnly rows) must survive in
+        // full — the cap only bounds stale rows from confirmed subs.
+        val fresh = listOf(listOf(child(post("a1", score = 50, subreddit = "android"))))
+        val cache = (1..30).map { i -> post("g$i", subreddit = "gaming", score = i) }
+        val out = FeedMerge.merge(
+            fresh, cache, Sort.HOT, now, maxCachedOnly = 10, failedSubs = setOf("gaming")
+        )
+        val gamingKept = out.count { it.data.subreddit == "gaming" }
+        assertEquals("all 30 failed-sub cache rows survive the cap", 30, gamingKept)
+    }
+
+    @Test
+    fun failedSubCachePostsAreNotDedupedAwayByFreshWins() {
+        // If the same post id were somehow both in the (failed sub's) cache and in
+        // fresh (a crosspost), fresh still wins — the keep rule must not resurrect a
+        // stale duplicate.
+        val fresh = listOf(listOf(child(post("dup", score = 50, subreddit = "gaming"))))
+        val cache = listOf(post("dup", score = 999, subreddit = "gaming"), post("g_old", subreddit = "gaming"))
+        val out = FeedMerge.merge(
+            fresh, cache, Sort.HOT, now, failedSubs = setOf("gaming")
+        )
+        assertEquals("fresh copy of the duplicate wins", 50, out.first { it.data.name == "dup" }.data.score)
+        assertEquals(2, out.size)
     }
 }

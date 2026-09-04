@@ -6,6 +6,7 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.databinding.ItemResourceStateBinding
+import com.cosmos.unreddit.R
 
 class ResourceStateAdapter(
     private val retry: () -> Unit
@@ -63,8 +64,19 @@ class ResourceStateAdapter(
 
         fun bind(resource: Resource<Any>?) {
             binding.loadingCradle.isVisible = resource is Resource.Loading
-            binding.buttonRetry.isVisible = resource is Resource.Error
+            val is404 = resource is Resource.Error &&
+                (resource.code == 404 || resource.message?.contains("Post not found") == true)
+            binding.buttonRetry.isVisible = resource is Resource.Error && !is404
             binding.textError.isVisible = resource is Resource.Error
+            if (is404) {
+                // The post is gone (removed or never archived). A retry can never fix
+                // that, so drop the "Something went wrong / Retry" chrome and say so.
+                binding.textError.text = binding.root.context
+                    .getString(R.string.post_removed)
+            } else {
+                binding.textError.text = binding.root.context
+                    .getString(R.string.network_retry_message)
+            }
 
             val isEmpty = isEmpty(resource)
             binding.emptyData.isVisible = isEmpty
