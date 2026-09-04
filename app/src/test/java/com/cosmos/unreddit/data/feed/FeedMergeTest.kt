@@ -158,8 +158,12 @@ class FeedMergeTest {
     fun failedSubCacheIsKeptInFull_evenWhenSubYieldsNoFreshPosts() {
         // "gaming" FAILED to fetch (transient error): its fresh list is empty (the
         // worker substitutes emptyList for a null result) but its CACHE must survive
-        // in full — it is the only copy of the sub's last good data. "android"
-        // succeeded and delivered fresh posts.
+        // in full — it is the only copy of the sub's last good data, and it is EXEMPT
+        // from the stale-cache cap (maxCachedOnly=0 here, all 3 rows still kept).
+        // "android" succeeded and delivered fresh posts; its stale cache row a_old
+        // gets the normal stale-cache treatment and is dropped by the cap. (In
+        // production a refreshed sub's stale rows are removed earlier, at the DB level
+        // by the per-sub replaceSubreddit; this asserts the merge-level contract.)
         val fresh = listOf(
             listOf(), // gaming: failed -> empty
             listOf(child(post("a1", score = 50, subreddit = "android")))
@@ -168,15 +172,16 @@ class FeedMergeTest {
             post("g1", score = 90, subreddit = "gaming"),
             post("g2", score = 80, subreddit = "gaming"),
             post("g3", score = 70, subreddit = "gaming"),
-            post("a_old", score = 999, subreddit = "android") // stale android row: dropped (sub was refreshed)
+            post("a_old", score = 999, subreddit = "android") // stale row from the confirmed sub
         )
         val out = FeedMerge.merge(
-            fresh, cache, Sort.HOT, now, failedSubs = setOf("gaming")
+            fresh, cache, Sort.HOT, now, maxCachedOnly = 0, failedSubs = setOf("gaming")
         )
         val names = out.map { it.data.name }
-        assertTrue("failed sub's whole cache survives", names.containsAll(listOf("g1", "g2", "g3")))
+        assertTrue("failed sub's whole cache survives, exempt from the cap",
+            names.containsAll(listOf("g1", "g2", "g3")))
         assertTrue("fresh post from the successful sub is present", names.contains("a1"))
-        assertFalse("a refreshed sub's stale cache row is dropped", names.contains("a_old"))
+        assertFalse("confirmed sub's stale cache row is subject to the cap", names.contains("a_old"))
     }
 
     @Test
