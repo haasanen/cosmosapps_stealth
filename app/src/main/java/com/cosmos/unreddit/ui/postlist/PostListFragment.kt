@@ -226,12 +226,14 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             // mode flips (states emitted before the flip must not be lost).
             launch {
                 viewModel.feedState.collectLatest { state ->
+                    // UNCAPPED on purpose (2026-09-04 "frozen dots" freeze): the cap that
+                    // used to be here (first 10) made every later emission — including the
+                    // ones during a settings->back recreate — invisible in the log, which
+                    // was exactly why that bug could not be diagnosed from a device log.
                     val n = FeedDebug.feedStates.incrementAndGet()
-                    if (n <= 10) {
-                        FeedDebug.log("feedState #$n: posts=${state.posts.size} refresh=${state.refreshing} " +
-                            "prog=${state.progress?.done ?: "-"}/${state.progress?.total ?: "-"} " +
-                            "offline=${state.offline} err=${state.error ?: "null"}")
-                    }
+                    FeedDebug.log("feedState #$n: posts=${state.posts.size} refresh=${state.refreshing} " +
+                        "prog=${state.progress?.done ?: "-"}/${state.progress?.total ?: "-"} " +
+                        "offline=${state.offline} err=${state.error ?: "null"}")
                     if (coordinatorMode) {
                         renderFeedState(state)
                     } else {
@@ -395,7 +397,15 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
      * when the source preference resolves or changes.
      */
     private fun applyListMode(coordinator: Boolean) {
-        if (coordinator == coordinatorMode) return
+        // NO no-op guard here. The list's adapter is reset to the legacy composite on
+        // EVERY onViewCreated (see initRecyclerView), so after a fragment view recreate
+        // (e.g. opening a sibling destination such as Settings, then pressing Back)
+        // `coordinatorMode` can already equal `coordinator` while the RecyclerView is
+        // physically on the WRONG adapter. Guarding on "did the value change" would skip
+        // the re-attach and leave the home feed on the empty legacy list with the
+        // (XML-default-visible) loading cradle frozen — the 2026-09-04 "frozen dots" freeze.
+        // Re-applying is idempotent and cheap, and the driving StateFlow only re-emits on
+        // change anyway, so there is no thrashing to guard against.
         coordinatorMode = coordinator
 
         val list = binding.listPost
@@ -447,6 +457,13 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     private fun renderFeedState(state: FeedCoordinator.FeedState) {
         latestFeedState = state
         binding.infoRetry.hide()
+        // The loading cradle is a LEGACY-path indicator. In progressive mode it must
+        // never be on screen: it inflates VISIBLE by XML default and its animation only
+        // starts via the custom `isVisible = true` setter, so if any lifecycle path ever
+        // leaves it visible-without-started the user sees a frozen dot that looks like a
+        // total app freeze (2026-09-04 "frozen dots" report). Every progressive render
+        // kills that state by construction.
+        binding.loadingCradle.isVisible = false
 
         feedListAdapter.cachedIds = if (state.fromCacheOnly) {
             emptySet()
