@@ -527,18 +527,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         val anchorId = openedPostAnchorId
         if (anchorId != null) {
             openedPostAnchorId = null
-            binding.listPost.post { recycler ->
-                val lm = recycler.layoutManager as? LinearLayoutManager ?: return@post
-                if (lm.itemCount == 0) return@post
+            if (state.posts.isNotEmpty()) {
                 val anchorPos = state.posts.indexOfFirst { it.id == anchorId }
-                if (anchorPos >= 0) {
-                    // Smooth-scroll to the anchor's new position.
-                    recycler.smoothScrollToPosition(minOf(anchorPos, lm.itemCount - 1))
-                } else {
-                    // Post is no longer in the feed (removed / pruned by the merge cap):
-                    // degrade to the top rather than a wrong-jump or crash.
-                    recycler.smoothScrollToPosition(0)
-                }
+                // betterSmoothScrollToPosition defers its own post() when the layout
+                // isn't ready (same helper scrollToTop() uses). Clamp: a post that
+                // vanished from the feed degrades to the top rather than a crash.
+                binding.listPost.betterSmoothScrollToPosition(if (anchorPos >= 0) anchorPos else 0)
             }
         }
 
