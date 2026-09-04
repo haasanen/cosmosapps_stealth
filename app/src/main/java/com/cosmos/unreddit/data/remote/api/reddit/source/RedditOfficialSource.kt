@@ -67,9 +67,13 @@ import org.jsoup.nodes.Element
  *    doubled` (`await (async e => e + e)(lit)`) and resubmits the form. This source
  *    reproduces that over plain HTTP: it extracts the literal and the form token from the
  *    page and GETs `https://www.reddit.com{form action}?<original query>&js_challenge=1&
- *    token=…&jsc_orig_r=&solution=<lit><lit>`. Solving issues the session cookies
+ *    jsc_token=…&jsc_orig_r=&solution=<lit><lit>`. Solving issues the session cookies
  *    (`token_v2`, `loid`, `csrf_token`, `session_tracker`) which the [RedditCookieJar]
- *    persists for every follow-up request in the same client.
+ *    persists for every follow-up request in the same client — verified live 2026-09-03:
+ *    one solve, then 300 KB+ feeds for other subreddits with no further challenges.
+ *    The hidden token field has been renamed between challenge formats: the 2026-09-03
+ *    live page declares `name="jsc_token"`, earlier ones `name="token"` — the parser
+ *    accepts both and the resubmit submits the token under the declared name.
  *  - Feeds render only the first few `shreddit-post` cards in the initial HTML; the rest of
  *    the page load from an embedded continuation partial (`faceplate-partial` with
  *    `slot="load-after"` pointing at `/svc/shreddit/community-more-posts/…` or
@@ -935,20 +939,30 @@ class RedditOfficialSource @Inject constructor(
     private fun parseJsChallenge(body: String): ChallengeForm? {
         if (body.length > CHALLENGE_MAX_SIZE) return null // real pages are large
         val doc = Jsoup.parse(body)
-        val tokenInput = doc.selectFirst("form input[name=token]") ?: return null
+        // 2026-09-03 live capture: reddit.com renamed the hidden token field from
+        // name="token" to name="jsc_token" (the page still carries the doubled-literal
+        // script). The old selector alone made the solver return null, so the ~8.4 KB
+        // challenge page was treated as a real empty feed on-device. Accept both names
+        // and record WHICH one the form declares — the resubmit must submit the token
+        // under that exact field name.
+        val tokenInput = doc.selectFirst("form input[name=jsc_token]")
+            ?: doc.selectFirst("form input[name=token]") ?: return null
         val form = tokenInput.closest("form") ?: return null
+        val tokenName = tokenInput.attr("name")
         val token = tokenInput.attr("value")
         if (token.isNullOrBlank()) return null
         val action = form.attr("action").ifBlank { return null }
         val literal = JS_CHALLENGE_LITERAL.find(body)?.groupValues?.get(1)
             ?: return null
-        return ChallengeForm(action = action, token = token, literal = literal)
+        return ChallengeForm(action = action, tokenName = tokenName, token = token, literal = literal)
     }
 
     /**
      * Builds the challenge resubmit URL the way the browser's form submit does: the form
      * action plus the original page's own query params (the browser copies them into hidden
-     * inputs) and the hidden fields (`js_challenge`, `token`, `jsc_orig_r`, `solution`).
+     * inputs) and the hidden fields (`js_challenge`, the declared token field —
+     * `jsc_token` on the live 2026-09-03 page, `token` on the older format —
+     * `jsc_orig_r`, `solution`).
      * The solution is the 16-hex literal doubled — exactly what
      * `await (async e => e + e)(lit)` produces. The form action is relative
      * (e.g. `/r/Android/hot/`) and is resolved against the site root.
@@ -962,7 +976,10 @@ class RedditOfficialSource @Inject constructor(
         val params = buildList {
             if (originalQuery.isNotBlank()) add(originalQuery)
             add("js_challenge=1")
-            add("token=" + challenge.token)
+            // The token goes out under the field name the FORM declares: the live
+            // (2026-09-03) challenge uses name="jsc_token", the older format used
+            // name="token" — the browser's submit copies whatever the form has.
+            add(challenge.tokenName + "=" + challenge.token)
             add("jsc_orig_r=")
             add("solution=" + solution)
         }.joinToString("&")
@@ -1085,7 +1102,7 @@ class RedditOfficialSource @Inject constructor(
         val doc = Jsoup.parse(body)
         val title = doc.title().ifBlank { "(no title)" }
         val markers = listOf(
-            "challenge" to ("name=\"token\"" in body),
+            "challenge" to ("name=\"token\"" in body || "name=\"jsc_token\"" in body),
             "cf-clearance" to ("cf-chl" in body || "challenge-platform" in body),
             "just-a-moment" to ("just a moment" in body.lowercase()),
             "post-cards" to ("shreddit-post" in body),
@@ -1702,8 +1719,8 @@ class RedditOfficialSource @Inject constructor(
 
     //endregion
 
-    /** The challenge page's form: relative action, hidden token, and the 16-hex literal. */
-    private data class ChallengeForm(val action: String, val token: String, val literal: String)
+    /** The challenge page's form: relative action, the declared token field name, its value, and the 16-hex literal. */
+    private data class ChallengeForm(val action: String, val tokenName: String, val token: String, val literal: String)
 
     companion object {
         private const val KIND_LISTING = "Listing"
