@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.work.WorkManager
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
@@ -73,6 +74,11 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
                 inner.uncaughtException(t, e)
             }
         })
+        // One-time migration: v2.5.42 (build 142) scheduled a periodic feed
+        // refresh that no longer exists in this build. Cancel any leftover job
+        // so it cannot keep retrying against the removed worker class.
+        WorkManager.getInstance(this)
+            .cancelUniqueWork("com.cosmos.unreddit.feed_refresh")
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: done")
     }
 
