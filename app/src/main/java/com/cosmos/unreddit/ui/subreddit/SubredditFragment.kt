@@ -70,6 +70,11 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
 
     private lateinit var postListAdapter: PostListAdapter
 
+    // Last known refresh state of the feed, so retry() can tell whether the
+    // post list actually failed (paging 3.1.1 exposes loadStateFlow as a plain
+    // Flow, so there is no .value to read).
+    private var feedRefreshState: LoadState = LoadState.NotLoading(endOfPaginationReached = false)
+
     private var isSubscribeEnabled: Boolean
         get() = bindingAbout.subredditSubscribeButton.isEnabled
         set(value) {
@@ -225,6 +230,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             ) {
                 showRetryBar()
             }
+            addLoadStateListener { feedRefreshState = it.source.refresh }
         }
         bindingContent.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
@@ -319,8 +325,9 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         // Only retry the feed when the feed actually failed. The retry bar
         // also shows for a failed subreddit-info load; blindly retrying the
         // posts then re-fetched a healthy feed for nothing.
-        val refreshState = postListAdapter.loadStateFlow.value
-        if (refreshState.source.refresh is LoadState.Error) {
+        // (paging 3.1.1 exposes loadStateFlow as a Flow, not a StateFlow, so
+        // the state is tracked via the load-state listener above.)
+        if (feedRefreshState is LoadState.Error) {
             postListAdapter.retry()
         }
     }
