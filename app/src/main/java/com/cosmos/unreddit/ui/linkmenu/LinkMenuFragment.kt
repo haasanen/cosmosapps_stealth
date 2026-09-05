@@ -7,8 +7,10 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.core.os.bundleOf
 import androidx.fragment.app.FragmentManager
+import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.databinding.FragmentLinkMenuBinding
 import com.cosmos.unreddit.util.extension.doAndDismiss
@@ -68,9 +70,9 @@ class LinkMenuFragment : BottomSheetDialogFragment() {
                 doAndDismiss {
                     if (clipboard != null) {
                         clipboard.setPrimaryClip(clip)
-                        // TODO: Warn user link was copied
+                        Toast.makeText(requireContext(), R.string.toast_link_copied, Toast.LENGTH_SHORT).show()
                     } else {
-                        // TODO: Warn user link was NOT copied
+                        Toast.makeText(requireContext(), R.string.toast_link_copy_failed, Toast.LENGTH_SHORT).show()
                     }
                 }
             }

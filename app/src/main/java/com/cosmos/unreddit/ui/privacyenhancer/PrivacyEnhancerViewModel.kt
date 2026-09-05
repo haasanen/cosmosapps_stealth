@@ -82,6 +82,12 @@ class PrivacyEnhancerViewModel @Inject constructor(
         }
     }
 
+    /** Retry a failed service-instance load: re-run the fetch from Loading. */
+    fun retryServiceInstances() {
+        _instances.value = Resource.Loading()
+        loadServiceInstances()
+    }
+
     private fun loadServiceInstances() {
         viewModelScope.launch {
             assetsRepository.getServiceInstances()
