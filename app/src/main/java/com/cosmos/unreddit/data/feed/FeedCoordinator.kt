@@ -506,19 +506,35 @@ class FeedCoordinator @Inject constructor(
 
     private suspend fun loadCache(profileId: Int): List<PostData> {
         val rows = db.feedCacheDao().allFromProfile(profileId)
-        val parsed = rows.mapNotNull { toPostData(it.postJson) }
+        // TTL enforced at READ time (2026-09-05): a row older than the configured
+        // cache duration is expired — it is deleted now and never shown. The
+        // end-of-cycle purge is the leak guard; this is the actual enforcement
+        // point. Without it, rows from a dead source (e.g. the legacy Atom
+        // fallback) stayed visible for months: the cache-first path served them
+        // on every launch and only a completed fan-out would eventually purge.
+        val cutoff = System.currentTimeMillis() - ttlMs
+        val fresh = rows.filter { it.fetchedAt >= cutoff }
+        if (fresh.size != rows.size) {
+            val expired = rows.filter { it.fetchedAt < cutoff }.map { it.postId }
+            runCatching { db.feedCacheDao().deleteByIds(profileId, expired) }
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "cache load: purged ${expired.size} rows older than TTL " +
+                    "(${ttlMs / 3_600_000}h)"
+            )
+        }
+        val parsed = fresh.mapNotNull { toPostData(it.postJson) }
         // TEMP cache diagnostics: "raw" = rows in the table, "parsed" = rows whose
         // postJson deserialized back into a PostData. raw > parsed means stored JSON
         // is corrupt or blank (a persist-time toJson failure writes postJson = "").
-        val empty = rows.count { it.postJson.isBlank() }
+        val empty = fresh.count { it.postJson.isBlank() }
         com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-            "cache load: raw=${rows.size} parsed=${parsed.size} emptyJson=$empty"
+            "cache load: raw=${rows.size} fresh=${fresh.size} parsed=${parsed.size} emptyJson=$empty"
         )
         // Self-heal: blank postJson rows can never deserialize back (they are the
         // legacy corruption from the empty MediaMetadataAdapter.toJson). Delete them
         // instead of keeping them around to be re-counted on every launch.
         if (empty > 0) {
-            val blankIds = rows.filter { it.postJson.isBlank() }.map { it.postId }
+            val blankIds = fresh.filter { it.postJson.isBlank() }.map { it.postId }
             runCatching { db.feedCacheDao().deleteByIds(profileId, blankIds) }
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
                 "cache load: purged $empty corrupt (blank JSON) rows"
