@@ -148,15 +148,61 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
     override fun onResume() {
         super.onResume()
-        // ISSUE D: the user is back in front of the list. Two cases:
-        // (a) an emission already consumed the anchor while the details screen was up
-        // (restore applied) — anchor is null, nothing to do;
-        // (b) NO emission fired while the details screen was up, so the list viewport
-        // was never touched and is already on the right spot — clear the stale anchor
-        // so a LATER refresh (after the user scrolled elsewhere) cannot yank the list
-        // back. onResume re-fires on every return from a covering fragment, unlike
-        // onStart (the covered fragment drops to STARTED, not STOPPED).
-        openedPostAnchorId = null
+        // ISSUE D: the user is back in front of the list. The anchor may still be
+        // pending when NO emission fired while the covering screen was up (a refresh
+        // cycle that started before the cover dismisses is the normal case, but a
+        // pull-down refresh that only started while covered — or none at all — leaves
+        // the anchor untouched). In that case the viewport is NOT safe to trust: the
+        // media viewer in particular is a FULL-SCREEN bottom sheet, and its
+        // open/dismiss resizes the window, which resets the RecyclerView's scroll
+        // offset to the top (2026-09-05 "photos take me back to the top" report).
+        // Re-apply the anchor to the CURRENT list instead of clearing it.
+        val anchorId = openedPostAnchorId
+        if (anchorId != null && coordinatorMode) {
+            openedPostAnchorId = null
+            restoreViewportTo(anchorId)
+        }
+    }
+
+    /**
+     * ISSUE D: scroll the feed back to [anchorId]'s row. The post's index may have
+     * shifted (refresh prepends/removes posts), so it is located by id in the current
+     * list. If it is not in the feed (removed server-side, sub cache replaced while
+     * away) that is not an error: no message, no jump — the list stays where it is.
+     */
+    private fun restoreViewportTo(anchorId: String) {
+        binding.listPost.post {
+            val pos = feedListAdapter.currentList.indexOfFirst { it.id == anchorId }
+            if (pos >= 0) {
+                // betterSmoothScrollToPosition defers its own post() when the layout
+                // isn't ready (same helper scrollToTop() uses).
+                binding.listPost.betterSmoothScrollToPosition(pos)
+            } else {
+                FeedDebug.log("anchor restore: post $anchorId not in feed " +
+                    "(posts=${feedListAdapter.currentList.size}) — staying put")
+            }
+        }
+    }
+
+    /**
+     * ISSUE D: media taps (post photo / GIF / link post) open the MediaViewer — a
+     * FULL-SCREEN bottom sheet whose open/dismiss resizes the window and resets the
+     * list's scroll offset. Capture the tapped post as the anchor so onResume can
+     * restore the viewport. The post-details path captures in [onClick].
+     */
+    override fun onImageClick(post: PostEntity) {
+        if (coordinatorMode) openedPostAnchorId = post.id
+        super.onImageClick(post)
+    }
+
+    override fun onVideoClick(post: PostEntity) {
+        if (coordinatorMode) openedPostAnchorId = post.id
+        super.onVideoClick(post)
+    }
+
+    override fun onLinkClick(post: PostEntity) {
+        if (coordinatorMode) openedPostAnchorId = post.id
+        super.onLinkClick(post)
     }
 
     override fun applyInsets(view: View) {
