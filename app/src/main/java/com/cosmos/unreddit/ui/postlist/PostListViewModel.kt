@@ -147,42 +147,55 @@ class PostListViewModel
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CoordCtx(0, emptyList(), emptyList(), false, DEFAULT_CACHE_TTL_HOURS * 3_600_000L))
 
     init {
-        // Drive the coordinator whenever subs, sort, profile, content or TTL change —
-        // and (re)start it the moment the source preference resolves to the official
-        // source, which can arrive AFTER the first subs/sort emission (datastore load
-        // ordering), so `usesCoordinator` must be part of the trigger itself.
+        // Drive the coordinator whenever subs, sort, profile, nsfw, TTL — or the source
+        // preference resolving to the official source — changes. The projection
+        // DELIBERATELY excludes history/saved ids: clicking a post (or saving one) writes
+        // to the history/saved tables, and including those in the trigger made every click
+        // re-fire refresh(), whose first act is activeCycle.cancel() — killing the in-flight
+        // fan-out (2026-09-05: "clicking a post stops the reload"). history/saved only stamp
+        // the seen/saved badge, so they are read fresh at fire time (coordinatorCtx.value)
+        // instead of driving the trigger.
         viewModelScope.launch {
-            combine(fetchData, coordinatorCtx, usesCoordinator) { fetch, ctx, active ->
-                Trigger(ctx, fetch.query, fetch.sorting.generalSorting, active == true)
-            }.distinctUntilChanged { a, b ->
-                a.subs == b.subs && a.sort == b.sort && a.ctx == b.ctx && a.active == b.active
-            }.collect { t ->
+            combine(coordinatorCtx, fetchData, usesCoordinator) { ctx, fetch, active ->
+                Trigger(
+                    ctx.profileId,
+                    fetch.query,
+                    fetch.sorting.generalSorting,
+                    ctx.showNsfw,
+                    ctx.ttlMs,
+                    active == true
+                )
+            }.distinctUntilChanged()
+            .collect { t ->
                 if (!t.active) return@collect
                 if (t.subs.isEmpty()) return@collect
+                val ctx = coordinatorCtx.value // latest history/saved snapshot
                 com.cosmos.unreddit.ui.postlist.FeedDebug.refreshCalls.incrementAndGet()
                 com.cosmos.unreddit.ui.postlist.FeedDebug.lastTrigger.set(
-                    "profile=${t.ctx.profileId} subs=${t.subs.size} sort=${t.sort}"
+                    "profile=${t.profileId} subs=${t.subs.size} sort=${t.sort}"
                 )
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                    "trigger -> refresh (profile=${t.ctx.profileId} subs=${t.subs.size} sort=${t.sort})"
+                    "trigger -> refresh (profile=${t.profileId} subs=${t.subs.size} sort=${t.sort})"
                 )
                 feedCoordinator.refresh(
-                    profileId = t.ctx.profileId,
+                    profileId = t.profileId,
                     subs = t.subs,
                     sort = t.sort,
-                    historyIds = t.ctx.historyIds,
-                    savedIds = t.ctx.savedIds,
-                    showNsfw = t.ctx.showNsfw,
-                    ttlMs = t.ctx.ttlMs
+                    historyIds = ctx.historyIds,
+                    savedIds = ctx.savedIds,
+                    showNsfw = t.showNsfw,
+                    ttlMs = t.ttlMs
                 )
             }
         }
     }
 
     private data class Trigger(
-        val ctx: CoordCtx,
+        val profileId: Int,
         val subs: List<String>,
         val sort: Sort,
+        val showNsfw: Boolean,
+        val ttlMs: Long,
         val active: Boolean
     )
 
