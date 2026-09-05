@@ -333,8 +333,8 @@ class FeedCoordinator @Inject constructor(
                 )
             }
         }
-        // Expose the cycle job so background callers (FeedRefreshWorker) can await
-        // completion and dismiss their notification. [activeCycle] was just assigned.
+        // Expose the cycle job so callers can await completion. [activeCycle]
+        // was just assigned.
         return activeCycle ?: Job()
     }
 
