@@ -63,17 +63,25 @@ class ResourceStateAdapter(
         }
 
         fun bind(resource: Resource<Any>?) {
-            binding.loadingCradle.isVisible = resource is Resource.Loading
+            // A missing post (404) is NOT an error: the post was removed
+            // server-side. There is nothing to show and nothing a retry can fix,
+            // so the whole state row is hidden instead — an error message about a
+            // non-error would mislead the user. Every other error keeps its row
+            // and the retry button.
             val is404 = resource is Resource.Error &&
                 (resource.code == 404 || resource.message?.contains("Post not found") == true)
-            binding.buttonRetry.isVisible = resource is Resource.Error && !is404
-            binding.textError.isVisible = resource is Resource.Error
             if (is404) {
-                // The post is gone (removed or never archived). A retry can never fix
-                // that, so drop the "Something went wrong / Retry" chrome and say so.
-                binding.textError.text = binding.root.context
-                    .getString(R.string.post_removed)
-            } else {
+                binding.loadingCradle.isVisible = false
+                binding.textError.isVisible = false
+                binding.buttonRetry.isVisible = false
+                binding.emptyData.isVisible = false
+                binding.textEmptyData.isVisible = false
+                return
+            }
+            binding.loadingCradle.isVisible = resource is Resource.Loading
+            binding.buttonRetry.isVisible = resource is Resource.Error
+            binding.textError.isVisible = resource is Resource.Error
+            if (resource is Resource.Error) {
                 binding.textError.text = binding.root.context
                     .getString(R.string.network_retry_message)
             }
