@@ -521,18 +521,28 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         // Runs on the FIRST emission after the post is opened — typically the emission
         // triggered by the return from the details screen (or a refresh that completed
         // while the user was reading). The post's position may have shifted (refresh
-        // prepends/removes posts), so we re-locate it by id in the NEW list. If the id
-        // is gone from the feed entirely we clamp gracefully: scroll to the top of the
-        // nearest surviving tail (position 0) instead of crashing or jumping blindly.
+        // prepends/removes posts), so we re-locate it by id in the NEW list.
+        //
+        // Contract: if the post IS in the feed, it MUST be found and scrolled to —
+        // a miss there is a bug, so it is logged loudly (and we stay put rather than
+        // jumping blindly). If the post is NOT in the feed (removed server-side, or
+        // its sub's cache was replaced while the user was away) that is not an
+        // error: no message, no jump — the list simply stays where it is.
         val anchorId = openedPostAnchorId
         if (anchorId != null) {
             openedPostAnchorId = null
             if (state.posts.isNotEmpty()) {
                 val anchorPos = state.posts.indexOfFirst { it.id == anchorId }
-                // betterSmoothScrollToPosition defers its own post() when the layout
-                // isn't ready (same helper scrollToTop() uses). Clamp: a post that
-                // vanished from the feed degrades to the top rather than a crash.
-                binding.listPost.betterSmoothScrollToPosition(if (anchorPos >= 0) anchorPos else 0)
+                if (anchorPos >= 0) {
+                    // betterSmoothScrollToPosition defers its own post() when the
+                    // layout isn't ready (same helper scrollToTop() uses).
+                    binding.listPost.betterSmoothScrollToPosition(anchorPos)
+                } else {
+                    FeedDebug.log(
+                        "anchor restore: post $anchorId not in feed " +
+                            "(posts=${state.posts.size}) — staying put"
+                    )
+                }
             }
         }
 
