@@ -12,7 +12,6 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.data.repository.PreferencesRepository
-import com.cosmos.unreddit.data.worker.FeedRefreshWorker
 import com.cosmos.unreddit.util.FileUncaughtExceptionHandler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.flow.first
@@ -74,16 +73,6 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
                 inner.uncaughtException(t, e)
             }
         })
-        // ISSUE C: durable periodic feed refresh so the cache warms while the app is
-        // closed (survives process death). No-op internally unless the official
-        // source is active. KEEP policy: enqueuing here never resets an existing
-        // schedule.
-        try {
-            FeedRefreshWorker.ensureScheduled(this)
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log("feed worker: ensureScheduled ok")
-        } catch (t: Throwable) {
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log("feed worker: ensureScheduled FAILED: $t")
-        }
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: done")
     }
 
