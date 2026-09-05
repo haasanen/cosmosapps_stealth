@@ -101,6 +101,22 @@ object FeedMerge {
         return if (result.size > maxRows) result.subList(0, maxRows) else result
     }
 
+    /**
+     * Order a pure-cache list the same way the fresh feed is ordered, so a
+     * cache-only screen (first paint, cache-first serve, offline) does not show
+     * insertion-ordered blocks of one subreddit after another.
+     *
+     * The raw DAO query has no ORDER BY: SQLite returns rows in the order
+     * replaceSubreddit wrote them, i.e. whole-subreddit blocks. Applying the
+     * same ordering here as merge() (balanced interleave for HOT/BEST, newest
+     * for NEW, top score for TOP) keeps cached and fresh views consistent.
+     */
+    fun orderCache(cache: List<PostData>, sort: Sort): List<PostData> = when (sort) {
+        Sort.NEW -> cache.sortedByDescending { it.created }
+        Sort.TOP -> cache.sortedByDescending { it.score }
+        else -> cache.groupBy { it.subreddit.lowercase() }.values.interlace()
+    }
+
     /** Hot-like ranking for a single post: score^1.5 / (ageHours + 2)^1.5. */
     private fun PostData.hotRank(nowEpochMs: Long): Double {
         // `created` is epoch SECONDS (created_utc); convert before the age math.

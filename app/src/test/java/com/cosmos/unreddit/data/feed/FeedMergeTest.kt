@@ -238,4 +238,42 @@ class FeedMergeTest {
         assertEquals("fresh copy of the duplicate wins", 50, out.first { it.data.name == "dup" }.data.score)
         assertEquals(2, out.size)
     }
+
+    @Test
+    fun orderCacheInterleavesSubredditsForHot() {
+        // Cache rows come back from the DAO in insertion order: all of sub A, then
+        // all of sub B (replaceSubreddit writes one sub's batch at a time). The
+        // cache-only screen must not show that block order — it must interleave
+        // like the fresh hot feed.
+        val cache = (1..3).map { i -> post("a$i", subreddit = "alpha") } +
+            (1..3).map { i -> post("b$i", subreddit = "beta") }
+        val out = FeedMerge.orderCache(cache, Sort.HOT)
+        assertEquals("a1", out[0].name)
+        assertEquals("b1", out[1].name)
+        assertEquals("a2", out[2].name)
+        assertEquals("b2", out[3].name)
+        assertEquals("a3", out[4].name)
+        assertEquals("b3", out[5].name)
+    }
+
+    @Test
+    fun orderCacheSortsByDateForNewAndScoreForTop() {
+        val cache = listOf(
+            post("old", subreddit = "alpha", ageMinutes = 300),
+            post("new", subreddit = "beta", ageMinutes = 5),
+            post("mid", subreddit = "gamma", ageMinutes = 120)
+        )
+        val byNew = FeedMerge.orderCache(cache, Sort.NEW)
+        assertEquals("NEW sorts newest first regardless of subreddit",
+            listOf("new", "mid", "old"), byNew.map { it.name })
+
+        val scored = listOf(
+            post("low", subreddit = "alpha", score = 10),
+            post("high", subreddit = "beta", score = 900),
+            post("mid2", subreddit = "gamma", score = 500)
+        )
+        val byTop = FeedMerge.orderCache(scored, Sort.TOP)
+        assertEquals("TOP sorts by score regardless of subreddit",
+            listOf("high", "mid2", "low"), byTop.map { it.name })
+    }
 }
