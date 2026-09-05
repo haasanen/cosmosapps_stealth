@@ -178,7 +178,7 @@ class FeedCoordinator @Inject constructor(
             }
             val seenSet = historyIds.toHashSet()
             val savedSet = savedIds.toHashSet()
-            val cachedPosts = mapToEntities(cached, seenSet, savedSet)
+            val cachedPosts = mapToEntities(FeedMerge.orderCache(cached, sort), seenSet, savedSet)
             if (cachedPosts.isNotEmpty()) {
                 _state.update { s -> s.copy(posts = cachedPosts) }
             }
