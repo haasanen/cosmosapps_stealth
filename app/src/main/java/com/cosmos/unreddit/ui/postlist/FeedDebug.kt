@@ -1,23 +1,17 @@
 package com.cosmos.unreddit.ui.postlist
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.widget.TextView
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * TEMP: blank-launch diagnostics (removed once the root cause is found).
  *
- * Three channels, because one of them may be dead depending on where launch stalls:
- *  1. An always-visible panel in the activity (top of screen) with the milestone
- *     trail and live counters — only works if the activity draws a frame.
- *  2. Logcat tag [TAG] (`adb logcat -s FeedDbg`).
- *  3. A plain-text file in the app's external files dir (works even if no frame
+ * Two channels, because one of them may be dead depending on where launch stalls:
+ *  1. Logcat tag [TAG] (`adb logcat -s FeedDbg`).
+ *  2. A plain-text file in the app's external files dir (works even if no frame
  *     is ever drawn — a main-thread stall before the first frame is itself a
  *     hypothesis, so the trail must survive it):
  *     /sdcard/Android/data/com.cosmos.unreddit/files/launch_diag.txt
@@ -33,7 +27,6 @@ object FeedDebug {
     const val TAG = "FeedDbg"
 
     private val t0 = System.currentTimeMillis()
-    private val events = CopyOnWriteArrayList<String>()
     private var logFile: File? = null
 
     val refreshCalls = AtomicInteger(0)
@@ -64,12 +57,10 @@ object FeedDebug {
     fun log(msg: String) {
         val now = System.currentTimeMillis()
         val line = "[${now - t0}ms] $msg"
-        events.add(line)
-        if (events.size > 80) events.removeAt(0)
         try {
             Log.i(TAG, line)
         } catch (t: Throwable) {
-            // Off-device (JVM unit tests): no Log impl. Keep the in-memory trail only.
+            // Off-device (JVM unit tests): no Log impl.
         }
         try {
             logFile?.appendText(line + "\n")
@@ -82,7 +73,7 @@ object FeedDebug {
      * Log a throwable with class, message and a bounded stack trace. Message-less
      * exceptions (NullPointerException et al.) are invisible in a `class: message`
      * line alone — the trace is the only way to find the throwing line. The full
-     * stack goes to the file; the event list keeps the first lines only.
+     * stack goes to the file; the log line keeps the first lines only.
      */
     fun logException(prefix: String, t: Throwable) {
         val sw = java.io.StringWriter()
@@ -99,25 +90,5 @@ object FeedDebug {
         } catch (u: Throwable) {
             // File channel is best-effort.
         }
-    }
-
-    /** Starts updating [view] with the milestone trail. Main thread only. */
-    fun startPanel(view: TextView) {
-        val handler = Handler(Looper.getMainLooper())
-        val tick = object : Runnable {
-            override fun run() {
-                view.text = summary()
-                handler.postDelayed(this, 500)
-            }
-        }
-        handler.post(tick)
-    }
-
-    private fun summary(): String {
-        val tail = events.takeLast(9).joinToString("\n")
-        return "DIAG (ms since launch)\n$tail\n" +
-            "refresh=${refreshCalls.get()} fanoutPages=${fanOutEmissions.get()} " +
-            "feedStates=${feedStates.get()} legacy=${legacyEmissions.get()} " +
-            "src=${lastSourcePref.get()} args=${lastRefreshArgs.get()} trig=${lastTrigger.get()}"
     }
 }

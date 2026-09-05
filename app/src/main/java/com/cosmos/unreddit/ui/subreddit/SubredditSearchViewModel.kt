@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -88,8 +89,13 @@ class SubredditSearchViewModel @Inject constructor(
         data: Data.Fetch,
         user: Data.User
     ): Flow<PagingData<PostEntity>> {
-        // TODO: Check subreddit value is not blank
-        return repository.searchInSubreddit(data.query, subreddit.value, data.sorting)
+        // A blank subreddit cannot be searched: skip the network call entirely
+        // instead of letting it hit the API and surface as a load error.
+        val target = subreddit.value.trim()
+        if (target.isEmpty()) {
+            return emptyFlow()
+        }
+        return repository.searchInSubreddit(data.query, target, data.sorting)
             .map { pagingData ->
                 PostUtil.filterPosts(pagingData, latestUser ?: user, postMapper, defaultDispatcher)
             }

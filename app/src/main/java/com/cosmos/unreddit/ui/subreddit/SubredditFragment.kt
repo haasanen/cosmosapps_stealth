@@ -17,6 +17,7 @@ import androidx.core.view.updatePadding
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.navArgs
+import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.data.model.Resource
@@ -315,7 +316,13 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
             viewModel.loadSubredditInfo(true)
         }
 
-        postListAdapter.retry() // TODO: Don't retry if not necessary
+        // Only retry the feed when the feed actually failed. The retry bar
+        // also shows for a failed subreddit-info load; blindly retrying the
+        // posts then re-fetched a healthy feed for nothing.
+        val refreshState = postListAdapter.loadStateFlow.value
+        if (refreshState.source.refresh is LoadState.Error) {
+            postListAdapter.retry()
+        }
     }
 
     private fun showRetryBar() {

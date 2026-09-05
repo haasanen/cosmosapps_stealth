@@ -97,6 +97,8 @@
     <string name="menu_open_link">Open Externally</string>
     <string name="menu_share_link">Share Link</string>
     <string name="menu_copy_link">Copy Link</string>
+    <string name="toast_link_copied">Link copied to clipboard</string>
+    <string name="toast_link_copy_failed">Could not copy the link</string>
     <string name="menu_share_post">Share Post</string>
 
     <string name="post_load_discussion">View Entire Discussion</string>
@@ -180,6 +182,8 @@
     <string name="preference_privacy_enhancer_disabled">Disabled</string>
 
     <string name="preference_privacy_enhancer_service_summary">%1$s - %2$s</string>
+
+    <string name="privacy_enhancer_services_failed">The privacy-enhancer service list could not be loaded.</string>
 
     <string name="instance_hint">Instance</string>
     <string name="instance_empty_error">Instance cannot be empty</string>

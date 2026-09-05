@@ -29,6 +29,7 @@ import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.parcelable
 import com.cosmos.unreddit.util.extension.titlecase
 import dagger.hilt.android.AndroidEntryPoint
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -114,7 +115,14 @@ class PrivacyEnhancerFragment : PreferenceFragmentCompat() {
                     when (it) {
                         is Resource.Success -> showLoading(false)
                         is Resource.Loading -> showLoading(true)
-                        is Resource.Error -> showLoading(false) // TODO
+                        is Resource.Error -> {
+                            // A failed service-instance load must not disappear
+                            // silently: surface it with a retry (the load feeds
+                            // the service list, so an empty screen without an
+                            // error was indistinguishable from "no services").
+                            showLoading(false)
+                            showErrorDialog()
+                        }
                     }
                 }
             }
@@ -205,6 +213,17 @@ class PrivacyEnhancerFragment : PreferenceFragmentCompat() {
             scrim.isVisible = loading
             loadingCradle.isVisible = loading
         }
+    }
+
+    private fun showErrorDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.network_retry_message)
+            .setMessage(R.string.privacy_enhancer_services_failed)
+            .setPositiveButton(R.string.network_retry_action) { _, _ ->
+                viewModel.retryServiceInstances()
+            }
+            .setNegativeButton(R.string.dialog_ok, null)
+            .show()
     }
 
     override fun onStop() {
