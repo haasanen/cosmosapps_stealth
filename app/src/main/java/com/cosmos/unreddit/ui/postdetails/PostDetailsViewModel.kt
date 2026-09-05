@@ -19,8 +19,10 @@ import com.cosmos.unreddit.util.PostUtil
 import com.cosmos.unreddit.util.extension.latest
 import com.cosmos.unreddit.util.extension.updateValue
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -158,50 +160,77 @@ class PostDetailsViewModel @Inject constructor(
 
     private fun loadFromNetwork(permalink: String, sorting: Sorting, profileId: Int?) {
         viewModelScope.launch {
-            repository.getPost(permalink, sorting)
-                .onStart {
-                    if (_post.value !is Resource.Success) {
-                        // Nothing cached to show yet — the screen shows the loader.
-                        _post.value = Resource.Loading()
-                        _comments.value = Resource.Loading()
-                    }
-                }
-                .catch { e ->
-                    when (e) {
-                        is IOException -> {
-                            _post.value = Resource.Error(message = e.message)
-                            _comments.value = Resource.Error(message = e.message)
+            // A single failed fetch (404, network blip, parse error) is NOT a reason
+            // to give up: retry with backoff before surfacing an error (2026-09-05,
+            // per user: "when you see a 404 or similar error, you should always retry
+            // and not give up with a single failure"). This ViewModel is per-screen,
+            // so navigating away cancels the launch and stops the retry loop.
+            var lastError: Throwable? = null
+            for (attempt in 1..MAX_FETCH_ATTEMPTS) {
+                try {
+                    repository.getPost(permalink, sorting)
+                        .onStart {
+                            if (_post.value !is Resource.Success) {
+                                // Nothing cached to show yet — the screen shows the loader.
+                                // A cached body, if present, stays visible during retries.
+                                _post.value = Resource.Loading()
+                                _comments.value = Resource.Loading()
+                            }
                         }
-                        is HttpException -> {
-                            _post.value = Resource.Error(e.code(), e.message())
-                            _comments.value = Resource.Error(e.code(), e.message())
-                        }
-                        else -> {
-                            _post.value = Resource.Error()
-                            _comments.value = Resource.Error()
-                        }
-                    }
-                }
-                .collect { listings ->
-                    val post = async { postMapper.dataToEntity(PostUtil.getPostData(listings)) }
-                    val comments = async {
-                        val list = commentMapper.dataToEntities(
-                            PostUtil.getCommentsData(listings),
-                            PostUtil.getPostData(listings)
-                        )
-                        getComments(list, DEPTH_LIMIT)
-                    }
-                    val postEntity = post.await()
-                    _post.value = Resource.Success(postEntity)
-                    _comments.value = Resource.Success(comments.await())
+                        .collect { listings ->
+                            val post = async { postMapper.dataToEntity(PostUtil.getPostData(listings)) }
+                            val comments = async {
+                                val list = commentMapper.dataToEntities(
+                                    PostUtil.getCommentsData(listings),
+                                    PostUtil.getPostData(listings)
+                                )
+                                getComments(list, DEPTH_LIMIT)
+                            }
+                            val postEntity = post.await()
+                            _post.value = Resource.Success(postEntity)
+                            _comments.value = Resource.Success(comments.await())
 
-                    // The network copy is now the freshest: persist it back to the feed
-                    // cache and update the single row in the in-memory feed list, so
-                    // the post list shows the new score / comment count immediately.
-                    val data = PostUtil.getPostData(listings)
-                    profileId?.let { feedCoordinator.applyPostUpdate(it, data) }
-                    FeedDebug.log("detail load: network ok id=${data.name}")
+                            // The network copy is now the freshest: persist it back to the feed
+                            // cache and update the single row in the in-memory feed list, so
+                            // the post list shows the new score / comment count immediately.
+                            val data = PostUtil.getPostData(listings)
+                            profileId?.let { feedCoordinator.applyPostUpdate(it, data) }
+                            FeedDebug.log(
+                                "detail load: network ok id=${data.name}" +
+                                    (if (attempt > 1) " (recovered on attempt $attempt)" else "")
+                            )
+                        }
+                    return@launch // succeeded — stop retrying
+                } catch (e: CancellationException) {
+                    throw e // Screen gone / scope cancelled: stop, do not surface an error.
+                } catch (e: Throwable) {
+                    lastError = e
+                    FeedDebug.log(
+                        "detail load: attempt $attempt/$MAX_FETCH_ATTEMPTS failed " +
+                            "(${e::class.simpleName}: ${e.message})"
+                    )
                 }
+                if (attempt < MAX_FETCH_ATTEMPTS) {
+                    delay(BACKOFF_BASE_MS * (1L shl (attempt - 1))) // 1s, 2s, 4s
+                }
+            }
+            // Every attempt failed: surface the error. The error row's retry button
+            // calls refreshPost() again, so the user can always try manually.
+            val e = lastError!!
+            when (e) {
+                is IOException -> {
+                    _post.value = Resource.Error(message = e.message)
+                    _comments.value = Resource.Error(message = e.message)
+                }
+                is HttpException -> {
+                    _post.value = Resource.Error(e.code(), e.message())
+                    _comments.value = Resource.Error(e.code(), e.message())
+                }
+                else -> {
+                    _post.value = Resource.Error()
+                    _comments.value = Resource.Error()
+                }
+            }
         }
     }
 
@@ -235,5 +264,9 @@ class PostDetailsViewModel @Inject constructor(
         private const val DEPTH_LIMIT = 3
         private val DEFAULT_SORTING = Sorting(Sort.BEST)
         private val PERMALINK_ID_REGEX = Regex("/comments/([a-z0-9]+)/?")
+        // Automatic retries for a failed post fetch (404 or similar) before an
+        // error is surfaced. 3 attempts = ~7s of backoff total.
+        private const val MAX_FETCH_ATTEMPTS = 3
+        private const val BACKOFF_BASE_MS = 1_000L
     }
 }
