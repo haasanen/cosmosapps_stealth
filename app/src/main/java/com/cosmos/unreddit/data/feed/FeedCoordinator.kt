@@ -3,6 +3,10 @@ package com.cosmos.unreddit.data.feed
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.cosmos.unreddit.data.local.RedditDatabase
 import com.cosmos.unreddit.data.local.dao.FeedCacheDao
 import com.cosmos.unreddit.data.local.mapper.PostMapper2
@@ -29,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -63,6 +68,7 @@ class FeedCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,
     @RedditMoshi private val moshi: Moshi,
     private val postMapper: PostMapper2,
+    private val preferences: DataStore<Preferences>,
     @DefaultDispatcher private val io: CoroutineDispatcher
 ) {
 
@@ -100,47 +106,183 @@ class FeedCoordinator @Inject constructor(
     private var activeCycle: Job? = null
 
     /**
-     * Failed-sub auto-retry (2026-09-05): when a cycle ends normally but some
-     * subreddits failed — the classic cause is backgrounding the app mid-refresh,
-     * which suspends the device's network and kills DNS for the whole process —
-     * the app must finish that refresh itself. [scheduleRetryChain] re-fetches
-     * ONLY the still-failed subs (never the whole 73-sub fan-out again), with a
-     * bounded attempt budget and doubling backoff, so a dead network is never
-     * hammered. The chain keeps running while the app is backgrounded — the retry
-     * is precisely for the window where the network comes back; a new [refresh]
-     * (trigger, pull-to-refresh) supersedes the chain at any point. A CONFIRMED CF
-     * block (the hard-error path of [refresh]) deliberately never lands here —
-     * retrying a block is the hammering pattern the fan-out stagger exists to
-     * avoid.
+     * Failed-sub auto-retry (2026-09-06, v2.5.53): when a cycle ends normally but some
+     * subreddits failed — classically because the app was backgrounded mid-refresh,
+     * which suspends the device's network and kills DNS for the whole process — the
+     * app must finish that refresh itself.
+     *
+     * Design correction (v2.5.52 proved the inverse fails): the v2.5.52 chain kept
+     * ticking while backgrounded — the log line `failed-sub retry #1: 53 subs
+     * (backoff 15000ms) online=true` shows [isOnline] reporting "online" while all
+     * 153 requests were dying with UnknownHostException: the connectivity FLAG stays
+     * set for a backgrounded process whose sockets are dead. All 3 rounds therefore
+     * ran against the dead link while the user was in the other app, the budget was
+     * spent, and the reopen still showed 53 stale subs. v2.5.53 inverts the premise:
+     *
+     *  1. Rounds run ONLY while the app is in the FOREGROUND (its network actually
+     *     works). Backgrounding waits at zero cost — the budget is ROUNDS, not time,
+     *     so a round may wait 30 s or 30 min for the foreground; it is spent only
+     *     on a real attempt.
+     *  2. The pending retry is PERSISTED (DataStore) the moment it is created, so a
+     *     process death while backgrounded cannot lose it: [init] restores it from
+     *     disk on every app launch. A 24 h TTL drops it only when it is long past.
+     *  3. A round that CONFIRMS nothing is still an attempt (the budget bounds
+     *     hammering a genuinely dead network); a round that confirms >=1 sub is
+     *     free — it proves the network works and the rest of the subs stay queued.
+     *
+     * A new [refresh] that reaches the network (a REAL fan-out) supersedes the
+     * pending retry: it re-fetches everything anyway. The cache-first and offline
+     * early-return paths do NOT — those never re-fetch, so the pending subs would
+     * be stranded. A CONFIRMED CF block never starts a retry: retrying a block is
+     * the hammering pattern the fan-out stagger exists to avoid.
      */
     private var retryChainJob: Job? = null
 
     /**
-     * Epoch of the in-flight refresh episode. Bumped each time a new fan-out
-     * starts; the failed-sub retry chain checks it before writing state, so a
-     * chain that outlived its episode (cancellation is cooperative and lags one
-     * suspension point) can never write stale feed state.
+     * A failed-sub retry persisted across process death. Deliberately TINY: it stores
+     * only which subs still need fetching — never post payloads. The confirmed subs'
+     * posts are already in the feed_cache table (persistConfirmed ran before the retry
+     * started), so [restorePendingRetry] rebuilds the confirmed results from the DB.
+     *
+     * [allSubs] is the full subscription list in its ORIGINAL order (defines the feed
+     * interleave order); [failed] is the still-failed list (shrinks as rounds confirm
+     * subs); [streak] is the consecutive no-confirmation round count (the budget —
+     * a confirming round resets it, so "the network is back, finish the job" is not
+     * artificially capped, while a genuinely dead network stops after
+     * [MAX_RETRY_ATTEMPTS] consecutive empty rounds).
+     */
+    private data class PendingRetry(
+        val profileId: Int,
+        val allSubs: List<String>,
+        val failed: List<String>,
+        val sort: Sort,
+        val streak: Int,
+        val createdAt: Long
+    ) {
+        /** The subs this retry is NOT re-fetching (their fresh posts are in the DB). */
+        val confirmedSubs: List<String>
+            get() = allSubs.filter { c -> failed.none { it.equals(c, ignoreCase = true) } }
+    }
+
+    private val pendingRetryKey = stringPreferencesKey("feed_pending_retry")
+
+    private fun PendingRetry.encodeLite(): String =
+        runCatching { moshi.adapter(PendingRetry::class.java).toJson(this) }.getOrDefault("")
+
+    private fun decodePendingRetry(json: String): PendingRetry? =
+        runCatching { moshi.adapter(PendingRetry::class.java).fromJson(json) }.getOrNull()
+
+    /**
+     * Rebuild a [PendingRetry]'s confirmed per-sub results from the feed_cache table:
+     * persistConfirmed() already atomically wrote each confirmed sub's fresh posts
+     * before the retry started, so the DB is the source of truth. A sub whose rows
+     * vanished (purge race, DB cleared) is put back on the failed list — re-fetching
+     * is always safe; showing nothing would be a regression.
+     */
+    private suspend fun rebuildPendingResults(
+        profileId: Int,
+        allSubs: List<String>,
+        failed: List<String>
+    ): Pair<List<String>, Map<String, List<PostData>>> {
+        val results = LinkedHashMap<String, List<PostData>>()
+        val stillFailed = ArrayList(failed)
+        for (sub in allSubs) {
+            if (failed.any { it.equals(sub, ignoreCase = true) }) continue
+            val rows = runCatching { db.feedCacheDao().bySubreddit(profileId, sub) }
+                .getOrDefault(emptyList())
+            val posts = rows.mapNotNull { toPostData(it.postJson) }
+            if (posts.isNotEmpty()) {
+                results[sub] = posts
+            } else {
+                stillFailed.add(sub)
+            }
+        }
+        return stillFailed to results
+    }
+
+    /**
+     * Restore a pending failed-sub retry that survived a process death (called from
+     * [init] on every launch). Android kills backgrounded processes — the in-memory
+     * chain dies with them, which is exactly why the pending state lives on disk.
+     */
+    private fun restorePendingRetry() {
+        scope.launch {
+            runCatching {
+                val json = preferences.data.first()[pendingRetryKey] ?: return@launch
+                val pending = decodePendingRetry(json) ?: return@launch
+                if (pending.failed.isEmpty() || pending.allSubs.isEmpty()) {
+                    preferences.edit { it.remove(pendingRetryKey) }
+                    return@launch
+                }
+                if (System.currentTimeMillis() - pending.createdAt > PENDING_RETRY_TTL_MS) {
+                    // Long past: the cached data is older than the pending window and a
+                    // normal refresh will handle it — do not resurrect stale subs.
+                    preferences.edit { it.remove(pendingRetryKey) }
+                    FeedDebug.log(
+                        "pending retry dropped (older than TTL): ${pending.failed.size} subs"
+                    )
+                    return@launch
+                }
+                // Rebuild the confirmed results from the DB; subs whose cache rows are
+                // gone rejoin the failed list.
+                val (failed, results) = rebuildPendingResults(
+                    pending.profileId, pending.allSubs, pending.failed
+                )
+                if (failed.isEmpty()) {
+                    preferences.edit { it.remove(pendingRetryKey) }
+                    return@launch
+                }
+                FeedDebug.log(
+                    "pending retry RESTORED after relaunch: ${failed.size} subs " +
+                        "(streak=${pending.streak}, age=${(System.currentTimeMillis() - pending.createdAt) / 1000}s)"
+                )
+                startRetryChain(pending.copy(failed = failed), episode = episodeGeneration, results)
+            }
+        }
+    }
+
+    /**
+     * Whether the app is in the foreground (at least partially visible), driven by
+     * the single activity's onStart/onStop. Failed-sub retry rounds run ONLY while
+     * this is true: on this device the backgrounded process's network is suspended
+     * (DNS dies) — a round spent there is guaranteed to fail.
+     */
+    private val appVisible = MutableStateFlow(false)
+
+    fun onForeground() {
+        if (!appVisible.value) {
+            appVisible.value = true
+            FeedDebug.log("app foreground")
+        }
+    }
+
+    fun onBackground() {
+        if (appVisible.value) {
+            appVisible.value = false
+            FeedDebug.log("app background")
+        }
+    }
+
+    init {
+        // Restore a pending failed-sub retry that survived process death. This MUST
+        // be a real init block (not a bare call in the field section): @Inject field
+        // properties (preferences, db) are assigned by Hilt before init runs. Android
+        // kills backgrounded processes — the in-memory chain dies with them, which is
+        // exactly why the pending state lives on disk (a few hundred bytes, never
+        // post payloads). The record was persisted the moment it was created, so on
+        // every launch we pick it back up and let it run its foreground rounds from
+        // where it stopped.
+        restorePendingRetry()
+    }
+
+    /**
+     * Epoch of the in-flight refresh episode. Bumped each time a NEW fan-out cycle
+     * starts; the failed-sub retry checks it before writing state, so a chain that
+     * outlived its episode (cancellation is cooperative and lags one suspension
+     * point) can never write stale feed state.
      */
     @Volatile
     private var episodeGeneration = 0
-
-    /** Everything needed to re-merge the feed after re-fetching failed subs. */
-    private data class CycleSnapshot(
-        /** Full subscription list of the cycle (order preserved). */
-        val subs: List<String>,
-        /**
-         * Every subreddit -> its posts fetched in the base cycle. Subs that are
-         * still failed map to an empty list — their cached posts are kept and
-         * shown with a stale timestamp until a retry confirms them.
-         */
-        val results: Map<String, List<PostData>>,
-        /** Subreddits still failed (the re-fetch targets of the next attempt). */
-        val failed: List<String>,
-        val sort: Sort,
-        val profileId: Int,
-        val seen: Set<String>,
-        val saved: Set<String>
-    )
 
     /** TTL for cache rows, set per [refresh] call from the user's preference. */
     @Volatile
@@ -186,11 +328,11 @@ class FeedCoordinator @Inject constructor(
             return Job()
         }
         activeCycle?.cancel()
-        // A new full cycle supersedes any pending failed-sub retry chain: it will
-        // re-fetch everything anyway, and a stale chain's state writes must not
-        // interleave with the new cycle (generation guard, below).
-        retryChainJob?.cancel()
-        episodeGeneration++
+        // Do NOT cancel the pending failed-sub retry here: the cache-first and
+        // offline paths below never re-fetch, so cancelling the chain here would
+        // strand the still-failed subs (the v2.5.52 trap in the other direction —
+        // a plain tab-return refresh silently kills the pending retry). Only a
+        // refresh that REACHES THE NETWORK supersedes it (see the fan-out block).
         val episode = episodeGeneration
         com.cosmos.unreddit.ui.postlist.FeedDebug.lastRefreshArgs.set(
             "profile=$profileId subs=${subs.size}"
@@ -284,6 +426,18 @@ class FeedCoordinator @Inject constructor(
             // The last snapshot's confirmed (non-failed) per-sub results, aligned to
             // [subs] — used for the per-sub atomic cache replace (ISSUE A).
             var lastConfirmed: List<List<PostData>> = emptyList()
+            // A refresh that REACHES THE NETWORK supersedes any pending failed-sub
+            // retry: this cycle re-fetches every sub anyway, so the pending subs
+            // either join this cycle's finalFailedSubs (re-persisted below) or are
+            // confirmed here. Bump the episode so a still-running old chain bails,
+            // and drop the persisted record.
+            episodeGeneration++
+            val episode = episodeGeneration
+            retryChainJob?.cancel()
+            retryChainJob = null
+            runCatching {
+                preferences.edit { it.remove(pendingRetryKey) }
+            }
             try {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
                 officialSource.getSubredditFanOutProgressive(
@@ -388,6 +542,8 @@ class FeedCoordinator @Inject constructor(
             //    never confirmed (network died mid-cycle — classically app
             //    backgrounding), the app finishes the refresh itself instead of
             //    waiting for the user to pull again at exactly the right moment.
+            //    The pending retry is PERSISTED before the first round (survives
+            //    process death) and runs only while the app is foreground.
             if (finalFailedSubs.isNotEmpty()) {
                 val resultsMap = if (lastConfirmed.size == subs.size) {
                     subs.zip(lastConfirmed).associate { (sub, list) -> sub to list }
@@ -396,17 +552,17 @@ class FeedCoordinator @Inject constructor(
                     // path): nothing is confirmed, everything is a retry target.
                     subs.associateWith { emptyList<PostData>() }
                 }
-                scheduleRetryChain(
-                    CycleSnapshot(
-                        subs = subs,
-                        results = resultsMap,
+                startRetryChain(
+                    PendingRetry(
+                        profileId = profileId,
+                        allSubs = subs,
                         failed = finalFailedSubs.toList(),
                         sort = sort,
-                        profileId = profileId,
-                        seen = seenSet,
-                        saved = savedSet
+                        streak = 0,
+                        createdAt = System.currentTimeMillis()
                     ),
-                    episode = episode
+                    episode = episode,
+                    results = resultsMap
                 )
             }
         }
@@ -416,56 +572,82 @@ class FeedCoordinator @Inject constructor(
     }
 
     /**
-     * Failed-sub auto-retry chain (2026-09-05): the follow-up to a cycle that
+     * Failed-sub auto-retry chain (v2.5.53): the follow-up to a cycle that
      * finished with failed subreddits — classically because the app was
-     * backgrounded mid-refresh and Android suspended the device's network.
+     * backgrounded mid-refresh and Android suspended the process's network
+     * (DNS dies: 153 x UnknownHostException in the 2026-09-06 device log).
      *
-     * Re-fetches ONLY the still-failed subs (never the whole fan-out again), at
-     * most [MAX_RETRY_ATTEMPTS] rounds with doubling backoff, so a dead network
-     * is never hammered and the device's wake budget stays intact. The chain
-     * runs in [scope] (app lifetime, not the UI lifecycle) — that is the point:
-     * it keeps ticking while the app is backgrounded, which is exactly the
-     * window where the network comes back. Every round ends in the SAME
-     * user-visible state as a manual pull-to-refresh: the newly confirmed subs
-     * are persisted, merged into the feed, and only the still-failed ones are
-     * listed. A new [refresh] (trigger, pull) supersedes the chain at any
-     * point; [episodeGeneration] keeps a cancelling chain's in-flight state
-     * writes from interleaving with the successor.
+     * v2.5.52's design was inverted — it kept ticking WHILE backgrounded, so all
+     * 3 rounds ran against the suspended link while the user was in another app
+     * and the budget was spent before they came back. This version:
+     *  - rounds run ONLY while the app is in the FOREGROUND ([appVisible]);
+     *    backgrounding waits at zero cost — the budget is CONSECUTIVE EMPTY
+     *    ROUNDS, not time, so a round may wait minutes for the foreground;
+     *  - the pending state is PERSISTED to DataStore the moment it exists (a
+     *    few hundred bytes: which subs, sort, streak — never post payloads; the
+     *    confirmed subs' posts are already in the feed_cache table), so a
+     *    process death cannot lose it; [restorePendingRetry] picks it back up
+     *    on the next launch;
+     *  - a round that CONFIRMS at least one sub resets the streak (the network
+     *    works — finish the job); a round that confirms nothing counts against
+     *    the budget (a genuinely dead network stops after
+     *    [MAX_RETRY_ATTEMPTS] consecutive empty rounds);
+     *  - a new [refresh] that reaches the network supersedes the chain;
+     *    [episodeGeneration] keeps a superseded chain's state writes from
+     *    interleaving with the new cycle.
      *
-     * A CONFIRMED Cloudflare block (FeedBlockedException from the base cycle)
-     * never starts a chain: retrying a block is the hammering pattern the
-     * fan-out stagger exists to avoid.
+     * Every round ends in the SAME user-visible state as a manual pull-to-
+     * refresh: the newly confirmed subs are persisted, merged into the feed,
+     * and only the still-failed ones are listed (their cached posts kept).
+     *
+     * [results] is the in-memory confirmed per-sub map (base cycle's confirmed
+     * results + any the chain confirms); it is NOT persisted — after a process
+     * death [rebuildPendingResults] reconstructs it from the feed_cache table.
      */
-    private fun scheduleRetryChain(snapshot: CycleSnapshot, episode: Int) {
-        if (snapshot.failed.isEmpty()) return
+    private fun startRetryChain(pending: PendingRetry, episode: Int, results: Map<String, List<PostData>>) {
+        if (pending.failed.isEmpty()) return
         retryChainJob = scope.launch {
-            var current = snapshot
-            var attempt = 0
-            while (current.failed.isNotEmpty() && attempt < MAX_RETRY_ATTEMPTS) {
+            // Persist BEFORE the first round: the window in which a process death
+            // can lose the retry opens the moment the retry exists.
+            runCatching { preferences.edit { it[pendingRetryKey] = pending.encodeLite() } }
+            FeedDebug.log(
+                "failed-sub retry started: ${pending.failed.size} subs " +
+                    "(streak=${pending.streak} pendingAge=${(System.currentTimeMillis() - pending.createdAt) / 1000}s)"
+            )
+            var current = pending
+            var confirmed = LinkedHashMap(results)
+            while (current.failed.isNotEmpty() && current.streak < MAX_RETRY_ATTEMPTS) {
                 if (episodeGeneration != episode) return@launch
-                attempt++
-                val backoff = RETRY_BASE_DELAY_MS * (1L shl (attempt - 1))
-                FeedDebug.log(
-                    "failed-sub retry #${attempt}: ${current.failed.size} subs " +
-                        "(backoff ${backoff}ms) online=${isOnline()}"
-                )
-                delay(backoff)
+                // 1. Foreground gate: wait (free) until the app is visible. This
+                //    is the v2.5.52 correction — isOnline() alone is NOT a
+                //    sufficient trigger, because the capability flag stays set
+                //    for a backgrounded process whose sockets are dead.
+                appVisible.first { it }
                 if (episodeGeneration != episode) return@launch
-                // Wait for a usable network before spending requests: the chain
-                // exists for the "network comes back" moment, not to probe a
-                // dead link every backoff tick. Bounded so a permanently dead
-                // link falls through to the round (which then fails cleanly
-                // and the outer budget bounds the total).
-                var waitTicks = 0
-                while (!isOnline() && waitTicks < MAX_WAIT_TICKS && episodeGeneration == episode) {
-                    delay(RETRY_BASE_DELAY_MS)
-                    waitTicks++
+                val waited = System.currentTimeMillis() - current.createdAt
+                // 2. Backoff after a failed round: don't re-hit a link that just
+                //    refused us. Round 1 (fresh start, no prior failure) goes
+                //    straight in.
+                if (current.streak > 0) {
+                    val backoff = RETRY_BASE_DELAY_MS * (1L shl (current.streak - 1).coerceAtMost(2))
+                    FeedDebug.log("failed-sub retry: backoff ${backoff}ms")
+                    delay(backoff)
+                    if (episodeGeneration != episode) return@launch
                 }
-                if (episodeGeneration != episode) return@launch
-                val retryMultiredd = current.failed.joinToString("+")
+                FeedDebug.log(
+                    "failed-sub retry round: ${current.failed.size} subs " +
+                        "foreground online=${isOnline()} waited=${waited / 1000}s streak=${current.streak}"
+                )
+                // 3. The round: re-fetch ONLY the still-failed subs (never the
+                //    whole fan-out again). stream=false: a single final emission
+                //    whose perSub is aligned 1:1 to the requested order — a dead
+                //    sub still gets an empty entry and a failedSubs membership
+                //    (verified: sendSnapshot builds perSub = subs.mapNotNull{...}
+                //    in original order, failed subs recorded emptyList()), so the
+                //    index into current.failed IS the index into page.perSub.
                 val roundResult = runCatching {
                     officialSource.getSubredditFanOutProgressive(
-                        multiredd = retryMultiredd,
+                        multiredd = current.failed.joinToString("+"),
                         sort = current.sort,
                         timeSorting = null,
                         after = null,
@@ -475,26 +657,18 @@ class FeedCoordinator @Inject constructor(
                 if (episodeGeneration != episode) return@launch
                 roundResult.fold(
                     onSuccess = { page ->
-                        // Only subs the retry CONFIRMED move from failed to
-                        // confirmed; the rest stay in the failed list for the
-                        // next attempt (or, when the budget is spent, they keep
-                        // their cached posts — the toast names them).
-                        val results = LinkedHashMap(current.results)
+                        // Only subs the retry CONFIRMED move failed -> confirmed;
+                        // the rest stay in the failed list (they keep their
+                        // cached posts — the state's failedSubs names them).
                         val stillFailed = ArrayList(current.failed)
                         val confirmedThisRound = ArrayList<String>()
-                        // perSub is aligned 1:1 to the requested multiredd order
-                        // (a dead sub still gets an empty entry — the worker
-                        // records emptyList() and adds it to failedSubs), so the
-                        // index in current.failed IS the index into page.perSub.
                         for ((idx, sub) in current.failed.withIndex()) {
                             val confirmed = idx < page.perSub.size &&
                                 page.failedSubs.none { it.equals(sub, ignoreCase = true) }
                             if (confirmed) {
-                                results[sub] = page.perSub[idx].map { it.data }
+                                confirmed[sub] = page.perSub[idx].map { it.data }
                                 stillFailed.remove(sub)
                                 confirmedThisRound.add(sub)
-                                // A confirmed empty feed (noData) is still a
-                                // confirmed result: replace the stale cache.
                             }
                         }
                         if (confirmedThisRound.isNotEmpty()) {
@@ -504,76 +678,121 @@ class FeedCoordinator @Inject constructor(
                             persistConfirmed(
                                 profileId = current.profileId,
                                 subs = confirmedThisRound,
-                                confirmed = confirmedThisRound.map { results[it] ?: emptyList() },
+                                confirmed = confirmedThisRound.map { confirmed[it] ?: emptyList() },
                                 failedSubs = emptySet()
                             )
                             runPurge(current.profileId)
                         }
-                        val nextSnapshot = current.copy(results = results, failed = stillFailed)
-                        // Re-emit the feed exactly as a pull-to-refresh would:
-                        // fresh (confirmed) posts on top, failed subs' cached
-                        // posts kept, only the still-failed list narrowed.
-                        val merged = FeedMerge.merge(
-                            freshPerSub = nextSnapshot.results.values.map { list ->
-                                list.map { PostChild(it) }
-                            },
-                            cache = loadCache(current.profileId),
-                            sort = current.sort,
-                            failedSubs = stillFailed.toSet()
-                        ).map { it.data }
-                        val freshIds = nextSnapshot.results.values.flatten()
-                            .map { it.name }
-                            .toHashSet()
-                        val posts = mapToEntities(merged, current.seen, current.saved)
-                        _state.update { s ->
-                            if (s.profileId != current.profileId) {
-                                s // A different profile took over; don't stomp it.
-                            } else {
-                                s.copy(
-                                    posts = posts,
-                                    refreshing = false,
-                                    progress = null,
-                                    offline = false,
-                                    fromCacheOnly = false,
-                                    lastRefresh = System.currentTimeMillis(),
-                                    freshIds = freshIds,
-                                    failedSubs = stillFailed,
-                                    error = if (s.posts.isEmpty()) "No posts loaded." else null
-                                )
-                            }
-                        }
-                        FeedDebug.log(
-                            "failed-sub retry #$attempt done: " +
-                                "confirmed=${confirmedThisRound.size} " +
-                                "stillFailed=${stillFailed.size}"
+                        // Streak: a confirming round resets the budget (network
+                        // works, finish the job); an empty round consumes one.
+                        current = current.copy(
+                            failed = stillFailed,
+                            streak = if (confirmedThisRound.isEmpty()) current.streak + 1 else 0
                         )
-                        current = nextSnapshot
+                        emitRetryState(current, stillFailed, confirmed)
+                        FeedDebug.log(
+                            "failed-sub retry round done: confirmed=${confirmedThisRound.size} " +
+                                "stillFailed=${stillFailed.size} streak=${current.streak}"
+                        )
+                        if (current.failed.isEmpty()) {
+                            // All subs confirmed: the retry is complete, drop the
+                            // persisted record.
+                            runCatching { preferences.edit { it.remove(pendingRetryKey) } }
+                            return@launch
+                        }
+                        // Persist the SHRUNKEN pending state before the next wait:
+                        // if the process dies while backgrounded again, the next
+                        // launch restores exactly what is still outstanding.
+                        runCatching {
+                            preferences.edit { it[pendingRetryKey] = current.encodeLite() }
+                        }
                     },
                     onFailure = { e ->
-                        // CancellationException: the episode moved on (superseded
-                        // by a new refresh or shutdown) — stop silently.
+                        // CancellationException: superseded by a new refresh or
+                        // shutdown — stop silently. FeedBlockedException: the
+                        // retry path hit a confirmed CF block — stop (retrying a
+                        // block is the hammering pattern the stagger avoids).
                         if (e is kotlinx.coroutines.CancellationException ||
                             e is RedditOfficialSource.FeedBlockedException
                         ) {
                             return@launch
                         }
+                        // A round that threw (network death mid-round) counts as
+                        // an empty round against the streak.
+                        current = current.copy(streak = current.streak + 1)
+                        runCatching {
+                            preferences.edit { it[pendingRetryKey] = current.encodeLite() }
+                        }
                         FeedDebug.log(
-                            "failed-sub retry #$attempt failed: " +
-                                "${e.javaClass.simpleName}: ${e.message}"
+                            "failed-sub retry round failed: ${e.javaClass.simpleName}: ${e.message} " +
+                                "(streak=${current.streak})"
                         )
                     }
                 )
             }
             if (episodeGeneration == episode && current.failed.isNotEmpty()) {
-                // Budget exhausted: the chain stops; the still-failed subs keep
-                // their cached posts and the state's failedSubs list already
-                // names them (the UI toast did its job at the base cycle).
+                // Budget spent (MAX_RETRY_ATTEMPTS consecutive empty rounds):
+                // stop, and DROP the persisted record — a normal pull re-fetches
+                // everything anyway, and leaving a stale record on disk would
+                // resurrect a dead chain on every launch.
+                runCatching { preferences.edit { it.remove(pendingRetryKey) } }
                 FeedDebug.log(
                     "failed-sub retry: budget exhausted, " +
                         "${current.failed.size} subs left on cache"
                 )
             }
         }
+    }
+
+    /** Re-emit the feed after a retry round, exactly like a pull-to-refresh would. */
+    private suspend fun emitRetryState(
+        current: PendingRetry,
+        stillFailed: List<String>,
+        confirmed: Map<String, List<PostData>>
+    ) {
+        // Fresh per-sub data for the merge, in the ORIGINAL sub order: confirmed
+        // subs = base cycle results + this round's results; failed subs = empty
+        // list — their cache rows stay in the DB and are merged in below (kept
+        // whole by FeedMerge's failedSubs rule).
+        val freshPerSub = current.allSubs.map { sub ->
+            (confirmed[sub] ?: emptyList()).map { PostChild(it) }
+        }
+        val cache = loadCache(current.profileId)
+        val merged = FeedMerge.merge(
+            freshPerSub = freshPerSub,
+            cache = cache,
+            sort = current.sort,
+            failedSubs = stillFailed.toSet()
+        ).map { it.data }
+        val freshIds = merged.map { it.name }.toHashSet()
+        val (seen, saved) = badgeSets(current.profileId)
+        val posts = mapToEntities(merged, seen, saved)
+        _state.update { s ->
+            if (s.profileId != current.profileId) {
+                s // A different profile took over; don't stomp it.
+            } else {
+                s.copy(
+                    posts = posts,
+                    refreshing = false,
+                    progress = null,
+                    offline = false,
+                    fromCacheOnly = false,
+                    lastRefresh = System.currentTimeMillis(),
+                    freshIds = freshIds,
+                    failedSubs = stillFailed,
+                    error = if (s.posts.isEmpty()) "No posts loaded." else null
+                )
+            }
+        }
+    }
+
+    /** Seen/saved badge sets straight from the DB (the chain outlives refresh args). */
+    private suspend fun badgeSets(profileId: Int): Pair<Set<String>, Set<String>> {
+        val history = runCatching { db.historyDao().getHistoryIdsFromProfile(profileId).first() }
+            .getOrDefault(emptyList())
+        val saved = runCatching { db.postDao().getSavedPostIdsFromProfile(profileId).first() }
+            .getOrDefault(emptyList())
+        return history.toHashSet() to saved.toHashSet()
     }
 
     /**
@@ -942,18 +1161,24 @@ class FeedCoordinator @Inject constructor(
         private const val UPSERT_BATCH = 200
 
         /**
-         * Failed-sub auto-retry budget: max rounds per interrupted cycle.
-         * 3 x (15s, 30s, 60s) backoff ≈ 105s of coverage — long enough for the
-         * network to recover after a backgrounding suspension, short enough to
-         * stop probing a network that is genuinely gone.
+         * Failed-sub auto-retry budget: max CONSECUTIVE ROUNDS THAT CONFIRM
+         * NOTHING. A round that confirms at least one sub resets the streak —
+         * the network demonstrably works, so the chain keeps going until every
+         * sub is confirmed or the network dies again. 3 empty rounds at
+         * 15s/30s/60s backoff (≈105s of probing) is long enough for the
+         * post-backgrounding network to recover, short enough to stop probing
+         * a link that is genuinely gone.
          */
         private const val MAX_RETRY_ATTEMPTS = 3
-        /** Base delay of the retry backoff (doubles per attempt). */
+        /** Base delay of the retry backoff (doubles per consecutive empty round). */
         private const val RETRY_BASE_DELAY_MS = 15_000L
         /**
-         * Max ticks the chain waits for [isOnline] to come back before spending
-         * a round anyway (bounded probe). 10 x 15s = 150s per attempt.
+         * A persisted pending retry older than this is dropped on restore: the
+         * sub list it carries may be stale (the user can unsubscribe between
+         * crashes) and its cache rows are already older than the pending window.
+         * 24 h is generous; the record is tiny, so the cost of keeping it is
+         * nothing and the cost of a stale one is one extra refresh.
          */
-        private const val MAX_WAIT_TICKS = 10
+        private const val PENDING_RETRY_TTL_MS = 24L * 3_600_000L
     }
 }
