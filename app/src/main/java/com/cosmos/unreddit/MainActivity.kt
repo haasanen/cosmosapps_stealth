@@ -18,6 +18,7 @@ import androidx.navigation.ui.setupWithNavController
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.LEFT_HANDED
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.NOT_INITIALIZED
 import com.cosmos.unreddit.MainActivity.BottomNavigationState.RIGHT_HANDED
+import com.cosmos.unreddit.data.feed.FeedCoordinator
 import com.cosmos.unreddit.databinding.ActivityMainBinding
 import com.cosmos.unreddit.ui.postlist.PostListFragment
 import com.cosmos.unreddit.util.HideBottomViewBehavior
@@ -29,11 +30,14 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.shape.CornerFamily
 import com.google.android.material.shape.MaterialShapeDrawable
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedListener {
+class MainActivity @Inject constructor(
+    private val feedCoordinator: FeedCoordinator
+) : AppCompatActivity(), NavController.OnDestinationChangedListener {
 
     private lateinit var binding: ActivityMainBinding
 
@@ -42,6 +46,20 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
     private lateinit var navController: NavController
 
     private var bottomNavigationState: BottomNavigationState = NOT_INITIALIZED
+
+    // v2.5.53: feed the coordinator's foreground gate. Failed-sub retry rounds
+    // run ONLY while the app is visible (onStart..onStop): a backgrounded
+    // process's network is suspended on this device, so a background round is
+    // guaranteed to fail — v2.5.52 burned its whole retry budget that way.
+    override fun onStart() {
+        super.onStart()
+        feedCoordinator.onForeground()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        feedCoordinator.onBackground()
+    }
 
     override fun attachBaseContext(base: android.content.Context) {
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: entry")
