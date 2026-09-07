@@ -35,9 +35,15 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity @Inject constructor(
-    private val feedCoordinator: FeedCoordinator
-) : AppCompatActivity(), NavController.OnDestinationChangedListener {
+class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedListener {
+
+    // v2.5.53: feed the coordinator's foreground visibility (onStart..onStop).
+    // v2.5.54: field injection (not constructor) so the class keeps a no-arg
+    // constructor — the Instantiatable lint check requires it for the manifest
+    // activity. Hilt populates injected fields before onCreate, so the first
+    // onStart (which calls onForeground) always sees a non-null field.
+    @Inject
+    lateinit var feedCoordinator: FeedCoordinator
 
     private lateinit var binding: ActivityMainBinding
 
