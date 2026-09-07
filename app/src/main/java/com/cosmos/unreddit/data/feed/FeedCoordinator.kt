@@ -7,9 +7,12 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.cosmos.unreddit.R
+import com.cosmos.unreddit.data.feed.PreviewResolver
 import com.cosmos.unreddit.data.local.RedditDatabase
 import com.cosmos.unreddit.data.local.dao.FeedCacheDao
 import com.cosmos.unreddit.data.local.mapper.PostMapper2
+import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.db.FeedCache
 import com.cosmos.unreddit.data.model.db.PostEntity
@@ -69,6 +72,7 @@ class FeedCoordinator @Inject constructor(
     @RedditMoshi private val moshi: Moshi,
     private val postMapper: PostMapper2,
     private val preferences: DataStore<Preferences>,
+    private val previewResolver: PreviewResolver,
     @DefaultDispatcher private val io: CoroutineDispatcher
 ) {
 
@@ -106,29 +110,29 @@ class FeedCoordinator @Inject constructor(
     private var activeCycle: Job? = null
 
     /**
-     * Failed-sub auto-retry (2026-09-06, v2.5.53): when a cycle ends normally but some
-     * subreddits failed — classically because the app was backgrounded mid-refresh,
-     * which suspends the device's network and kills DNS for the whole process — the
-     * app must finish that refresh itself.
+     * Failed-sub auto-retry (2026-09-06, v2.5.54): when a cycle ends normally but some
+     * subreddits failed — classically because the user left the app mid-refresh and
+     * Android suspended the backgrounded process's network (DNS dies) — the app
+     * finishes that refresh ITSELF, in the background, until complete.
      *
-     * Design correction (v2.5.52 proved the inverse fails): the v2.5.52 chain kept
-     * ticking while backgrounded — the log line `failed-sub retry #1: 53 subs
-     * (backoff 15000ms) online=true` shows [isOnline] reporting "online" while all
-     * 153 requests were dying with UnknownHostException: the connectivity FLAG stays
-     * set for a backgrounded process whose sockets are dead. All 3 rounds therefore
-     * ran against the dead link while the user was in the other app, the budget was
-     * spent, and the reopen still showed 53 stale subs. v2.5.53 inverts the premise:
+     * Design (v2.5.52 log: `failed-sub retry #1: 53 subs (backoff 15000ms)
+     * online=true` then 153 x UnknownHostException — the connectivity FLAG stays
+     * set for a backgrounded process whose sockets are dead; the v2.5.53
+     * "wait for foreground" fix made the refresh depend on the user coming
+     * back, which is not what is wanted):
      *
-     *  1. Rounds run ONLY while the app is in the FOREGROUND (its network actually
-     *     works). Backgrounding waits at zero cost — the budget is ROUNDS, not time,
-     *     so a round may wait 30 s or 30 min for the foreground; it is spent only
-     *     on a real attempt.
-     *  2. The pending retry is PERSISTED (DataStore) the moment it is created, so a
-     *     process death while backgrounded cannot lose it: [init] restores it from
-     *     disk on every app launch. A 24 h TTL drops it only when it is long past.
-     *  3. A round that CONFIRMS nothing is still an attempt (the budget bounds
-     *     hammering a genuinely dead network); a round that confirms >=1 sub is
-     *     free — it proves the network works and the rest of the subs stay queued.
+     *  1. Rounds run UNCONDITIONALLY, background or foreground. The process's
+     *     network is kept alive by [FeedRefreshService] — a one-shot foreground
+     *     service started the moment a refresh reaches the network — so a
+     *     backgrounded round has a working link while the service runs. A
+     *     temporary notification tells the user the refresh is continuing.
+     *  2. The pending retry is PERSISTED (DataStore) the moment it is created,
+     *     so a process death (user swipe, low memory) cannot lose it: [init]
+     *     restores it from disk on every app launch. A 24 h TTL drops it only
+     *     when it is long past.
+     *  3. A round that CONFIRMS nothing still counts against the streak budget
+     *     (bounds hammering a genuinely dead network); a round that confirms
+     *     >=1 sub resets the streak (the network works — finish the job).
      *
      * A new [refresh] that reaches the network (a REAL fan-out) supersedes the
      * pending retry: it re-fetches everything anyway. The cache-first and offline
@@ -243,9 +247,10 @@ class FeedCoordinator @Inject constructor(
 
     /**
      * Whether the app is in the foreground (at least partially visible), driven by
-     * the single activity's onStart/onStop. Failed-sub retry rounds run ONLY while
-     * this is true: on this device the backgrounded process's network is suspended
-     * (DNS dies) — a round spent there is guaranteed to fail.
+     * the single activity's onStart/onStop. Kept for log correlation only — the
+     * v2.5.53 foreground gate was removed in v2.5.54: the refresh now continues in
+     * the background (the [FeedRefreshService] foreground service keeps the
+     * process's network alive), so this flag must never gate the retry chain.
      */
     private val appVisible = MutableStateFlow(false)
 
@@ -270,8 +275,8 @@ class FeedCoordinator @Inject constructor(
         // kills backgrounded processes — the in-memory chain dies with them, which is
         // exactly why the pending state lives on disk (a few hundred bytes, never
         // post payloads). The record was persisted the moment it was created, so on
-        // every launch we pick it back up and let it run its foreground rounds from
-        // where it stopped.
+        // every launch we pick it back up and let it keep running (v2.5.54: rounds
+        // run in the background — the service keeps the network alive).
         restorePendingRetry()
     }
 
@@ -419,6 +424,8 @@ class FeedCoordinator @Inject constructor(
                         freshIds = emptySet()
                     )
                 }
+                // The episode ends without a network fetch and without starting the
+                // service: no notification (a tab-return must never pop one).
                 return@launch
             }
             var lastMerged: List<PostData> = emptyList()
@@ -438,6 +445,10 @@ class FeedCoordinator @Inject constructor(
             runCatching {
                 preferences.edit { it.remove(pendingRetryKey) }
             }
+            // v2.5.54: from this point the refresh must CONTINUE even if the user
+            // leaves the app — the one-shot foreground service keeps the process
+            // (and its network) alive and shows a temporary notification.
+            FeedRefreshService.notify(context, context.getString(R.string.feed_refresh_started))
             try {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
                 officialSource.getSubredditFanOutProgressive(
@@ -465,6 +476,37 @@ class FeedCoordinator @Inject constructor(
                     if (page.isFinal) {
                         lastConfirmed = page.perSub.map { list -> list.map { it.data } }
                     }
+                    // v2.5.54: one bounded preview batch per cycle. Any LINK post
+                    // whose Reddit payload carries no preview of its own (media
+                    // preview, gallery or native thumbnail) gets one from its
+                    // target page — oEmbed first, Open Graph og:image as the
+                    // fallback: any site, not just YouTube. Results land in
+                    // [PostData.thumbnail] in place, so the entity mapper, the
+                    // live feed and the feed_cache JSON all pick them up without
+                    // extra wiring. Negatives are remembered (18 h) so a site
+                    // that publishes no image is not re-fetched every cycle.
+                    // Final emission only: exactly one batch per cycle.
+                    if (page.isFinal) {
+                        val candidates = mergedData
+                            .filter { d ->
+                                d.postType == PostType.LINK &&
+                                    (d.previewUrl == null || d.previewUrl.isBlank()) &&
+                                    d.url.isNotBlank()
+                            }
+                            .map { it.url }
+                        if (candidates.isNotEmpty()) {
+                            val resolved = runCatching { previewResolver.resolveBatch(candidates) }
+                                .getOrDefault(emptyMap())
+                            mergedData.forEach { d ->
+                                resolved[d.url]?.let { d.thumbnail = it }
+                            }
+                            if (resolved.isNotEmpty()) {
+                                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                                    "previews resolved: ${resolved.size} of ${candidates.size} link posts"
+                                )
+                            }
+                        }
+                    }
                     val posts = mapToEntities(mergedData, seenSet, savedSet)
                     // Everything the network actually returned this cycle (deduped) is
                     // "fresh"; anything in the merged list that isn't here came from cache.
@@ -476,6 +518,11 @@ class FeedCoordinator @Inject constructor(
                     subredditOrder = page.cursors.keys.toList()
                     _state.update { s ->
                         s.copy(posts = posts, progress = page.progress, refreshing = true, freshIds = freshIds)
+                    }
+                    // v2.5.54: mirror the progress in the background notification
+                    // (throttled — only every Nth emission).
+                    if (n % 5 == 0 || page.isFinal) {
+                        notifyBackgroundProgress(page.progress, page.failedSubs.size)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -515,6 +562,11 @@ class FeedCoordinator @Inject constructor(
                         error = msg ?: "Refresh failed (${e.javaClass.simpleName}). Please try again."
                     )
                 }
+                // v2.5.54: the episode ends here — stop the notification.
+                FeedRefreshService.finish(
+                    context,
+                    context.getString(R.string.feed_refresh_partial, finalFailedSubs.size)
+                )
                 return@launch
             }
 
@@ -543,7 +595,7 @@ class FeedCoordinator @Inject constructor(
             //    backgrounding), the app finishes the refresh itself instead of
             //    waiting for the user to pull again at exactly the right moment.
             //    The pending retry is PERSISTED before the first round (survives
-            //    process death) and runs only while the app is foreground.
+            //    process death) and runs unconditionally, background included.
             if (finalFailedSubs.isNotEmpty()) {
                 val resultsMap = if (lastConfirmed.size == subs.size) {
                     subs.zip(lastConfirmed).associate { (sub, list) -> sub to list }
@@ -564,11 +616,31 @@ class FeedCoordinator @Inject constructor(
                     episode = episode,
                     results = resultsMap
                 )
+            } else {
+                // v2.5.54: the episode is complete — stop the notification.
+                FeedRefreshService.finish(
+                    context,
+                    context.getString(R.string.feed_refresh_complete, subs.size, subs.size)
+                )
             }
         }
         // Expose the cycle job so callers can await completion. [activeCycle]
         // was just assigned.
         return activeCycle ?: Job()
+    }
+
+    /**
+     * v2.5.54: mirror the fan-out progress in the background notification.
+     * Transient by design — the notification disappears with the episode
+     * ([FeedRefreshService.finish]).
+     */
+    private fun notifyBackgroundProgress(progress: RedditOfficialSource.FanOutProgress?, failed: Int) {
+        val message = if (failed > 0) {
+            context.getString(R.string.feed_refresh_retrying, failed, progress?.done ?: 0, progress?.total ?: 0)
+        } else {
+            context.getString(R.string.feed_refresh_started)
+        }
+        FeedRefreshService.notify(context, message)
     }
 
     /**
@@ -579,10 +651,14 @@ class FeedCoordinator @Inject constructor(
      *
      * v2.5.52's design was inverted — it kept ticking WHILE backgrounded, so all
      * 3 rounds ran against the suspended link while the user was in another app
-     * and the budget was spent before they came back. This version:
-     *  - rounds run ONLY while the app is in the FOREGROUND ([appVisible]);
-     *    backgrounding waits at zero cost — the budget is CONSECUTIVE EMPTY
-     *    ROUNDS, not time, so a round may wait minutes for the foreground;
+     * and the budget was spent before they came back.
+     *
+     * v2.5.54: the [FeedRefreshService] foreground service keeps the process's
+     * network alive while the user navigates elsewhere or switches apps, so the
+     * rounds now run unconditionally — [appVisible] is kept for log correlation
+     * only and must never gate this chain. The refresh continues until complete
+     * or the 3-round budget is exhausted.
+     *
      *  - the pending state is PERSISTED to DataStore the moment it exists (a
      *    few hundred bytes: which subs, sort, streak — never post payloads; the
      *    confirmed subs' posts are already in the feed_cache table), so a
@@ -618,12 +694,6 @@ class FeedCoordinator @Inject constructor(
             var confirmed = LinkedHashMap(results)
             while (current.failed.isNotEmpty() && current.streak < MAX_RETRY_ATTEMPTS) {
                 if (episodeGeneration != episode) return@launch
-                // 1. Foreground gate: wait (free) until the app is visible. This
-                //    is the v2.5.52 correction — isOnline() alone is NOT a
-                //    sufficient trigger, because the capability flag stays set
-                //    for a backgrounded process whose sockets are dead.
-                appVisible.first { it }
-                if (episodeGeneration != episode) return@launch
                 val waited = System.currentTimeMillis() - current.createdAt
                 // 2. Backoff after a failed round: don't re-hit a link that just
                 //    refused us. Round 1 (fresh start, no prior failure) goes
@@ -636,7 +706,7 @@ class FeedCoordinator @Inject constructor(
                 }
                 FeedDebug.log(
                     "failed-sub retry round: ${current.failed.size} subs " +
-                        "foreground online=${isOnline()} waited=${waited / 1000}s streak=${current.streak}"
+                        "online=${isOnline()} waited=${waited / 1000}s streak=${current.streak}"
                 )
                 // 3. The round: re-fetch ONLY the still-failed subs (never the
                 //    whole fan-out again). stream=false: a single final emission
@@ -662,10 +732,30 @@ class FeedCoordinator @Inject constructor(
                         // cached posts — the state's failedSubs names them).
                         val stillFailed = ArrayList(current.failed)
                         val confirmedThisRound = ArrayList<String>()
+                        // v2.5.54: the retry episode resolves previews too — one
+                        // bounded batch per round, before persistence, so the
+                        // per-sub atomic replace caches the resolved images with
+                        // the posts.
+                        val roundPosts = page.perSub.flatten().map { it.data }
+                        val roundCandidates = roundPosts
+                            .filter { d ->
+                                d.postType == PostType.LINK &&
+                                    (d.previewUrl == null || d.previewUrl.isBlank()) &&
+                                    d.url.isNotBlank()
+                            }
+                            .map { it.url }
+                        if (roundCandidates.isNotEmpty()) {
+                            val roundResolved = runCatching {
+                                previewResolver.resolveBatch(roundCandidates)
+                            }.getOrDefault(emptyMap())
+                            roundPosts.forEach { d ->
+                                roundResolved[d.url]?.let { d.thumbnail = it }
+                            }
+                        }
                         for ((idx, sub) in current.failed.withIndex()) {
-                            val confirmed = idx < page.perSub.size &&
+                            val confirmedNew = idx < page.perSub.size &&
                                 page.failedSubs.none { it.equals(sub, ignoreCase = true) }
-                            if (confirmed) {
+                            if (confirmedNew) {
                                 confirmed[sub] = page.perSub[idx].map { it.data }
                                 stillFailed.remove(sub)
                                 confirmedThisRound.add(sub)
@@ -696,8 +786,20 @@ class FeedCoordinator @Inject constructor(
                         )
                         if (current.failed.isEmpty()) {
                             // All subs confirmed: the retry is complete, drop the
-                            // persisted record.
+                            // persisted record and stop the notification.
                             runCatching { preferences.edit { it.remove(pendingRetryKey) } }
+                            if (episodeGeneration == episode) {
+                                // A newer cycle may have started its own
+                                // notification; only this episode ends it.
+                                FeedRefreshService.finish(
+                                    context,
+                                    context.getString(
+                                        R.string.feed_refresh_complete,
+                                        current.allSubs.size,
+                                        current.allSubs.size
+                                    )
+                                )
+                            }
                             return@launch
                         }
                         // Persist the SHRUNKEN pending state before the next wait:
@@ -739,6 +841,11 @@ class FeedCoordinator @Inject constructor(
                 FeedDebug.log(
                     "failed-sub retry: budget exhausted, " +
                         "${current.failed.size} subs left on cache"
+                )
+                // v2.5.54: the episode ends here too — stop the notification.
+                FeedRefreshService.finish(
+                    context,
+                    context.getString(R.string.feed_refresh_partial, current.failed.size)
                 )
             }
         }
