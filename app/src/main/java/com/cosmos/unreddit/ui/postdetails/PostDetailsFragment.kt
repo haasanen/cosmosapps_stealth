@@ -363,8 +363,15 @@ class PostDetailsFragment : BaseFragment(),
     override fun onPause() {
         super.onPause()
 
-        // Save comment hierarchy
-        viewModel.setComments(commentAdapter.currentList)
+        // Save comment hierarchy — but NEVER with an empty list: while the
+        // initial load is in flight the adapter is still empty, and pushing
+        // that into the state replaced the loading state with a permanent
+        // "Nothing to see here…" the moment the app was backgrounded
+        // (2026-09-07, WhatsApp post repro).
+        val current = commentAdapter.currentList
+        if (current.isNotEmpty()) {
+            viewModel.setComments(current)
+        }
     }
 
     override fun onDestroyView() {

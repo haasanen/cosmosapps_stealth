@@ -1431,12 +1431,23 @@ class RedditOfficialSource @Inject constructor(
         cards.map { el ->
             async {
                 semaphore.withPermit {
+                    // v2.5.55: the comment cards on the solved detail page carry
+                    // their full body INLINE (a .md element inside each card).
+                    // The old code ignored that and fetched the `reload-url`
+                    // partial per comment — each a full ~350 KB HTML page for a
+                    // couple of sentences — so 16 comments took 2+ minutes on a
+                    // slow connection and the detail screen sat on the loading
+                    // state the whole time. Use the inline body; only fall back
+                    // to the partial when a card genuinely has none.
+                    val inlineBody = el.select(".md").firstOrNull()?.html()
                     val reloadUrl = el.attr("reload-url")
-                    val bodyHtml = if (reloadUrl.isNotBlank()) {
-                        runCatching {
+                    val bodyHtml = when {
+                        !inlineBody.isNullOrBlank() -> inlineBody
+                        reloadUrl.isNotBlank() -> runCatching {
                             fetchPartial("$base$reloadUrl")?.let { Jsoup.parse(it).select(".md").firstOrNull()?.html() } ?: ""
                         }.getOrDefault("")
-                    } else ""
+                        else -> ""
+                    }
                     buildCommentChild(
                         name = el.attr("thingId").ifBlank { return@withPermit null },
                         author = el.attr("author"),
