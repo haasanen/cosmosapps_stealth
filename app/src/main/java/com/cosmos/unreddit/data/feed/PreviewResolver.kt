@@ -78,7 +78,7 @@ class PreviewResolver @Inject constructor(
         synchronized(memory) { memory[url] }?.let { entry ->
             if (!entry.expired) return entry.image
         }
-        val json = runCatching { preferences.data.first()[keyFor(url)] }.getOrNull()
+        val json = runCatching { preferences.data.first()[stringPreferencesKey(keyFor(url))] }.getOrNull()
             ?: return null
         val entry = runCatching { cacheAdapter.fromJson(json) }.getOrNull() ?: return null
         synchronized(memory) { memory[url] = entry }
@@ -165,7 +165,7 @@ class PreviewResolver @Inject constructor(
             if (type.isNotEmpty() && !type.contains("html") && !type.contains("text")) {
                 return@runCatching null
             }
-            response.body?.source()?.buffer()?.readByteArray(MAX_PAGE_BYTES)?.decodeToString()
+            response.body?.source()?.buffer()?.readByteArray(MAX_PAGE_BYTES.toLong())?.decodeToString()
         }
     }.getOrNull()
 
@@ -176,7 +176,12 @@ class PreviewResolver @Inject constructor(
             if (raw.isEmpty() || raw.startsWith("data:")) continue
             val absolute = runCatching {
                 val uri = Uri.parse(raw)
-                if (uri.isAbsolute) uri.toString() else Uri.parse(pageUrl).resolve(raw)
+                if (uri.isAbsolute) {
+                    uri.toString()
+                } else {
+                    // android.net.Uri has no resolve(); java.net.URI does.
+                    java.net.URI(pageUrl).resolve(raw).toString()
+                }
             }.getOrNull() ?: raw
             if (absolute.startsWith("http")) return absolute
         }
@@ -194,7 +199,7 @@ class PreviewResolver @Inject constructor(
             }
         }
         runCatching {
-            preferences.edit { it[keyFor(url)] = cacheAdapter.toJson(entry) }
+            preferences.edit { it[stringPreferencesKey(keyFor(url))] = cacheAdapter.toJson(entry) }
         }
     }
 

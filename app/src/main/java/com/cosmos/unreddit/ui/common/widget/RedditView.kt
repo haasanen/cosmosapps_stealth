@@ -98,7 +98,7 @@ class RedditView @JvmOverloads constructor(
             // Full width, height locked to the published aspect ratio when the
             // HTML carried one (a 16:9 gifv frame must not render as 1:1).
             if (ratio != null) {
-                setOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
                     override fun onLayoutChange(
                         v: View, left: Int, top: Int, right: Int, bottom: Int,
                         oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
