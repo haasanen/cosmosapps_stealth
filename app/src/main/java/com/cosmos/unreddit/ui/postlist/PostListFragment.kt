@@ -19,6 +19,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.UiViewModel
 import com.cosmos.unreddit.data.feed.FeedCoordinator
@@ -539,6 +540,15 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
     private var openedPostAnchorId: String? = null
 
     /**
+     * v2.5.54: the id of the TOP-VISIBLE post when the fragment stopped
+     * (app switch, view recreation). If the list is then re-attached and
+     * reset to the top, the next feed-state render restores the viewport to
+     * this post — the list must never silently jump to the top just because
+     * the user switched apps and came back.
+     */
+    private var scrollRestoreId: String? = null
+
+    /**
      * Render one progressive feed state.
      *
      * THE NEVER-BLANK RULE: while the official source is active the screen must always
@@ -589,6 +599,25 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                             "(posts=${state.posts.size}) — staying put"
                     )
                 }
+            }
+        }
+
+        // v2.5.54: app-switch / view-recreation scroll restore. If the user
+        // scrolled down, the list was re-created, and the next emission would
+        // otherwise land on top — restore the viewport to the remembered post.
+        // Instant (no smooth animation: the user did not ask to travel).
+        val restoreId = scrollRestoreId
+        if (restoreId != null) {
+            scrollRestoreId = null
+            val restorePos = state.posts.indexOfFirst { it.id == restoreId }
+            if (restorePos > 0) {
+                binding.listPost.post {
+                    binding.listPost.layoutManager?.scrollToPosition(restorePos)
+                }
+            } else {
+                FeedDebug.log(
+                    "scroll restore: post $restoreId not in feed — staying put"
+                )
             }
         }
 
@@ -739,6 +768,18 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
     override fun onStop() {
         super.onStop()
+        // v2.5.54: remember the viewport before the view is destroyed (app
+        // switch, rotation, drawer). Only meaningful when the user is NOT at
+        // the top — at the top there is nothing to restore.
+        if (coordinatorMode) {
+            val lm = binding.listPost.layoutManager as? LinearLayoutManager
+            val top = lm?.findFirstVisibleItemPosition()
+            if (top != null && top > 0 && top != RecyclerView.NO_POSITION) {
+                feedListAdapter.currentList?.get(top)?.let { scrollRestoreId = it.id }
+            } else {
+                scrollRestoreId = null
+            }
+        }
         clearSortingListener()
         clearNavigationListener()
     }

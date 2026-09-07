@@ -57,7 +57,10 @@ class PostListViewModel
         .distinctUntilChanged()
         .map { subscriptions ->
             if (subscriptions.isNotEmpty()) {
-                subscriptions.shuffled()
+                // v2.5.54: stable order (previously shuffled on every emission) so
+                // the feed order — and any saved scroll position — survives the
+                // next refresh.
+                subscriptions
             } else {
                 listOf(DEFAULT_SUBREDDIT)
             }

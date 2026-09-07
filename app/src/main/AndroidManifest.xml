@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v2.5.54: the one-shot feed-refresh foreground service (compileSdk 33:
+         base permission only; the type is declared on the service). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:name=".UnredditApplication"
@@ -34,6 +37,15 @@
                 <action android:name="${applicationId}.ACTION_DOWNLOAD_CANCEL" />
             </intent-filter>
         </receiver>
+
+        <!-- v2.5.54: one-shot background refresh (foreground service + temporary
+             notification). Started only while a refresh/retry is running; it never
+             polls and always stops itself. -->
+        <service
+            android:name=".data.feed.FeedRefreshService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:ignore="ExportedService" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"

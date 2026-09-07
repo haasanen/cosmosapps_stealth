@@ -82,24 +82,38 @@ class RedditView @JvmOverloads constructor(
     }
 
     private fun addImage(imageBlock: ImageBlock) {
-        // Inline image inside a comment/post body. The HTML width attr is in CSS px,
-        // converted to dp so it sizes the same across densities. Capped at the same
-        // 240px CSS max-width Reddit applies in the browser, so a missing or huge width
-        // attribute never produces a full-screen image in a comment. The placeholder
-        // square is the same drawable as before, but the real image now loads into it.
-        // Tapping reuses the link path so it opens the full-resolution media viewer.
-        val maxInlineCssPx = 240
-        val cssPx = if (imageBlock.width > 0) {
-            minOf(imageBlock.width, maxInlineCssPx)
+        // Inline image inside a comment/post body. v2.5.54: full width, aspect
+        // ratio kept — the HTML width/height attrs (CSS px) give the ratio when
+        // present; without them the ImageView measures the bitmap and keeps its
+        // natural ratio (adjustViewBounds). No width cap any more.
+        val ratio = if (imageBlock.width > 0 && imageBlock.height > 0) {
+            imageBlock.height.toFloat() / imageBlock.width
         } else {
-            maxInlineCssPx
+            null
         }
-        val width = (cssPx / context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
         val imageView = ImageView(context).apply {
-            layoutParams = LayoutParams(width, LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                 topMargin = context.resources.getDimensionPixelSize(R.dimen.comment_body_spacing)
             }
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            // Full width, height locked to the published aspect ratio when the
+            // HTML carried one (a 16:9 gifv frame must not render as 1:1).
+            if (ratio != null) {
+                setOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(
+                        v: View, left: Int, top: Int, right: Int, bottom: Int,
+                        oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+                    ) {
+                        val w = right - left
+                        if (w > 0) {
+                            val newH = (w * ratio).toInt().coerceAtLeast(1)
+                            if (newH != bottom - top) {
+                                layoutParams = layoutParams.apply { height = newH }
+                            }
+                        }
+                    }
+                })
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
             contentDescription = null
             isClickable = true
