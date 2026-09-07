@@ -489,8 +489,9 @@ class FeedCoordinator @Inject constructor(
                     if (page.isFinal) {
                         val candidates = mergedData
                             .filter { d ->
+                                val pv = d.previewUrl
                                 d.postType == PostType.LINK &&
-                                    (d.previewUrl == null || d.previewUrl.isBlank()) &&
+                                    (pv == null || pv.isBlank()) &&
                                     d.url.isNotBlank()
                             }
                             .map { it.url }
@@ -739,8 +740,9 @@ class FeedCoordinator @Inject constructor(
                         val roundPosts = page.perSub.flatten().map { it.data }
                         val roundCandidates = roundPosts
                             .filter { d ->
+                                val pv = d.previewUrl
                                 d.postType == PostType.LINK &&
-                                    (d.previewUrl == null || d.previewUrl.isBlank()) &&
+                                    (pv == null || pv.isBlank()) &&
                                     d.url.isNotBlank()
                             }
                             .map { it.url }
