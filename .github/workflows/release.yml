@@ -137,3 +137,21 @@ jobs:
         gh release create "$TAG" --title "$TITLE" --notes "$NOTES" \
           "$APK_NAME" "${APK_NAME}.sha256"
         echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+
+    - name: Notify F-Droid repo (push trigger)
+      env:
+        FDROID_DISPATCH_TOKEN: ${{ secrets.FDROID_DISPATCH_TOKEN }}
+      run: |
+        set -euo pipefail
+        # Rebuild the custom F-Droid index as soon as this release is live.
+        # Fails open: a missing token or API hiccup must not fail the release.
+        if [ -z "${FDROID_DISPATCH_TOKEN:-}" ]; then
+          echo "no FDROID_DISPATCH_TOKEN set, skipping"
+          exit 0
+        fi
+        code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+          -H "Authorization: token $FDROID_DISPATCH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/haasanen/fdroid-repo/actions/workflows/update.yml/dispatches" \
+          -d '{"ref":"main"}' || true)
+        echo "fdroid-repo dispatch: $code"
