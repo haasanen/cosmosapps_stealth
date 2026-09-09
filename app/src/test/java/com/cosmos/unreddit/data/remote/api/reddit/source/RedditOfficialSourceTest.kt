@@ -484,7 +484,43 @@ class RedditOfficialSourceTest {
     }
 
     @Test
-    fun `post json round-trip survives the cache layer`() {
+    fun `text post cards carry the body html and the flair label`() = runBlocking {
+        // Regression for the 2026-09-08 report ("Welp it happened.", r/privacy): a
+        // text post rendered title + comments but NO body on the detail screen, and
+        // no flair tag — while the browser showed both. The official SSR parser read
+        // the card attributes (title, score, ...) but never extracted the body
+        // (shreddit-post-text-body > div.md) or the flair (shreddit-post-flair), so
+        // selftext_html and link_flair_text were null for every official-source post.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("vp_detail.html"))
+        val op = doc.select("shreddit-post")
+            .first { it.attr("view-context") == "CommentsPage" && it.attr("id") == "t3_1w2gg8x" }
+        assertEquals("t3_1w2gg8x", op.attr("id"))
+        // This post is an IMAGE post that ALSO carries a text body — the body must be
+        // extracted regardless of post type (the 2026-09-08 report was a text post, but
+        // the bug was type-independent: selftext_html was never read at all).
+        assertTrue("expected a text-body on the card",
+            op.selectFirst("shreddit-post-text-body div.md") != null)
+
+        val post = source.parsePostCardForTest(op)
+        assertNotNull("post card did not parse", post)
+        val data = post!!.data
+
+        // The BODY: full markdown-rendered html, not just the first line.
+        assertNotNull("selftext_html missing -> app hides the post body", data.selfTextHtml)
+        val body = data.selfTextHtml!!
+        assertTrue("body lost the opening sentence: $body",
+            body.contains("Why is that linux seems to always provide better performance"))
+        assertTrue("body truncated after the first paragraph: $body",
+            body.contains("provide smoother experience"))
+        // It must be HTML (the browser-rendered markdown), not stripped plain text.
+        assertTrue("selftext_html is not html: $body", body.contains("<p"))
+
+        // The FLAIR label: the visible tag under the title ("Discussion").
+        assertEquals("Discussion", data.flair)
+    }
+
+    @Test
+    fun `post json round-trip survives the cache layer`() = runBlocking {
         // Regression for the 2026-09-03 "no posts loaded" bug: the cache persists
         // posts via PostData.toJson and reads them back with fromJson. The custom
         // MediaMetadataAdapter.toJson used to write NOTHING for a non-null value,
