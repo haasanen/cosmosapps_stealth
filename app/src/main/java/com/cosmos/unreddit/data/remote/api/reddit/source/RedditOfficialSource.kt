@@ -1344,6 +1344,32 @@ class RedditOfficialSource @Inject constructor(
             }
         }
 
+        // The post BODY. SSR cards carry it in the `shreddit-post-text-body` slot:
+        // a `div.md` with the markdown already rendered to HTML. The detail page
+        // holds the full text; feed cards hold the same markup, visually clipped by
+        // max-height CSS — the extracted markup is always complete. Without this, a
+        // text post shows title + comments but NO body: `selftext_html` stayed null
+        // for every official-source post, so PostAdapter.bindText hid the text view
+        // (2026-09-08 "Welp it happened." report: the whole body was missing on the
+        // detail screen while the browser showed it).
+        val selfTextHtml = el.selectFirst("shreddit-post-text-body div.md")?.html()
+            ?.takeIf { it.isNotBlank() }
+        if (selfTextHtml != null) {
+            map["selftext_html"] = selfTextHtml
+        }
+
+        // The post FLAIR tag (e.g. "age verification"): the browser shows it under
+        // the title; SSR renders it as a `shreddit-post-flair` element whose visible
+        // label is the `.flair-content` div (or an img alt for image flairs).
+        val flairLabel = el.selectFirst("shreddit-post-flair")?.let { elFlair ->
+            elFlair.selectFirst(".flair-content")?.ownText()?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: elFlair.selectFirst("img")?.attr("alt")?.trim()
+        }?.takeIf { it.isNotBlank() }
+        if (flairLabel != null) {
+            map["link_flair_text"] = flairLabel
+        }
+
         return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
     }
 
