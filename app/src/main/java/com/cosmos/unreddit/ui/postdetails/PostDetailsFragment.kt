@@ -199,16 +199,26 @@ class PostDetailsFragment : BaseFragment(),
             launch {
                 viewModel.comments.collect {
                     resourceStateAdapter.resource = it
+                    // Pull-to-refresh: the comment collector emits exactly one terminal
+                    // value (Success or Error) per load and then completes, so this is
+                    // the only place the top spinner can be stopped. It MUST stop on
+                    // every outcome, not just Error — on Success the collector finishes
+                    // immediately after emitting, and with no stop call here the spinner
+                    // spun forever after every successful pull-to-refresh (2026-09-09
+                    // report: "the loading animation at the top will continue forever").
+                    if (binding.pullRefresh.isRefreshing) {
+                        binding.pullRefresh.setRefreshing(false)
+                    }
                     when (it) {
                         is Resource.Success -> commentAdapter.submitList(it.data)
                         is Resource.Error -> {
-                            // Reload failed (pull-to-refresh or retry): stop the spinner.
-                            if (binding.pullRefresh.isRefreshing) {
-                                binding.pullRefresh.setRefreshing(false)
-                            }
+                            // Reload failed; the error state is shown via
+                            // resourceStateAdapter (set above). The spinner was
+                            // already stopped unconditionally above.
                         }
                         else -> {
-                            // ignore
+                            // Loading (first load, no pull-to-refresh in flight):
+                            // the top spinner isn't running, nothing to stop.
                         }
                     }
                 }
