@@ -108,6 +108,14 @@ object LinkUtil {
                 MediaType.REDDIT_VIDEO
             }
 
+            // v2.5.59: reddit serves GIF "videos" as <...>.gif?format=mp4 URLs
+            // (external-preview.redd.it). The extension says image/gif, but the
+            // bytes are video — routed as IMAGE the media viewer would decode
+            // the mp4 with Coil and fail ("Something went wrong").
+            domain == "external-preview.redd.it" &&
+                (httpUrl.queryParameter("format") == "mp4" ||
+                    httpUrl.queryParameter("format") == "webm") -> MediaType.REDDIT_GIF
+
             domain.matches(REDDIT_LINK) -> {
                 if (httpUrl.pathSegments.contains("wiki")) {
                     // TODO: Handle Wiki links
