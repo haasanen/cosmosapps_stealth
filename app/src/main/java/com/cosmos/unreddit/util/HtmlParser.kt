@@ -34,6 +34,13 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
     private val FIGURE_POSTER_IMG_REGEX =
         Regex("""<img[^>]*alt="media poster"[^>]*\ssrc="([^"]+)"""")
     private val FIGURE_ASPECT_REGEX = Regex("""aspect-ratio:\s*([0-9.]+)""")
+    // v2.5.60: GIF players have no CSS aspect-ratio and no poster; their box comes
+    // from the wrapper div's inline style: style="width: 240px; height: 134.83px;".
+    private val FIGURE_BOX_STYLE_REGEX =
+        Regex("""style="[^"]*?width:\s*([0-9.]+)px;\s*height:\s*([0-9.]+)px""")
+    // The reddit GIF "video" flag is a bare `gif` attribute on <shreddit-player>.
+    private val FIGURE_PLAYER_TAG_REGEX = Regex("<shreddit-player[^>]*>")
+    private val GIF_FLAG_REGEX = Regex("""\bgif\b""")
     private val IMG_SRC_REGEX = Regex("""src="([^"]+)""")
     private val IMG_WIDTH_REGEX = Regex("""width="([^"]+)""")
     private val IMG_HEIGHT_REGEX = Regex("""height="([^"]+)""")
@@ -216,13 +223,20 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
         val posterImg = FIGURE_POSTER_IMG_REGEX.find(figure)?.groupValues?.get(1)
         val poster = Parser.unescapeEntities(posterAttr ?: posterImg ?: "", true)
             .ifBlank { null }
-        // The aspect-ratio container gives W/H only as a ratio (h/w). Record it as
-        // width=1000, height=1000*ratio so the ratio survives the data class; 0/0 when
-        // absent (RedditView then keeps the bitmap's natural ratio).
+        // v2.5.60: reddit marks GIF "videos" with a bare `gif` attribute. Their box
+        // ratio comes from the wrapper div's inline style (width:240px;height:134.8px)
+        // rather than a CSS aspect-ratio, so that is the ratio fallback.
+        val playerTag = FIGURE_PLAYER_TAG_REGEX.find(figure)?.groupValues?.get(0).orEmpty()
+        val isGif = GIF_FLAG_REGEX.containsMatchIn(playerTag)
         val ratio = FIGURE_ASPECT_REGEX.find(figure)?.groupValues?.get(1)?.toFloatOrNull()
+            ?: FIGURE_BOX_STYLE_REGEX.find(figure)?.let { m ->
+                val w = m.groupValues[1].toFloatOrNull()
+                val h = m.groupValues[2].toFloatOrNull()
+                if (w != null && h != null && w > 0f) h / w else null
+            }
         val width = if (ratio != null && ratio > 0f) 1000 else 0
         val height = if (ratio != null && ratio > 0f) (1000 * ratio).toInt() else 0
-        return VideoBlock(url, poster, width, height)
+        return VideoBlock(url, poster, width, height, isGif)
     }
 
     private fun parseImageFigure(figure: String): ImageBlock {
