@@ -24,6 +24,19 @@ sealed class Block {
         val height: Int
     ) : Block()
 
+    /**
+     * An inline video inside a comment/post body (a reddit `shreddit-player` in an
+     * `rte-media` figure). [url] is the playable HLS/DASH rendition (the tap-to-play
+     * destination); [poster] is the preview frame shown before playing; [width]/[height]
+     * describe the published aspect ratio (0 = unknown).
+     */
+    data class VideoBlock(
+        val url: String,
+        val poster: String?,
+        val width: Int,
+        val height: Int
+    ) : Block()
+
     class TableBlock : Block() {
         private val rows = mutableListOf<Row>()
 

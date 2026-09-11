@@ -2,7 +2,9 @@ package com.cosmos.unreddit.ui.common.widget
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.HorizontalScrollView
 import androidx.annotation.ColorInt
@@ -14,6 +16,7 @@ import com.cosmos.unreddit.data.model.RedditText
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.util.ClickableMovementMethod
 import com.cosmos.unreddit.util.extension.load
+import coil.size.Scale
 
 class RedditView @JvmOverloads constructor(
     context: Context,
@@ -54,6 +57,9 @@ class RedditView @JvmOverloads constructor(
                 }
                 HtmlBlock.BlockType.IMAGE -> {
                     addImage(block.block as ImageBlock)
+                }
+                HtmlBlock.BlockType.VIDEO -> {
+                    addVideo(block.block as VideoBlock)
                 }
             }
         }
@@ -123,9 +129,83 @@ class RedditView @JvmOverloads constructor(
                 onLinkClickListener?.onLinkLongClick(imageBlock.url)
                 true
             }
-            load(imageBlock.url, blur = false)
+            // v2.5.58: when the HTML published no usable ratio (reddit now writes
+            // height="auto"), the box is NOT locked, so Coil must decode at the
+            // bitmap's NATURAL aspect ratio (Scale.FIT) instead of squishing it to
+            // the current (wrong) box (Scale.FILL). That is what clipped tall images
+            // vertically and needed a scroll-away-and-back to fix. With a locked box
+            // (ratio != null) FILL is correct because the box already matches.
+            load(
+                imageBlock.url,
+                blur = false,
+                scale = if (ratio == null) Scale.FIT else Scale.FILL
+            )
         }
         addView(imageView)
+    }
+
+    private fun addVideo(videoBlock: VideoBlock) {
+        // Inline video inside a comment/post body (a reddit `shreddit-player`).
+        // Rendered as a tappable poster + play badge; tapping opens the media
+        // viewer which plays the HLS/DASH url. The poster keeps the published
+        // aspect ratio when known, else the poster's natural ratio.
+        val ratio = if (videoBlock.width > 0 && videoBlock.height > 0) {
+            videoBlock.height.toFloat() / videoBlock.width
+        } else {
+            null
+        }
+        val frame = FrameLayout(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = context.resources.getDimensionPixelSize(R.dimen.comment_body_spacing)
+            }
+        }
+        val poster = ImageView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                LayoutParams.WRAP_CONTENT
+            )
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            contentDescription = null
+            if (ratio != null) {
+                addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(
+                        v: View, left: Int, top: Int, right: Int, bottom: Int,
+                        oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+                    ) {
+                        val w = right - left
+                        if (w > 0) {
+                            val newH = (w * ratio).toInt().coerceAtLeast(1)
+                            if (newH != bottom - top) {
+                                layoutParams = layoutParams.apply { height = newH }
+                            }
+                        }
+                    }
+                })
+            }
+            if (!videoBlock.poster.isNullOrBlank()) {
+                load(videoBlock.poster, blur = false, scale = if (ratio == null) Scale.FIT else Scale.FILL)
+            }
+        }
+        val badge = ImageView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
+                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
+                Gravity.CENTER
+            )
+            setImageResource(R.drawable.ic_play)
+            contentDescription = context.getString(R.string.cd_play_video)
+        }
+        frame.addView(poster)
+        frame.addView(badge)
+        frame.isClickable = true
+        frame.isFocusable = true
+        frame.setOnClickListener { onLinkClickListener?.onLinkClick(videoBlock.url) }
+        frame.setOnLongClickListener {
+            onLinkClickListener?.onLinkLongClick(videoBlock.url)
+            true
+        }
+        addView(frame)
     }
 
     private fun addCode(codeBlock: TextBlock) {

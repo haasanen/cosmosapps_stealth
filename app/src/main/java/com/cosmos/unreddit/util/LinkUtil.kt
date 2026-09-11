@@ -100,6 +100,14 @@ object LinkUtil {
         val mime by lazy { MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "" }
 
         return when {
+            domain == "v.redd.it" -> {
+                // v2.5.58: v.redd.it serves HLS playlists (…/HLSPlaylist.m3u8) and
+                // DASH mp4s. The extension (.m3u8) has no media mime, so without this
+                // an inline comment video link would be routed to the browser instead
+                // of the in-app player.
+                MediaType.REDDIT_VIDEO
+            }
+
             domain.matches(REDDIT_LINK) -> {
                 if (httpUrl.pathSegments.contains("wiki")) {
                     // TODO: Handle Wiki links
