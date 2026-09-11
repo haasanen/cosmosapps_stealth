@@ -51,13 +51,14 @@ fun ImageView.load(
     blur: Boolean,
     radius: Float = 25F,
     sampling: Float = 4F,
+    scale: Scale = Scale.FILL,
     builder: ImageRequest.Builder.() -> Unit = {}
 ) {
     val request = ImageRequest.Builder(context)
         .data(data)
         .target(this)
         .crossfade(true)
-        .scale(Scale.FILL)
+        .scale(scale)
         .precision(Precision.AUTOMATIC)
         .placeholder(R.drawable.image_placeholder)
         .apply(builder)

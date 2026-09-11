@@ -5,6 +5,7 @@ import androidx.core.text.HtmlCompat
 import com.cosmos.unreddit.data.model.Block.ImageBlock
 import com.cosmos.unreddit.data.model.Block.TableBlock
 import com.cosmos.unreddit.data.model.Block.TextBlock
+import com.cosmos.unreddit.data.model.Block.VideoBlock
 import com.cosmos.unreddit.data.model.HtmlBlock
 import com.cosmos.unreddit.data.model.RedditText
 import kotlinx.coroutines.CoroutineDispatcher
@@ -19,9 +20,24 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
     private val CODE_REGEX = Regex("<pre><code>(.*?)</code></pre>", RegexOption.DOT_MATCHES_ALL)
     private val IMG_LINK_REGEX =
         Regex("""<a [^>]*?href="([^"]+)"[^>]*?>\s*<img([^>]*)>\s*</a>""", RegexOption.DOT_MATCHES_ALL)
-    private val IMG_SRC_REGEX = Regex("""src="([^"]+)"""")
-    private val IMG_WIDTH_REGEX = Regex("""width="([^"]+)"""")
-    private val PLACEHOLDER_REGEX = Regex("<(table|code|img)_placeholder/>")
+    // Reddit wraps inline comment media in <figure class="rte-media">…</figure>:
+    //  - video: <shreddit-player src="HLS" poster="…">…<style>…spinner…</style></shreddit-player>
+    //    + a <template slot="error"> fallback ("Sorry, something went wrong… View in app").
+    //  - image: <a href><img … width="240" height="auto"></a> (sometimes bare <img>).
+    // Left in the text, the video figure renders as a turquoise placeholder square +
+    // raw CSS (.buffering-track-fill) + the error-template text. It must be pulled out
+    // whole and turned into a VIDEO block before anything else runs.
+    private val FIGURE_REGEX =
+        Regex("<figure[^>]*>.*?</figure>", RegexOption.DOT_MATCHES_ALL)
+    private val FIGURE_PLAYER_SRC_REGEX = Regex("""<shreddit-player[^>]*\ssrc="([^"]+)""")
+    private val FIGURE_POSTER_REGEX = Regex("""<shreddit-player[^>]*\bposter="([^"]+)""")
+    private val FIGURE_POSTER_IMG_REGEX =
+        Regex("""<img[^>]*alt="media poster"[^>]*\ssrc="([^"]+)"""")
+    private val FIGURE_ASPECT_REGEX = Regex("""aspect-ratio:\s*([0-9.]+)""")
+    private val IMG_SRC_REGEX = Regex("""src="([^"]+)""")
+    private val IMG_WIDTH_REGEX = Regex("""width="([^"]+)""")
+    private val IMG_HEIGHT_REGEX = Regex("""height="([^"]+)""")
+    private val PLACEHOLDER_REGEX = Regex("<(table|code|img|video)_placeholder/>")
 
     private val tagHandler = RedditTagHandler()
 
@@ -33,6 +49,7 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
             val tables = LinkedList<String>()
             val codes = LinkedList<String>()
             val images = LinkedList<ImageBlock>()
+            val videos = LinkedList<VideoBlock>()
 
             var newHtml = html
 
@@ -46,18 +63,14 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
                 CODE_PLACEHOLDER
             }
 
-            // Reddit wraps inline comment images in <a href="full-res"><img src></a>.
-            // Pull them out so they render as real (tappable) images instead of the
-            // generic turquoise placeholder square; the href is the expand target.
-            newHtml = newHtml.replace(IMG_LINK_REGEX) { m ->
-                val href = Parser.unescapeEntities(m.groupValues[1], true)
-                val imgAttrs = m.groupValues[2]
-                val src = IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1)
-                val url = if (src.isNullOrBlank()) href else Parser.unescapeEntities(src, true)
-                val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                images.add(ImageBlock(url, width, 0))
-                IMG_PLACEHOLDER
-            }
+            // v2.5.58: pull inline media out of the comment/post HTML before any text
+            // processing. Reddit wraps it in <figure class="rte-media">…</figure>:
+            //  - video figures hold a <shreddit-player> (HLS src + poster) plus a
+            //    <style> spinner rule and a <template slot="error"> fallback; left in
+            //    the text they render as raw CSS + "Sorry, something went wrong…".
+            //  - image figures hold <a href><img width=240 height=auto></a>.
+            // Both become blocks; the figure markup itself is consumed (never leaked).
+            newHtml = replaceInlineMedia(newHtml, images, videos)
 
             if (PLACEHOLDER_REGEX.containsMatchIn(newHtml)) {
                 var lastIndex = 0
@@ -82,6 +95,8 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
                         }
 
                         IMG_PLACEHOLDER -> redditText.addBlock(images.pop(), HtmlBlock.BlockType.IMAGE)
+
+                        VIDEO_PLACEHOLDER -> redditText.addBlock(videos.pop(), HtmlBlock.BlockType.VIDEO)
                     }
                 }
 
@@ -153,9 +168,89 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
         ).removeSuffix("\n\n")
     }
 
+    /**
+     * Scans [html] for reddit inline-media figures and figure-less <a><img></a> and
+     * replaces each with a placeholder token, recording the parsed [ImageBlock]/
+     * [VideoBlock] into [images]/[videos] in document order. The figure markup (spinner
+     * <style>, error <template>, player chrome) is consumed entirely so none of it can
+     * leak into the rendered text.
+     *
+     * Pure string work (no Android / HtmlCompat) so it can be unit-tested on the JVM
+     * against real captured markup.
+     */
+    internal fun replaceInlineMedia(
+        html: String,
+        images: MutableList<ImageBlock>,
+        videos: MutableList<VideoBlock>
+    ): String =
+        html.replace(FIGURE_REGEX) { m ->
+            val figure = m.value
+            if (figure.contains("<shreddit-player", ignoreCase = true)) {
+                videos.add(parseVideoFigure(figure))
+                VIDEO_PLACEHOLDER
+            } else if (figure.contains("<img", ignoreCase = true)) {
+                images.add(parseImageFigure(figure))
+                IMG_PLACEHOLDER
+            } else {
+                // A media figure with neither a player nor an image (e.g. a
+                // placeholder-only figure). Consume it so nothing leaks, emit nothing.
+                ""
+            }
+        }.replace(IMG_LINK_REGEX) { m ->
+            // Figure-less inline image (the pre-2024 <a><img></a> shape, and any image
+            // not wrapped in a figure). Keep the existing behaviour.
+            val href = Parser.unescapeEntities(m.groupValues[1], true)
+            val imgAttrs = m.groupValues[2]
+            val src = IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1)
+            val url = if (src.isNullOrBlank()) href else Parser.unescapeEntities(src, true)
+            val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            images.add(ImageBlock(url, width, height))
+            IMG_PLACEHOLDER
+        }
+
+    private fun parseVideoFigure(figure: String): VideoBlock {
+        val src = FIGURE_PLAYER_SRC_REGEX.find(figure)?.groupValues?.get(1)
+        val url = Parser.unescapeEntities(src.orEmpty(), true)
+        val posterAttr = FIGURE_POSTER_REGEX.find(figure)?.groupValues?.get(1)
+        val posterImg = FIGURE_POSTER_IMG_REGEX.find(figure)?.groupValues?.get(1)
+        val poster = Parser.unescapeEntities(posterAttr ?: posterImg ?: "", true)
+            .ifBlank { null }
+        // The aspect-ratio container gives W/H only as a ratio (h/w). Record it as
+        // width=1000, height=1000*ratio so the ratio survives the data class; 0/0 when
+        // absent (RedditView then keeps the bitmap's natural ratio).
+        val ratio = FIGURE_ASPECT_REGEX.find(figure)?.groupValues?.get(1)?.toFloatOrNull()
+        val width = if (ratio != null && ratio > 0f) 1000 else 0
+        val height = if (ratio != null && ratio > 0f) (1000 * ratio).toInt() else 0
+        return VideoBlock(url, poster, width, height)
+    }
+
+    private fun parseImageFigure(figure: String): ImageBlock {
+        // Prefer an <a href><img></a>; fall back to the bare <img> inside the figure.
+        val link = IMG_LINK_REGEX.find(figure)
+        if (link != null) {
+            val href = Parser.unescapeEntities(link.groupValues[1], true)
+            val imgAttrs = link.groupValues[2]
+            val src = IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1)
+            val url = if (src.isNullOrBlank()) href else Parser.unescapeEntities(src, true)
+            val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            return ImageBlock(url, width, height)
+        }
+        val img = Regex("""<img([^>]*)>""").find(figure)
+        val imgAttrs = img?.groupValues?.get(1).orEmpty()
+        val url = Parser.unescapeEntities(
+            IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1).orEmpty(), true
+        )
+        val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        return ImageBlock(url, width, height)
+    }
+
     companion object {
         private const val TABLE_PLACEHOLDER = "<table_placeholder/>"
         private const val CODE_PLACEHOLDER = "<code_placeholder/>"
         private const val IMG_PLACEHOLDER = "<img_placeholder/>"
+        private const val VIDEO_PLACEHOLDER = "<video_placeholder/>"
     }
 }

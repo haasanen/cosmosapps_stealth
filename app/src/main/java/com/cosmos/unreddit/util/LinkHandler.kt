@@ -59,6 +59,8 @@ class LinkHandler @Inject constructor(
             MediaType.GFYCAT,
             MediaType.REDGIFS,
             MediaType.STREAMABLE,
+            MediaType.REDDIT_VIDEO,
+            MediaType.REDDIT_GIF,
             MediaType.IMAGE,
             MediaType.VIDEO -> openMedia(link, mediaType)
 
