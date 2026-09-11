@@ -36,6 +36,8 @@ class HtmlParserInlineMediaTest {
         File("src/test/resources/reddit_ssr/inline_video_figure.html").readText()
     private val imageFigure =
         File("src/test/resources/reddit_ssr/inline_image_figure.html").readText()
+    private val gifFigure =
+        File("src/test/resources/reddit_ssr/inline_gif_figure.html").readText()
 
     @Test
     fun videoFigureBecomesVideoBlockWithHlsUrlPosterAndAspectRatio() {
@@ -150,5 +152,57 @@ class HtmlParserInlineMediaTest {
         assertEquals(0, images.size)
         assertEquals(0, videos.size)
         assertEquals(html, out)
+    }
+
+    @Test
+    fun gifFigureBecomesGifVideoBlockWithBoxRatioAndNoPoster() {
+        // Real markup from r/Amd 1wbeqyp (2026-09-11): a reddit GIF "video" — a
+        // <shreddit-player ... gif> whose box ratio comes from the wrapper div's
+        // inline style (width:240px; height:134.83px), with NO poster and NO CSS
+        // aspect-ratio. It must be flagged isGif (so the view autoplays+loops it
+        // inline) and carry the box ratio so the box keeps its shape.
+        val images = mutableListOf<ImageBlock>()
+        val videos = mutableListOf<VideoBlock>()
+        val html = "<p>I'm doing my part!</p> $gifFigure"
+
+        val out = parser.replaceInlineMedia(html, images, videos)
+
+        assertEquals("expected exactly one video block", 1, videos.size)
+        assertEquals("no image block from a gif figure", 0, images.size)
+
+        val video = videos[0]
+        assertTrue("isGif not detected", video.isGif)
+        assertTrue(
+            "playable mp4 url not parsed: ${video.url}",
+            video.url.startsWith(
+                "https://external-preview.redd.it/Mt6wSwNQlYIdMhepPzcDbHpiMA306hWAKb1cpl9AaAg.gif"
+            ) && video.url.contains("format=mp4")
+        )
+        assertFalse("entities must be unescaped", video.url.contains("&amp;"))
+        // reddit publishes no poster for GIFs.
+        assertTrue("GIF must have no poster, got: ${video.poster}", video.poster == null)
+        // Box ratio 134.83/240 = 0.5618 => stored as 1000 x ~562.
+        assertEquals("width", 1000, video.width)
+        assertTrue("height ratio wrong: ${video.height}", video.height in 558..566)
+
+        assertTrue("video placeholder missing", "<video_placeholder/>" in out)
+        assertFalse("figure chrome leaked", "shreddit-player" in out)
+        assertFalse("wrapper style leaked", "width: 240px" in out)
+        assertTrue("surrounding text missing", "I'm doing my part!" in out)
+    }
+
+    @Test
+    fun hlsVideoFigureIsNotFlaggedAsGif() {
+        // The r/LocalLLaMA video figure has a poster and NO bare `gif` attribute —
+        // it must stay a poster+badge video (isGif=false), not an inline autoplay.
+        val images = mutableListOf<ImageBlock>()
+        val videos = mutableListOf<VideoBlock>()
+        val html = "$videoFigure"
+
+        parser.replaceInlineMedia(html, images, videos)
+
+        assertEquals(1, videos.size)
+        assertFalse("HLS video must not be flagged as a gif", videos[0].isGif)
+        assertTrue("HLS video must keep its poster", !videos[0].poster.isNullOrBlank())
     }
 }

@@ -15,8 +15,16 @@ import com.cosmos.unreddit.data.model.HtmlBlock
 import com.cosmos.unreddit.data.model.RedditText
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.util.ClickableMovementMethod
+import com.cosmos.unreddit.util.LinkUtil
 import com.cosmos.unreddit.util.extension.load
 import coil.size.Scale
+import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.Player
+import com.google.android.exoplayer2.SimpleExoPlayer
+import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
+import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
+import com.google.android.exoplayer2.ui.PlayerView
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 
 class RedditView @JvmOverloads constructor(
     context: Context,
@@ -36,11 +44,17 @@ class RedditView @JvmOverloads constructor(
 
     private var onLinkClickListener: OnLinkClickListener? = null
 
+    // v2.5.60: inline GIF players (reddit `shreddit-player gif`). They must be
+    // released when the view is re-bound or recycled, otherwise every scrolled
+    // comment keeps a live ExoPlayer around.
+    private val inlinePlayers = mutableListOf<SimpleExoPlayer>()
+
     init {
         orientation = VERTICAL
     }
 
     fun setText(redditText: RedditText) {
+        releaseInlinePlayers()
         removeAllViews()
 
         val blocks = redditText.blocks
@@ -66,6 +80,7 @@ class RedditView @JvmOverloads constructor(
     }
 
     fun setPreviewText(textBlock: TextBlock) {
+        releaseInlinePlayers()
         removeAllViews()
         addText(textBlock)
     }
@@ -145,10 +160,91 @@ class RedditView @JvmOverloads constructor(
     }
 
     private fun addVideo(videoBlock: VideoBlock) {
-        // Inline video inside a comment/post body (a reddit `shreddit-player`).
-        // Rendered as a tappable poster + play badge; tapping opens the media
-        // viewer which plays the HLS/DASH url. The poster keeps the published
-        // aspect ratio when known, else the poster's natural ratio.
+        if (videoBlock.isGif) {
+            addGif(videoBlock)
+        } else {
+            addVideoPoster(videoBlock)
+        }
+    }
+
+    /**
+     * v2.5.60: reddit GIF "videos" (…gif?format=mp4) autoplay + loop inline, muted,
+     * no controls — matching what reddit's own page does. The box is locked to the
+     * published aspect ratio so a tall or wide gif keeps its shape from the first
+     * frame. The player plays only while attached to the window (a RecyclerView row
+     * detaches when scrolled off-screen or the activity stops), and is released when
+     * the RedditView is re-bound (setText / setPreviewText). Tapping opens the media
+     * viewer for the full-screen play.
+     */
+    private fun addGif(videoBlock: VideoBlock) {
+        val frame = FrameLayout(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = context.resources.getDimensionPixelSize(R.dimen.comment_body_spacing)
+            }
+        }
+        val playerView = PlayerView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+            useController = false
+            // 2.18.1: the resize constants live on AspectRatioFrameLayout, not PlayerView.
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            isClickable = true
+            contentDescription = context.getString(R.string.cd_play_video)
+            setOnClickListener { onLinkClickListener?.onLinkClick(videoBlock.url) }
+            setOnLongClickListener {
+                onLinkClickListener?.onLinkLongClick(videoBlock.url)
+                true
+            }
+        }
+        // Lock the box to the published ratio so the comment keeps its layout stable
+        // from the first frame (RESIZE_MODE_FIT would only know the video's ratio once
+        // the first format has loaded).
+        if (videoBlock.width > 0 && videoBlock.height > 0) {
+            lockAspectOnLayout(frame, videoBlock.height.toFloat() / videoBlock.width)
+        }
+        val player = SimpleExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(
+                    DefaultHttpDataSource.Factory()
+                        .setAllowCrossProtocolRedirects(true)
+                        .setUserAgent(LinkUtil.USER_AGENT)
+                )
+            )
+            .build()
+        player.repeatMode = Player.REPEAT_MODE_ONE
+        player.volume = 0F // muted, like reddit's inline autoplay
+        player.setMediaItem(MediaItem.fromUri(videoBlock.url))
+        player.prepare()
+        playerView.player = player
+
+        // Play only while the view is attached to the window; pause otherwise. In a
+        // RecyclerView a row detaches when it scrolls off-screen (and is detached again
+        // when the activity stops), so this both stops off-screen gifs from decoding and
+        // stops them when the app is backgrounded. Players are released when the
+        // RedditView is re-bound (setText / setPreviewText) — ListAdapter always re-binds
+        // a recycled row before reuse, so live players are bounded to visible rows.
+        player.setPlayWhenReady(false)
+        playerView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                player.setPlayWhenReady(true)
+            }
+
+            override fun onViewDetachedFromWindow(v: View) {
+                player.setPlayWhenReady(false)
+            }
+        })
+
+        inlinePlayers.add(player)
+        frame.addView(playerView)
+        addView(frame)
+    }
+
+    private fun addVideoPoster(videoBlock: VideoBlock) {
+        // Non-GIF inline video: tappable poster + play badge; tapping opens the media
+        // viewer which plays the HLS/DASH url. The poster keeps the published aspect
+        // ratio when known, else the poster's natural ratio.
         val ratio = if (videoBlock.width > 0 && videoBlock.height > 0) {
             videoBlock.height.toFloat() / videoBlock.width
         } else {
@@ -168,20 +264,7 @@ class RedditView @JvmOverloads constructor(
             adjustViewBounds = true
             contentDescription = null
             if (ratio != null) {
-                addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
-                    override fun onLayoutChange(
-                        v: View, left: Int, top: Int, right: Int, bottom: Int,
-                        oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
-                    ) {
-                        val w = right - left
-                        if (w > 0) {
-                            val newH = (w * ratio).toInt().coerceAtLeast(1)
-                            if (newH != bottom - top) {
-                                layoutParams = layoutParams.apply { height = newH }
-                            }
-                        }
-                    }
-                })
+                lockAspectOnLayout(this, ratio)
             }
             if (!videoBlock.poster.isNullOrBlank()) {
                 load(videoBlock.poster, blur = false, scale = if (ratio == null) Scale.FIT else Scale.FILL)
@@ -207,6 +290,41 @@ class RedditView @JvmOverloads constructor(
         }
         addView(frame)
     }
+
+    /**
+     * Locks [view]'s height to width x [ratio] once it is laid out, so an inline
+     * media box keeps its published aspect ratio even when the HTML gave no usable
+     * ratio. Shared by images and video posters.
+     */
+    private fun lockAspectOnLayout(view: View, ratio: Float) {
+        view.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View, left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+            ) {
+                val w = right - left
+                if (w > 0) {
+                    val newH = (w * ratio).toInt().coerceAtLeast(1)
+                    if (newH != bottom - top) {
+                        v.layoutParams = v.layoutParams.apply { height = newH }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * v2.5.60: release every inline GIF player. Called on re-bind (setText /
+     * setPreviewText) so a RedditView that is re-bound with different content does
+     * not keep the old gifs' ExoPlayer instances.
+     */
+    fun releaseInlinePlayers() {
+        for (player in inlinePlayers) {
+            player.release()
+        }
+        inlinePlayers.clear()
+    }
+
 
     private fun addCode(codeBlock: TextBlock) {
         val redditTextView = RedditTextView(context).apply {

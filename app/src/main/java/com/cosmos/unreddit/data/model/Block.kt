@@ -26,15 +26,19 @@ sealed class Block {
 
     /**
      * An inline video inside a comment/post body (a reddit `shreddit-player` in an
-     * `rte-media` figure). [url] is the playable HLS/DASH rendition (the tap-to-play
-     * destination); [poster] is the preview frame shown before playing; [width]/[height]
-     * describe the published aspect ratio (0 = unknown).
+     * `rte-media` figure). [url] is the playable HLS/DASH/mp4 rendition (the
+     * tap-to-play destination); [poster] is the preview frame shown before playing
+     * (null for GIFs — reddit publishes no poster for them); [width]/[height]
+     * describe the published aspect ratio (0 = unknown); [isGif] marks reddit GIF
+     * "videos" (…gif?format=mp4), which are autoplayed + looped inline instead of
+     * being rendered as a tappable poster.
      */
     data class VideoBlock(
         val url: String,
         val poster: String?,
         val width: Int,
-        val height: Int
+        val height: Int,
+        val isGif: Boolean = false
     ) : Block()
 
     class TableBlock : Block() {
