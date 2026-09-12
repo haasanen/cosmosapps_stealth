@@ -108,6 +108,13 @@
     <dimen name="comment_offset">8dp</dimen>
     <dimen name="comment_body_spacing">4dp</dimen>
     <dimen name="video_play_badge">56dp</dimen>
+    <!-- v2.5.68: inline media loading spinner size -->
+    <dimen name="media_loading_spinner">32dp</dimen>
+    <!-- v2.5.68: minimum height of a ratio-less inline media box while it is
+         still loading, so the spinner has a box to sit in (a WRAP_CONTENT
+         ImageView with no drawable yet measures 0x0). Cleared once the media
+         lands so the box snaps to its natural ratio. -->
+    <dimen name="media_loading_min_height">120dp</dimen>
     <dimen name="comment_padding_horizontal">16dp</dimen>
     <dimen name="comment_padding_vertical">8dp</dimen>
     <dimen name="comment_icon_size">16dp</dimen>

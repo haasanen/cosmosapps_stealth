@@ -5,6 +5,7 @@ import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutUserChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.CommentChild
+import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
@@ -481,6 +482,42 @@ class RedditOfficialSourceTest {
         // MimeTypeMap (unmocked in JVM tests) — same reason image cards skip the
         // previewUrl assertion above. The preview source IS pinned by the exact first
         // page URL assertion (a cf.preview.redd.it image, not an avatar/badge).
+    }
+
+    @Test
+    fun `crosspost image cards resolve the target image, not the relative permalink`() = runBlocking {
+        // Regression for the 2026-09-12 report (r/linux_gaming crosspost of an
+        // r/forhonor image post, t3_1wd2y5a): pressing the preview image opened a
+        // black media viewer ("Something went wrong") and "Share Link" shared the
+        // relative target permalink "/r/forhonor/comments/1wd2vcb/...". Crosspost
+        // cards carry the target's RELATIVE permalink in content-href and the
+        // target's full-res i.redd.it file in their own <img> tags (domain
+        // i.redd.it) — the old parser used the bare href as the post url, so the
+        // mediaUrl was a permalink the media viewer could never decode.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("crosspost_image_card.html"))
+        val card = doc.select("shreddit-post")
+            .first { it.attr("view-context") == "CommentsPage" }
+        assertEquals("t3_1wd2y5a", card.attr("id"))
+        assertEquals("crosspost", card.attr("post-type"))
+        assertEquals("/r/forhonor/comments/1wd2vcb/thanks_ubisoft/", card.attr("content-href"))
+
+        val post = source.parsePostCardForTest(card)
+        assertNotNull("crosspost card did not parse", post)
+        val data = post!!.data
+
+        // url must be the target image file (full-res i.redd.it), not the relative
+        // permalink — this is what the media viewer and share intent consume.
+        assertEquals("crosspost url must be the in-card image file",
+            "https://i.redd.it/hp10y4d1tsoh1.jpeg", data.url)
+        // typed as an image, so the header renders the preview (unchanged) and
+        // onImageClick feeds a decodable file to the media viewer.
+        assertEquals("mediaType=${data.mediaType} domain=${data.domain}", MediaType.IMAGE, data.mediaType)
+        assertEquals("mediaUrl should be the decodable image file",
+            "https://i.redd.it/hp10y4d1tsoh1.jpeg", data.mediaUrl)
+        // the post's OWN permalink is untouched (header, history, cache keys).
+        assertEquals("/r/linux_gaming/comments/1wd2y5a/thanks_ubisoft/", data.permalink)
+        // Share Link now yields an absolute, shareable image URL.
+        assertTrue("url must be absolute for sharing", data.url.startsWith("https://"))
     }
 
     @Test

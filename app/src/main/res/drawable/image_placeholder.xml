@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- v2.5.68: the placeholder used to be an unmarked colorSurface solid —
+     invisible on the card, so a still-loading inline media looked like dead
+     empty space. The subtle stroke makes the box read as "media slot, filling
+     in" (the spinner in the box is the motion cue; this is its resting state,
+     also the error state). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="?attr/colorSurface"/>
+    <stroke
+        android:width="1dp"
+        android:color="#2E888888"/>
 </shape>
