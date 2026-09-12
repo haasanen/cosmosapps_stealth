@@ -9,6 +9,11 @@
     <!-- v2.5.54: the one-shot feed-refresh foreground service (compileSdk 33:
          base permission only; the type is declared on the service). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- v2.5.66: targetSdk 34 on Android 14+ additionally requires the
+         type-specific permission for every declared foregroundServiceType.
+         Without it FeedRefreshService (dataSync) throws SecurityException at
+         startForeground and kills the process (splash crash, 165). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".UnredditApplication"
