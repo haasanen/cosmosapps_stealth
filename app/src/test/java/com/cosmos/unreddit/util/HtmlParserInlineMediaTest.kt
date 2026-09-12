@@ -19,9 +19,10 @@ import java.io.File
  *    leak into the surrounding text (raw CSS ".buffering-track-fill {…}",
  *    "Sorry, something went wrong when loading this video.", "View in app").
  *
- * 2. An image figure (<a href><img width="240" height="auto"></a>) must become an
- *    IMAGE block with the full-resolution url and the published width (height "auto"
- *    => 0, so the renderer keeps the bitmap's natural aspect ratio).
+ * 2. An image figure (<a href><img width="240" height="auto" style="…aspect-ratio:240/134">)
+ *    must become an IMAGE block with the full-resolution url and the published
+ *    ratio (height "auto" can't parse, so the style's CSS aspect-ratio is
+ *    authoritative; stored as width 1000, height 1000 x H/W).
  *
  * 3. Figure-less <a><img></a> inline images (the pre-2024 shape) still parse.
  *
@@ -38,6 +39,10 @@ class HtmlParserInlineMediaTest {
         File("src/test/resources/reddit_ssr/inline_image_figure.html").readText()
     private val gifFigure =
         File("src/test/resources/reddit_ssr/inline_gif_figure.html").readText()
+    private val fractionalWidthImageFigure =
+        File(
+            "src/test/resources/reddit_ssr/inline_fractional_width_image_figure.html"
+        ).readText()
 
     @Test
     fun videoFigureBecomesVideoBlockWithHlsUrlPosterAndAspectRatio() {
@@ -60,9 +65,11 @@ class HtmlParserInlineMediaTest {
             "poster not parsed: ${video.poster}",
             video.poster?.startsWith("https://preview.redd.it/6qwh23hvuboh1.jpg") == true
         )
-        // aspect-ratio: 1.2541666666666667 => stored as 1000 x ~1254
+        // aspect-ratio: 1.2541666666666667 is CSS W/H (verified: real poster is
+        // 602x480, W/H = 1.254). Stored H/W => 1000 x ~797 (landscape), NOT the
+        // old inverted 1000x1254 that squished landscape video into a portrait box.
         assertEquals("width", 1000, video.width)
-        assertTrue("height ratio wrong: ${video.height}", video.height in 1250..1258)
+        assertTrue("height ratio wrong: ${video.height}", video.height in 793..801)
 
         // The placeholder is the ONLY thing left of the figure.
         assertTrue("video placeholder missing", "<video_placeholder/>" in out)
@@ -97,13 +104,51 @@ class HtmlParserInlineMediaTest {
             )
         )
         assertFalse("entities must be unescaped", image.url.contains("&amp;"))
-        assertEquals("published width must be kept", 240, image.width)
-        assertEquals("height=auto must map to 0 (natural ratio)", 0, image.height)
+        // height=auto fails toFloatOrNull, so the style's aspect-ratio 240/134
+        // (CSS W/H) is authoritative: stored H/W => 1000 x ~558, box locked.
+        assertEquals("width", 1000, image.width)
+        assertTrue("height ratio wrong: ${image.height}", image.height in 554..562)
 
         assertTrue("image placeholder missing", "<img_placeholder/>" in out)
         assertFalse("figure chrome leaked", "rte-media" in out)
         assertFalse("img attrs leaked", "srcset" in out)
         assertTrue("surrounding text missing", "Here is the proof:" in out)
+    }
+
+    @Test
+    fun fractionalWidthImageUsesStyleAspectRatio() {
+        // Real markup from r/3Dprinting 1wcscy6 (2026-09-12): the width attr is a
+        // FRACTION (180.70588235294116) and height is "auto" — both fail int/float
+        // parsing as a pair, and the true ratio lives ONLY in the style's
+        // aspect-ratio: 180.70588235294116/240 (CSS W/H, portrait: real image is
+        // 3072x4080). Before v2.5.62 the block was (0,0) => the renderer fell back
+        // to the decoded rendition's ratio, clipped the image to the box, and only
+        // re-fit it on a rebind. It must now carry the locked published ratio.
+        val images = mutableListOf<ImageBlock>()
+        val videos = mutableListOf<VideoBlock>()
+        val html = "<p>Ded</p> $fractionalWidthImageFigure"
+
+        val out = parser.replaceInlineMedia(html, images, videos)
+
+        assertEquals("expected exactly one image block", 1, images.size)
+        assertEquals("no video from an image figure", 0, videos.size)
+
+        val image = images[0]
+        assertTrue(
+            "full-res url not parsed: ${image.url}",
+            image.url.startsWith(
+                "https://preview.redd.it/first-jump-test-of-my-3d-printed-robot-didnt-go-as-planned-v0-ey9puvb3qqoh1.jpeg"
+            )
+        )
+        assertFalse("entities must be unescaped", image.url.contains("&amp;"))
+        // aspect-ratio 180.70588235294116/240 = W/H 0.7529 => H/W 1.3281
+        // => stored as width 1000, height ~1328 (portrait, matching 3072x4080).
+        assertEquals("width", 1000, image.width)
+        assertTrue("height ratio wrong: ${image.height}", image.height in 1322..1334)
+
+        assertTrue("image placeholder missing", "<img_placeholder/>" in out)
+        assertFalse("style leaked", "aspect-ratio" in out)
+        assertTrue("surrounding text missing", "Ded" in out)
     }
 
     @Test

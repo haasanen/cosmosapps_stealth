@@ -33,7 +33,10 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
     private val FIGURE_POSTER_REGEX = Regex("""<shreddit-player[^>]*\bposter="([^"]+)""")
     private val FIGURE_POSTER_IMG_REGEX =
         Regex("""<img[^>]*alt="media poster"[^>]*\ssrc="([^"]+)"""")
-    private val FIGURE_ASPECT_REGEX = Regex("""aspect-ratio:\s*([0-9.]+)""")
+    // v2.5.62: CSS aspect-ratio (spec: WIDTH/HEIGHT) — a plain number X (W/H = X)
+    // or a fraction A/B (W/H = A/B). Used for video figures AND image styles.
+    private val ASPECT_RATIO_REGEX =
+        Regex("""aspect-ratio:\s*([0-9.]+)(?:\s*/\s*([0-9.]+))?""")
     // v2.5.60: GIF players have no CSS aspect-ratio and no poster; their box comes
     // from the wrapper div's inline style: style="width: 240px; height: 134.83px;".
     private val FIGURE_BOX_STYLE_REGEX =
@@ -44,6 +47,14 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
     private val IMG_SRC_REGEX = Regex("""src="([^"]+)""")
     private val IMG_WIDTH_REGEX = Regex("""width="([^"]+)""")
     private val IMG_HEIGHT_REGEX = Regex("""height="([^"]+)""")
+    // v2.5.62: reddit's NEW comment-image markup (2026-09-12, r/3Dprinting 1wcscy6)
+    // publishes a FRACTIONAL width attr + height="auto" and the real ratio ONLY in
+    // the style's aspect-ratio: width="180.70588235294116" height="auto"
+    // style="object-fit: cover;aspect-ratio:180.70588235294116/240". The width attr
+    // may itself be a fraction (so toIntOrNull() returns null), and the ratio may be
+    // a fraction (N/M) or a plain number (M). Captured group 1 = numerator,
+    // group 2 = optional denominator.
+    private val IMG_STYLE_ATTR_REGEX = Regex("""style="([^"]*)""")
     private val PLACEHOLDER_REGEX = Regex("<(table|code|img|video)_placeholder/>")
 
     private val tagHandler = RedditTagHandler()
@@ -210,9 +221,7 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
             val imgAttrs = m.groupValues[2]
             val src = IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1)
             val url = if (src.isNullOrBlank()) href else Parser.unescapeEntities(src, true)
-            val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            images.add(ImageBlock(url, width, height))
+            images.add(imageBlockFromAttrs(url, imgAttrs))
             IMG_PLACEHOLDER
         }
 
@@ -228,7 +237,15 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
         // rather than a CSS aspect-ratio, so that is the ratio fallback.
         val playerTag = FIGURE_PLAYER_TAG_REGEX.find(figure)?.groupValues?.get(0).orEmpty()
         val isGif = GIF_FLAG_REGEX.containsMatchIn(playerTag)
-        val ratio = FIGURE_ASPECT_REGEX.find(figure)?.groupValues?.get(1)?.toFloatOrNull()
+        // v2.5.62: CSS aspect-ratio is WIDTH/HEIGHT (spec + verified against the
+        // real poster: 602x480, W/H = 1.254 = published 1.254). A plain number X
+        // means W/H = X (H/W = 1/X); a fraction A/B means W/H = A/B (H/W = B/A).
+        val ratio = ASPECT_RATIO_REGEX.find(figure)?.let { m ->
+            val a = m.groupValues[1].toFloatOrNull() ?: return@let null
+            if (a <= 0f) return@let null
+            val b = m.groupValues[2]?.toFloatOrNull()
+            if (b != null && b > 0f) b / a else 1f / a
+        }
             ?: FIGURE_BOX_STYLE_REGEX.find(figure)?.let { m ->
                 val w = m.groupValues[1].toFloatOrNull()
                 val h = m.groupValues[2].toFloatOrNull()
@@ -247,18 +264,64 @@ class HtmlParser(private val defaultDispatcher: CoroutineDispatcher) {
             val imgAttrs = link.groupValues[2]
             val src = IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1)
             val url = if (src.isNullOrBlank()) href else Parser.unescapeEntities(src, true)
-            val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            return ImageBlock(url, width, height)
+            return imageBlockFromAttrs(url, imgAttrs)
         }
         val img = Regex("""<img([^>]*)>""").find(figure)
         val imgAttrs = img?.groupValues?.get(1).orEmpty()
         val url = Parser.unescapeEntities(
             IMG_SRC_REGEX.find(imgAttrs)?.groupValues?.get(1).orEmpty(), true
         )
-        val width = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        val height = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        return ImageBlock(url, width, height)
+        return imageBlockFromAttrs(url, imgAttrs)
+    }
+
+    /**
+     * v2.5.62: width/height for an inline <img>. The HTML width/height attrs are
+     * CSS px and MAY be fractional (width="180.70588235294116") or "auto" — both
+     * fail toIntOrNull(), leaving (0, 0) so the renderer falls back to the
+     * decoded bitmap's ratio, which reddit's width-capped renditions do not
+     * preserve: the image renders clipped to the box and only re-fits after a
+     * rebind (the 2026-09-12 "inline media not resized until I scroll away"
+     * report). When the attrs do not both parse, the style's aspect-ratio is
+     * authoritative: CSS aspect-ratio is WIDTH/HEIGHT, published as a plain
+     * number X (W/H = X) or a fraction A/B (W/H = A/B). It is stored the same
+     * way video ratios are — width 1000, height 1000 x (H/W) — so the renderer
+     * locks the box to the true ratio.
+     */
+    private fun imageBlockFromAttrs(url: String, imgAttrs: String): ImageBlock {
+        val w = IMG_WIDTH_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toFloatOrNull()
+        val h = IMG_HEIGHT_REGEX.find(imgAttrs)?.groupValues?.get(1)?.toFloatOrNull()
+        if (w != null && h != null && w > 0f && h > 0f) {
+            // Both attrs are usable ints: keep them as-is (existing behaviour).
+            return ImageBlock(url, w.toInt(), h.toInt())
+        }
+        val ratio = aspectRatioFromAttrs(imgAttrs)
+        return if (ratio != null && ratio > 0f) {
+            ImageBlock(url, 1000, (1000 * ratio).toInt())
+        } else {
+            ImageBlock(url, 0, 0)
+        }
+    }
+
+    /**
+     * The aspect ratio H/W of a `style="…aspect-ratio: …"` value, or null.
+     * CSS aspect-ratio is WIDTH/HEIGHT (verified 2026-09-12 against a real
+     * reddit video poster: aspect-ratio 1.2541666666666667, decoded 602x480,
+     * 602/480 = 1.25416…): a plain number X means W/H = X (H/W = 1/X), and a
+     * fraction A/B means W/H = A/B (H/W = B/A).
+     */
+    private fun aspectRatioHW(style: String): Float? {
+        val m = ASPECT_RATIO_REGEX.find(style) ?: return null
+        val a = m.groupValues[1].toFloatOrNull() ?: return null
+        if (a <= 0f) return null
+        val b = m.groupValues[2]?.toFloatOrNull()
+        val hOverW = if (b != null && b > 0f) b / a else 1f / a
+        return hOverW
+    }
+
+    /** The img's aspect ratio (H/W) from its style attribute, or null. */
+    private fun aspectRatioFromAttrs(imgAttrs: String): Float? {
+        val style = IMG_STYLE_ATTR_REGEX.find(imgAttrs)?.groupValues?.get(1) ?: return null
+        return aspectRatioHW(style)
     }
 
     companion object {
