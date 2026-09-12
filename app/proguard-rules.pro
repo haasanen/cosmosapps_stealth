@@ -38,3 +38,13 @@
 -dontwarn org.openjsse.javax.net.ssl.SSLParameters
 -dontwarn org.openjsse.javax.net.ssl.SSLSocket
 -dontwarn org.openjsse.net.ssl.OpenJSSE
+
+# Moshi's AdapterMethodsFactory validates @FromJson/@ToJson parameter types via
+# reflection and requires the JsonAdapter<T> parameter to still carry its generic
+# signature (a ParameterizedType), otherwise it throws "Unexpected signature for
+# ..." at first adapter use (square/moshi#1663). R8 full mode (AGP 8 default)
+# strips those signatures and this keep rule does NOT restore them — the fix is
+# android.enableR8.fullMode=false in gradle.properties (verified: generic
+# signature string count 453 with full mode on vs 2161 off, matching the last
+# working build). This keep rule is kept as defense-in-depth.
+-keep,allowobfuscation,allowshrinking class com.squareup.moshi.JsonAdapter
