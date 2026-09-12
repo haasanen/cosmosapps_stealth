@@ -68,8 +68,20 @@ class ResourceStateAdapter(
             binding.buttonRetry.isVisible = isError
             binding.textError.isVisible = isError
             if (isError) {
-                binding.textError.text = binding.root.context
-                    .getString(R.string.network_retry_message)
+                // Surface the actual failure reason (e.g. "Reddit.com did not
+                // return a usable page (JS challenge could not be solved)")
+                // instead of the generic message: on a detail-screen failure the
+                // post above the row is the feed-cache copy, so the user has no
+                // other signal for WHAT went wrong (2026-09-12 report: post with
+                // gallery + text body showed a black media box, no body text, and
+                // a generic "Something went wrong" row; the ViewModel carries the
+                // reason in Resource.Error.message but it was never displayed).
+                val message = (resource as? Resource.Error)?.message
+                binding.textError.text = if (message.isNullOrBlank()) {
+                    binding.root.context.getString(R.string.network_retry_message)
+                } else {
+                    message
+                }
             }
 
             val isEmpty = isEmpty(resource)
