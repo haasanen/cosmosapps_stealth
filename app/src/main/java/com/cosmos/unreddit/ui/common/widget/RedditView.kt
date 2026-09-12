@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.HorizontalScrollView
+import android.widget.ProgressBar
 import androidx.annotation.ColorInt
 import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.core.view.children
@@ -19,6 +20,7 @@ import com.cosmos.unreddit.util.LinkUtil
 import com.cosmos.unreddit.util.extension.load
 import coil.size.Scale
 import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
@@ -112,10 +114,22 @@ class RedditView @JvmOverloads constructor(
         } else {
             null
         }
-        val imageView = ImageView(context).apply {
+        // v2.5.68: the image lives in a box that carries a loading spinner
+        // while the media is being downloaded — previously the slot rendered
+        // as dead empty space until the bitmap arrived (and the old
+        // placeholder was an unmarked colorSurface solid: invisible on the
+        // card).
+        val frame = FrameLayout(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                 topMargin = context.resources.getDimensionPixelSize(R.dimen.comment_body_spacing)
             }
+        }
+        val onMediaReady = attachLoadingSpinner(frame)
+        val imageView = ImageView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
             // Full width, height locked to the published aspect ratio when the
             // HTML carried one (a 16:9 gifv frame must not render as 1:1).
             if (ratio != null) {
@@ -142,6 +156,16 @@ class RedditView @JvmOverloads constructor(
             // settles), leaving the image wrong until a rebind. Only the ratio-less
             // path needs it (bitmap ratio is the source of truth there).
             adjustViewBounds = ratio == null
+            // v2.5.68: without a known ratio the box measures 0x0 while the
+            // bitmap is in flight (a WRAP_CONTENT ImageView with no drawable
+            // yet), so the spinner would have nowhere to sit. A floor keeps
+            // the slot visible until the media lands — cleared in the load
+            // listener so the box snaps to the bitmap's natural size.
+            if (ratio == null) {
+                setMinimumHeight(
+                    context.resources.getDimensionPixelSize(R.dimen.media_loading_min_height)
+                )
+            }
             contentDescription = null
             isClickable = true
             isFocusable = true
@@ -164,7 +188,18 @@ class RedditView @JvmOverloads constructor(
                 imageBlock.url,
                 blur = false,
                 scale = Scale.FIT
-            )
+            ) {
+                // v2.5.68: drop the spinner as soon as the media — or its
+                // failure — lands.
+                listener(
+                    onSuccess = { _, _ ->
+                        setMinimumHeight(0)
+                        onMediaReady()
+                    },
+                    onError = { _, _ -> onMediaReady() },
+                    onCancel = { onMediaReady() }
+                )
+            }
             // TEMP (v2.5.63): confirm the locked ratio reaches the render. The
             // on-device first-load race that survives (if any) shows up here.
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
@@ -173,7 +208,8 @@ class RedditView @JvmOverloads constructor(
                     "lock=${ratio != null} …${imageBlock.url.takeLast(40)}"
             )
         }
-        addView(imageView)
+        frame.addView(imageView)
+        addView(frame)
     }
 
     private fun addVideo(videoBlock: VideoBlock) {
@@ -255,6 +291,23 @@ class RedditView @JvmOverloads constructor(
 
         inlinePlayers.add(player)
         frame.addView(playerView)
+        // v2.5.68: spinner until the first frame is decoded — the gif "video"
+        // is an mp4, and until the first format is known the box is just its
+        // (black) player background. The spinner goes on top: the PlayerView
+        // paints an opaque surface once playing, which would hide a
+        // below-order spinner.
+        val onMediaReady = attachLoadingSpinner(frame)
+        player.addListener(object : Player.Listener {
+            // 2.18.1: the first actually-drawn frame — the spinner goes when a
+            // pixel appears, not when a format is merely known.
+            override fun onRenderedFirstFrame() {
+                onMediaReady()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                onMediaReady()
+            }
+        })
         addView(frame)
     }
 
@@ -272,6 +325,20 @@ class RedditView @JvmOverloads constructor(
                 topMargin = context.resources.getDimensionPixelSize(R.dimen.comment_body_spacing)
             }
         }
+        // v2.5.68: spinner until the poster lands (see addImage).
+        val onMediaReady = attachLoadingSpinner(frame)
+        // v2.5.68: the play badge waits for the poster — a floating play icon
+        // over a bare spinner reads as broken.
+        val badge = ImageView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
+                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
+                Gravity.CENTER
+            )
+            setImageResource(R.drawable.ic_play)
+            contentDescription = context.getString(R.string.cd_play_video)
+            visibility = View.GONE
+        }
         val poster = ImageView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -286,20 +353,34 @@ class RedditView @JvmOverloads constructor(
             if (ratio != null) {
                 lockAspectOnLayout(this, ratio)
             }
+            // v2.5.68: a ratio-less poster measures 0x0 while in flight; a
+            // floor keeps the slot visible until the poster lands (cleared in
+            // the load listener).
+            if (ratio == null) {
+                setMinimumHeight(
+                    context.resources.getDimensionPixelSize(R.dimen.media_loading_min_height)
+                )
+            }
             if (!videoBlock.poster.isNullOrBlank()) {
                 // v2.5.63: FIT, never FILL — a transiently-wrong box must letterbox,
                 // not crop the poster (see addImage).
-                load(videoBlock.poster, blur = false, scale = Scale.FIT)
+                load(videoBlock.poster, blur = false, scale = Scale.FIT) {
+                    // v2.5.68: spinner until the poster lands (see addImage).
+                    listener(
+                        onSuccess = { _, _ ->
+                            setMinimumHeight(0)
+                            badge.visibility = View.VISIBLE
+                            onMediaReady()
+                        },
+                        onError = { _, _ -> onMediaReady() },
+                        onCancel = { onMediaReady() }
+                    )
+                }
+            } else {
+                // v2.5.68: no poster at all — nothing will ever land in this
+                // box, so no spinner either.
+                onMediaReady()
             }
-        }
-        val badge = ImageView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
-                context.resources.getDimensionPixelSize(R.dimen.video_play_badge),
-                Gravity.CENTER
-            )
-            setImageResource(R.drawable.ic_play)
-            contentDescription = context.getString(R.string.cd_play_video)
         }
         frame.addView(poster)
         frame.addView(badge)
@@ -311,6 +392,33 @@ class RedditView @JvmOverloads constructor(
             true
         }
         addView(frame)
+    }
+
+    /**
+     * v2.5.68: adds a small indeterminate spinner to [frame], centered, and
+     * returns a one-shot callback that hides it. Inline media used to render
+     * as dead empty space while the download was in flight (and the Coil
+     * placeholder was an unmarked colorSurface solid — invisible on the card);
+     * the spinner says "media is coming to this slot" until the media, or its
+     * failure, lands. Idempotent: cached-hit loads may report success before
+     * the first frame is even visible.
+     */
+    private fun attachLoadingSpinner(frame: FrameLayout): () -> Unit {
+        val spinner = ProgressBar(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                context.resources.getDimensionPixelSize(R.dimen.media_loading_spinner),
+                context.resources.getDimensionPixelSize(R.dimen.media_loading_spinner),
+                Gravity.CENTER
+            )
+            isIndeterminate = true
+            contentDescription = null
+        }
+        frame.addView(spinner)
+        return {
+            if (spinner.visibility == View.VISIBLE) {
+                spinner.visibility = View.GONE
+            }
+        }
     }
 
     /**

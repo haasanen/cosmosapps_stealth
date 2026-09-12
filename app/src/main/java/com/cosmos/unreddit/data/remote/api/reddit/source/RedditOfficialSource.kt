@@ -1262,7 +1262,32 @@ class RedditOfficialSource @Inject constructor(
         val contentHref = el.attr("content-href")
         val isSelf = postType == "text" || domain.startsWith("self.")
         val absolutePermalink = if (permalink.startsWith("/")) "https://www.reddit.com$permalink" else permalink
-        val url = if (isSelf) absolutePermalink else (contentHref.ifBlank { absolutePermalink })
+        val imgSources = el.select("img").mapNotNull { img ->
+            img.attr("src").takeIf { it.isNotBlank() }
+                ?: img.attr("data-src").takeIf { it.isNotBlank() }
+        }
+        // Crosspost cards render the TARGET post's media inside their own card.
+        // Their `content-href` is the target post's RELATIVE permalink
+        // (e.g. /r/forhonor/comments/1wd2vcb/...) — that is not a media file, so
+        // opening it in the media viewer fails (black screen + "Something went
+        // wrong") and it is not a shareable link either. Prefer the full-res
+        // i.redd.it file the card itself carries (same one the preview uses);
+        // otherwise absolutize the href. Live-captured crosspost 2026-09-12
+        // (r/linux_gaming xpost of an r/forhonor image post): content-href
+        // relative + i.redd.it/hp10y4d1tsoh1.jpeg in-card.
+        val url = if (isSelf) {
+            absolutePermalink
+        } else {
+            val href = contentHref.ifBlank { absolutePermalink }
+            val absoluteHref =
+                if (href.startsWith("/")) "https://www.reddit.com$href" else href
+            if (postType == "crosspost") {
+                imgSources.firstOrNull { it.startsWith("https://i.redd.it/") }
+                    ?: absoluteHref
+            } else {
+                absoluteHref
+            }
+        }
 
         val map = mutableMapOf<String, Any?>(
             "name" to name,
@@ -1286,10 +1311,6 @@ class RedditOfficialSource @Inject constructor(
         // .../profileIcon, a.thumbs.redditmedia.com, redditstatic.com/avatars), which
         // would render as a broken/irrelevant thumbnail. So: pick a genuine preview
         // first, and only fall back to any non-avatar redd.it/redditmedia image.
-        val imgSources = el.select("img").mapNotNull { img ->
-            img.attr("src").takeIf { it.isNotBlank() }
-                ?: img.attr("data-src").takeIf { it.isNotBlank() }
-        }
         val thumbnail = imgSources.firstOrNull(::isPreviewImageUrl)
             ?: imgSources.firstOrNull {
                 (it.contains("redd.it") || it.contains("redditmedia")) && !isAvatarImageUrl(it)
