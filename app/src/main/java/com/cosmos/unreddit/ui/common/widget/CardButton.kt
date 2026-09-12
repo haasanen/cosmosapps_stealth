@@ -7,13 +7,13 @@ import android.widget.ImageView
 import androidx.annotation.DrawableRes
 import androidx.appcompat.content.res.AppCompatResources
 import com.cosmos.unreddit.R
-
+import com.google.android.material.R as MaterialR
 import com.google.android.material.card.MaterialCardView
 
 class CardButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.materialCardViewStyle
+    defStyleAttr: Int = MaterialR.attr.materialCardViewStyle
 ) : MaterialCardView(context, attrs, defStyleAttr) {
 
     private var icon: ImageView

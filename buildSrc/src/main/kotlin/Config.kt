@@ -4,9 +4,9 @@ object Config {
     const val applicationId = "com.cosmos.unreddit"
 
     const val minSdk = 23
-    const val compileSdk = 33
-    const val targetSdk = 33
+    const val compileSdk = 34
+    const val targetSdk = 34
 
-    const val versionCode = 163
-    const val versionName = "2.5.63"
+    const val versionCode = 164
+    const val versionName = "2.5.64"
 }

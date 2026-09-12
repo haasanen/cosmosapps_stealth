@@ -12,6 +12,7 @@ import androidx.transition.Slide
 import androidx.transition.TransitionManager
 import androidx.transition.TransitionSet
 import com.cosmos.unreddit.R
+import com.google.android.material.R as MaterialR
 import com.cosmos.unreddit.util.extension.hideSoftKeyboard
 import com.cosmos.unreddit.util.extension.showSoftKeyboard
 import com.google.android.material.textfield.TextInputEditText
@@ -20,7 +21,7 @@ import com.google.android.material.transition.MaterialFadeThrough
 class SearchInputEditText @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.editTextStyle
+    defStyleAttr: Int = MaterialR.attr.editTextStyle
 ) : TextInputEditText(context, attrs, defStyleAttr) {
 
     private val searchInputTransition by lazy {

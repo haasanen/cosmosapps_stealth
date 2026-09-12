@@ -25,3 +25,16 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
+
+# okhttp's Conscrypt/BouncyCastle/OpenJSSE TLS platforms are optional at runtime
+# (okhttp detects their absence via reflection). R8 >= AGP 8 flags the missing
+# classes as a build error; these are the rules R8 itself generates.
+-dontwarn org.bouncycastle.jsse.BCSSLParameters
+-dontwarn org.bouncycastle.jsse.BCSSLSocket
+-dontwarn org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
+-dontwarn org.conscrypt.Conscrypt
+-dontwarn org.conscrypt.Conscrypt$Version
+-dontwarn org.conscrypt.ConscryptHostnameVerifier
+-dontwarn org.openjsse.javax.net.ssl.SSLParameters
+-dontwarn org.openjsse.javax.net.ssl.SSLSocket
+-dontwarn org.openjsse.net.ssl.OpenJSSE

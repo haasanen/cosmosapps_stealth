@@ -25,6 +25,7 @@ import android.view.View
 import android.view.animation.AnimationUtils
 import android.widget.FrameLayout
 import com.cosmos.unreddit.R
+import com.google.android.material.R as MaterialR
 import com.google.android.material.card.MaterialCardView
 import kotlin.math.abs
 import kotlin.math.log10
@@ -38,7 +39,7 @@ import kotlin.math.min
 class ElasticDragDismissFrameLayout @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.materialCardViewStyle
+    defStyleAttr: Int = MaterialR.attr.materialCardViewStyle
 ) : MaterialCardView(context, attrs, defStyleAttr) {
 
     // configurable attribs
