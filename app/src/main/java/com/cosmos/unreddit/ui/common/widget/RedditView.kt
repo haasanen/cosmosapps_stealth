@@ -135,7 +135,13 @@ class RedditView @JvmOverloads constructor(
                 })
             }
             scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
+            // v2.5.63: adjustViewBounds must NOT be active when the box is locked
+            // to the published ratio. It resizes the box to the *decoded bitmap's*
+            // intrinsic ratio, which on a first load can override the locked ratio
+            // (Coil decodes at the transient box size before the layout listener
+            // settles), leaving the image wrong until a rebind. Only the ratio-less
+            // path needs it (bitmap ratio is the source of truth there).
+            adjustViewBounds = ratio == null
             contentDescription = null
             isClickable = true
             isFocusable = true
@@ -144,16 +150,27 @@ class RedditView @JvmOverloads constructor(
                 onLinkClickListener?.onLinkLongClick(imageBlock.url)
                 true
             }
-            // v2.5.58: when the HTML published no usable ratio (reddit now writes
-            // height="auto"), the box is NOT locked, so Coil must decode at the
-            // bitmap's NATURAL aspect ratio (Scale.FIT) instead of squishing it to
-            // the current (wrong) box (Scale.FILL). That is what clipped tall images
-            // vertically and needed a scroll-away-and-back to fix. With a locked box
-            // (ratio != null) FILL is correct because the box already matches.
+            // v2.5.63: the locked box is authoritative for the height (the layout
+            // listener above sets it to width x ratio). Coil must therefore FIT,
+            // never FILL. FILL (centerCrop) crops the image to the box — correct
+            // only if the box already matches, but on a first load the box can be
+            // transiently off before the listener settles, and FILL then crops the
+            // image to that wrong box (the 2026-09-12 "preview crops the actual
+            // image" report: labels clipped on both sides). FIT never crops: a
+            // transiently-wrong box only letterboxes briefly, then the listener
+            // corrects the box and the image refits. The ratio-less path also FITs
+            // (bitmap's natural ratio is the source of truth there).
             load(
                 imageBlock.url,
                 blur = false,
-                scale = if (ratio == null) Scale.FIT else Scale.FILL
+                scale = Scale.FIT
+            )
+            // TEMP (v2.5.63): confirm the locked ratio reaches the render. The
+            // on-device first-load race that survives (if any) shows up here.
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "inline image w=${imageBlock.width} h=${imageBlock.height} " +
+                    "ratio=${if (ratio != null) String.format(java.util.Locale.US, "%.4f", ratio) else "null"} " +
+                    "lock=${ratio != null} …${imageBlock.url.takeLast(40)}"
             )
         }
         addView(imageView)
@@ -258,16 +275,21 @@ class RedditView @JvmOverloads constructor(
         val poster = ImageView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams.WRAP_CONTENT
             )
             scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
+            // v2.5.63: same first-load race as addImage — adjustViewBounds resizes
+            // the box to the decoded bitmap's ratio, overriding the locked ratio
+            // until a rebind. Only the ratio-less path needs it.
+            adjustViewBounds = ratio == null
             contentDescription = null
             if (ratio != null) {
                 lockAspectOnLayout(this, ratio)
             }
             if (!videoBlock.poster.isNullOrBlank()) {
-                load(videoBlock.poster, blur = false, scale = if (ratio == null) Scale.FIT else Scale.FILL)
+                // v2.5.63: FIT, never FILL — a transiently-wrong box must letterbox,
+                // not crop the poster (see addImage).
+                load(videoBlock.poster, blur = false, scale = Scale.FIT)
             }
         }
         val badge = ImageView(context).apply {
