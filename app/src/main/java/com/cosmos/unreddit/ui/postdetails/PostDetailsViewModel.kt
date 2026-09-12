@@ -205,9 +205,15 @@ class PostDetailsViewModel @Inject constructor(
                     throw e // Screen gone / scope cancelled: stop, do not surface an error.
                 } catch (e: Throwable) {
                     lastError = e
+                    // The user-visible error row only shows a generic message, so
+                    // record the failing URL + the exact exception here — this is
+                    // the only place the WHAT/WHY of a detail-load failure is
+                    // preserved for diagnosis (2026-09-12 report: a gallery + text
+                    // post failed to load while every other detail load in the
+                    // same session succeeded; the log had no trace of the attempt).
                     FeedDebug.log(
-                        "detail load: attempt $attempt/$MAX_FETCH_ATTEMPTS failed " +
-                            "(${e::class.simpleName}: ${e.message})"
+                        "detail load FAILED attempt=$attempt/$MAX_FETCH_ATTEMPTS " +
+                            "url=$permalink (${e::class.simpleName}: ${e.message})"
                     )
                 }
                 if (attempt < MAX_FETCH_ATTEMPTS) {
