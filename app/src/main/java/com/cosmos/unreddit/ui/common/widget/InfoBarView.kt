@@ -11,12 +11,13 @@ import androidx.core.content.ContextCompat
 import androidx.transition.Slide
 import androidx.transition.TransitionManager
 import com.cosmos.unreddit.R
+import com.google.android.material.R as MaterialR
 import com.google.android.material.card.MaterialCardView
 
 class InfoBarView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.materialCardViewStyle
+    defStyleAttr: Int = MaterialR.attr.materialCardViewStyle
 ) : MaterialCardView(context, attrs, defStyleAttr) {
 
     private val transition: Slide by lazy {
