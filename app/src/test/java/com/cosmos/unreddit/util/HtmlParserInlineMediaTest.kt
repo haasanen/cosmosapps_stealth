@@ -43,6 +43,15 @@ class HtmlParserInlineMediaTest {
         File(
             "src/test/resources/reddit_ssr/inline_fractional_width_image_figure.html"
         ).readText()
+    // Real comment fragments (fetched 2026-09-12, verified against the app's parser):
+    // r/LocalLLaMA 1wcvmuo — flying-cat "FLASH" illustration, width="129" height="auto"
+    // aspect-ratio:129/240; and r/3Dprinting 1wdacxo — OP post body "> ender 3 s1"
+    // desert-meme image, width="240" height="auto" aspect-ratio:240/134.93975903614458.
+    // Both are the width-integer/height-auto shape that still broke before v2.5.62.
+    private val flashPostComment =
+        File("src/test/resources/reddit_ssr/real_flash_post_comments.html").readText()
+    private val calibPostBody =
+        File("src/test/resources/reddit_ssr/real_calib_post_comments.html").readText()
 
     @Test
     fun videoFigureBecomesVideoBlockWithHlsUrlPosterAndAspectRatio() {
@@ -149,6 +158,46 @@ class HtmlParserInlineMediaTest {
         assertTrue("image placeholder missing", "<img_placeholder/>" in out)
         assertFalse("style leaked", "aspect-ratio" in out)
         assertTrue("surrounding text missing", "Ded" in out)
+    }
+
+    @Test
+    fun realFlashPostCommentImageLocksPublishedRatio() {
+        // Real comment from r/LocalLLaMA 1wcvmuo (the flying-cat "FLASH"
+        // illustration, 2026-09-12 report): width="129" height="auto", the ratio
+        // only in style aspect-ratio:129/240 (W/H 0.5375 => H/W 1.8605, a tall
+        // illustration). Pre-v2.5.62 the block was (129, 0) => the box used the
+        // decoded rendition's ratio and the image clipped until a rebind.
+        val images = mutableListOf<ImageBlock>()
+        val videos = mutableListOf<VideoBlock>()
+        val out = parser.replaceInlineMedia(flashPostComment, images, videos)
+
+        assertEquals("exactly one image in this comment", 1, images.size)
+        assertEquals(0, videos.size)
+        val image = images[0]
+        assertEquals("width", 1000, image.width)
+        assertTrue("height ratio wrong: ${image.height}", image.height in 1854..1868)
+        assertTrue("placeholder present", "<img_placeholder/>" in out)
+        assertFalse("style leaked", "aspect-ratio" in out)
+    }
+
+    @Test
+    fun realCalibPostBodyImageLocksPublishedRatio() {
+        // Real OP post body from r/3Dprinting 1wdacxo ("WHY DOES MY CALIBRATION
+        // CUBE LOOK LIKE THAT", 2026-09-12 report): the "> ender 3 s1"
+        // desert-meme image, width="240" height="auto", ratio only in style
+        // aspect-ratio:240/134.93975903614458 (W/H 1.7785 => H/W 0.5623,
+        // landscape). Pre-v2.5.62: (240, 0) => clipped until a rebind.
+        val images = mutableListOf<ImageBlock>()
+        val videos = mutableListOf<VideoBlock>()
+        val out = parser.replaceInlineMedia(calibPostBody, images, videos)
+
+        assertEquals("exactly one image in the post body", 1, images.size)
+        assertEquals(0, videos.size)
+        val image = images[0]
+        assertEquals("width", 1000, image.width)
+        assertTrue("height ratio wrong: ${image.height}", image.height in 556..568)
+        assertTrue("placeholder present", "<img_placeholder/>" in out)
+        assertFalse("style leaked", "aspect-ratio" in out)
     }
 
     @Test
