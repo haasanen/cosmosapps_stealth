@@ -470,9 +470,12 @@ class RedditOfficialSourceTest {
         assertTrue("mediaType=${data.mediaType} (expected REDDIT_GALLERY); domain=${data.domain}", data.mediaType.name == "REDDIT_GALLERY")
         assertEquals("gallery size=${data.gallery.size} urls=${data.gallery.map { it.url.take(60) }}", 8, data.gallery.size)
         // In card order: the first pages use src, later pages data-lazy-src.
+        // Each page uses the WIDEST srcset rendition (not the 640w `src`), which
+        // is the soft rendition that read as a blurred image in the fullscreen
+        // viewer on non-NSFW posts (2026-09-14 goblin_girl report).
         assertEquals(
             "first gallery page url wrong",
-            "https://cf.preview.redd.it/homemade-my-take-on-shepherds-pie-v0-z1vz54t2n4nh1.jpg?width=640&crop=smart&auto=webp&s=52a109880c343207276052c5aafe30462c3ad713",
+            "https://cf.preview.redd.it/homemade-my-take-on-shepherds-pie-v0-z1vz54t2n4nh1.jpg?width=1080&crop=smart&auto=webp&s=e0834524367c8080e45164abd692e22ba2fbd348",
             data.gallery[0].url
         )
         assertTrue("gallery url out of order: ${data.gallery.map { it.url }}",
@@ -482,6 +485,49 @@ class RedditOfficialSourceTest {
         // MimeTypeMap (unmocked in JVM tests) — same reason image cards skip the
         // previewUrl assertion above. The preview source IS pinned by the exact first
         // page URL assertion (a cf.preview.redd.it image, not an avatar/badge).
+    }
+
+    @Test
+    fun `image cards carry the nsfw flag from the lightbox telemetry`() = runBlocking {
+        // Regression for the 2026-09-14 report (blur setting "doesn't work"): the
+        // official SSR source never parsed the NSFW flag — ensurePostDefaults forced
+        // over_18=false on EVERY post, so the "Show NSFW preview" blur could never
+        // engage for official-source posts. The flag lives in the card's
+        // shreddit-media-lightbox-listener `telemetry` JSON ({"post":{...,"nsfw":bool}}).
+        val cardHtml =
+            "<shreddit-post id=\"t3_test1\" subreddit-name=\"testsub\" subreddit-prefixed-name=\"r/testsub\" " +
+                "permalink=\"/r/testsub/comments/test1/x/\" post-title=\"nsfw test\" author=\"a\" " +
+                "post-type=\"image\" content-href=\"https://i.redd.it/abc123.jpg\" domain=\"i.redd.it\" " +
+                "created-timestamp=\"2026-09-14T10:00:00+00:00\" score=\"10\" comment-count=\"1\" upvote-ratio=\"1.0\">" +
+                // Telemetry exactly as captured in the live popular feed: the JSON quotes are
+                // HTML-escaped (&quot;) inside the attribute, Jsoup decodes them on attr().
+                "<shreddit-media-lightbox-listener telemetry=\"{&quot;post&quot;:{&quot;id&quot;:&quot;t3_test1&quot;,&quot;nsfw&quot;:true,&quot;url&quot;:&quot;https://i.redd.it/abc123.jpg&quot;,&quot;type&quot;:&quot;image&quot;}}\"/>" +
+                "<img src=\"https://cf.preview.redd.it/abc123.jpg?width=640&crop=smart&auto=webp&s=zzz\">" +
+                "</shreddit-post>"
+        val card = org.jsoup.Jsoup.parse(cardHtml).select("shreddit-post")[0]
+
+        val post = source.parsePostCardForTest(card)
+        assertNotNull("nsfw card did not parse", post)
+        assertTrue("nsfw=true card must set isOver18 (was hardwired false)", post!!.data.isOver18)
+        assertFalse("a flagged card must not be a spoiler", post.data.isSpoiler)
+    }
+
+    @Test
+    fun `non-nsfw cards parse with isOver18 false`() = runBlocking {
+        // The real popular-feed fixture: every card telemetry carries "nsfw":false.
+        // The parser must read that (not fail and fall back to the default) and keep
+        // the flag false.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("pf_popular_p1.html"))
+        val withTelemetry = doc.select("shreddit-post").toList().filter {
+            it.selectFirst("shreddit-media-lightbox-listener") != null
+        }
+        assertTrue("expected feed cards with lightbox telemetry in the fixture", withTelemetry.isNotEmpty())
+        for (card in withTelemetry) {
+            val post = source.parsePostCardForTest(card)
+            assertNotNull("card ${card.attr("id")} did not parse", post)
+            assertFalse("fixture card ${card.attr("id")} is not nsfw, got isOver18=true",
+                post!!.data.isOver18)
+        }
     }
 
     @Test

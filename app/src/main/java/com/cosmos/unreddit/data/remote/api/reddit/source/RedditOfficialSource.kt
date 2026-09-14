@@ -1379,6 +1379,19 @@ class RedditOfficialSource @Inject constructor(
             map["selftext_html"] = selfTextHtml
         }
 
+        // The post NSFW flag. The shreddit-post card element itself carries no
+        // nsfw attribute, but media cards embed a shreddit-media-lightbox-listener
+        // whose `telemetry` JSON holds {"post":{"id":..., "nsfw":bool, ...}}
+        // (wire-verified 2026-09-14: every image card in the popular feed).
+        // Without this, ensurePostDefaults forces over_18=false on EVERY
+        // official-source post, so the "Show NSFW preview" blur setting could
+        // never engage for them.
+        val nsfwAttr = el.selectFirst("shreddit-media-lightbox-listener")?.attr("telemetry").orEmpty()
+        nsfwAttr.let { json ->
+            Regex("\"post\"\\s*:\\s*\\{[^}]*?\"nsfw\"\\s*:\\s*(true|false)").find(json)
+                ?.groupValues?.get(1)?.let { map["over_18"] = it.toBoolean() }
+        }
+
         // The post FLAIR tag (e.g. "age verification"): the browser shows it under
         // the title; SSR renders it as a `shreddit-post-flair` element whose visible
         // label is the `.flair-content` div (or an img alt for image flairs).
@@ -1410,8 +1423,17 @@ class RedditOfficialSource @Inject constructor(
         var index = 0
         for (img in el.select("img.media-lightbox-img")) {
             // Gallery pages are served on cf.preview.redd.it — only exclude avatars.
-            val url = (img.attr("src").ifBlank { img.attr("data-src") })
+            // The lightbox `src` is the SMALL rendition (width=640, lossy webp);
+            // scaled to fullscreen it reads as a soft/blurred image even on
+            // non-NSFW posts (2026-09-14 goblin_girl report: the "NSFW blur" the
+            // preview setting couldn't remove was this 640px rendition in the
+            // detail header AND the fullscreen viewer — the CDN serves the same
+            // image sharp at larger renditions). `srcset` carries the larger
+            // signed renditions (320w/640w/1080w); use the widest one, falling
+            // back to the plain src.
+            val srcUrl = (img.attr("src").ifBlank { img.attr("data-src") })
                 .ifBlank { img.attr("data-lazy-src") }
+            val url = (largestSrcsetUrl(img) ?: srcUrl)
                 .takeIf { it.isNotBlank() && !isAvatarImageUrl(it) }
                 ?: continue
             val mediaId = "t3_${postId}_${index}"
@@ -1445,6 +1467,25 @@ class RedditOfficialSource @Inject constructor(
         ".preview.redd.it" in url ||
             "external-preview.redd.it" in url ||
             url.contains("preview-image")
+
+    /**
+     * The largest rendition in an `<img srcset>`, or null. Reddit's lightbox and
+     * card images ship `srcset` with signed renditions (e.g. `... 320w, ... 640w,
+     * ... 1080w`); the plain `src` is the smallest. Each rendition has its own
+     * signature, so the largest entry is fetched verbatim.
+     */
+    private fun largestSrcsetUrl(img: Element): String? {
+        val srcset = img.attr("srcset")
+        if (srcset.isBlank()) return null
+        val entries = srcset.split(",").mapNotNull { entry ->
+            val parts = entry.trim().split(" ")
+            // "https://... 640w" — width descriptor is the 2nd token.
+            if (parts.size < 2) return@mapNotNull null
+            val width = parts[1].removeSuffix("w").toIntOrNull() ?: return@mapNotNull null
+            parts[0].takeIf { it.isNotBlank() && !isAvatarImageUrl(it) }?.let { url -> width to url }
+        }
+        return entries.maxByOrNull { it.first }?.second
+    }
 
     /**
      * Anything that identifies a user or community rather than the post media.
