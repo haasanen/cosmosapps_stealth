@@ -144,6 +144,17 @@ class PostDetailsFragment : BaseFragment(),
         val contentPreferences = runBlocking {
             preferencesRepository.getContentPreferences().first()
         }
+        // BlurDbg (2.5.69): TEMP diagnostic. The detail header decides its blur
+        // from this ONE snapshot (never re-collected) — if this value is stale
+        // relative to the settings at the moment the post is viewed, the header
+        // blur won't follow the toggle.
+        android.util.Log.i(
+            "BlurDbg",
+            "PostDetailsFragment captured prefs showNsfwPreview=" +
+                "${contentPreferences.showNsfwPreview} " +
+                "showNsfw=${contentPreferences.showNsfw} " +
+                "showSpoilerPreview=${contentPreferences.showSpoilerPreview}"
+        )
 
         postAdapter = PostAdapter(contentPreferences, this, this)
         commentAdapter = CommentAdapter(
