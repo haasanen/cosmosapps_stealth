@@ -19,10 +19,26 @@ import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
 
 class PostAdapter(
-    private val contentPreferences: ContentPreferences,
+    initialPreferences: ContentPreferences,
     private val postClickListener: PostListAdapter.PostClickListener,
     private val onLinkClickListener: RedditView.OnLinkClickListener? = null
 ) : RecyclerView.Adapter<PostAdapter.ViewHolder>() {
+
+    // The NSFW/spoiler preview settings are collected live by
+    // PostDetailsFragment (2026-09-14 goblin_girl report: the detail header
+    // snapshotted the preferences ONCE at screen init, so toggling the blur
+    // setting while a post was open never re-rendered the header image).
+    var contentPreferences: ContentPreferences = initialPreferences
+        set(value) {
+            if (field.showNsfwPreview != value.showNsfwPreview ||
+                field.showSpoilerPreview != value.showSpoilerPreview
+            ) {
+                field = value
+                // No payload: a full rebind so bindImage reloads with the new
+                // blur decision (payload updates skip the image).
+                notifyItemChanged(0)
+            }
+        }
 
     private var post: PostEntity? = null
     private var preview: String? = null

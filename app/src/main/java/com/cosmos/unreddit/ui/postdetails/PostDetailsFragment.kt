@@ -141,20 +141,12 @@ class PostDetailsFragment : BaseFragment(),
     }
 
     private fun initRecyclerView() {
+        // The adapter takes the initial snapshot only to render before the live
+        // collector in bindViewModel() kicks in; the settings then flow in live
+        // (toggling the NSFW/spoiler preview setting re-renders the header).
         val contentPreferences = runBlocking {
             preferencesRepository.getContentPreferences().first()
         }
-        // BlurDbg (2.5.69): TEMP diagnostic. The detail header decides its blur
-        // from this ONE snapshot (never re-collected) — if this value is stale
-        // relative to the settings at the moment the post is viewed, the header
-        // blur won't follow the toggle.
-        android.util.Log.i(
-            "BlurDbg",
-            "PostDetailsFragment captured prefs showNsfwPreview=" +
-                "${contentPreferences.showNsfwPreview} " +
-                "showNsfw=${contentPreferences.showNsfw} " +
-                "showSpoilerPreview=${contentPreferences.showSpoilerPreview}"
-        )
 
         postAdapter = PostAdapter(contentPreferences, this, this)
         commentAdapter = CommentAdapter(
@@ -188,6 +180,17 @@ class PostDetailsFragment : BaseFragment(),
 
     private fun bindViewModel() {
         launchRepeat(Lifecycle.State.STARTED) {
+            launch {
+                // NSFW/spoiler preview settings flow live into the header adapter so
+                // toggling the blur setting re-renders the post image (2026-09-14
+                // goblin_girl report: the header used a one-shot snapshot from
+                // initRecyclerView, so the toggle did nothing while the post was
+                // open — "blurred in preview AND when I open it").
+                preferencesRepository.getContentPreferences().collect { prefs ->
+                    postAdapter.contentPreferences = prefs
+                }
+            }
+
             launch {
                 combine(viewModel.permalink, viewModel.sorting) { permalink, _ ->
                     permalink?.let {
