@@ -1315,7 +1315,7 @@ class RedditOfficialSource @Inject constructor(
             ?: imgSources.firstOrNull {
                 (it.contains("redd.it") || it.contains("redditmedia")) && !isAvatarImageUrl(it)
             }
-        thumbnail?.let { map["thumbnail"] = it }
+        thumbnail?.let { map["thumbnail"] = unblurRendition(it, el) }
 
         // Animated SSR cards (GIF / animated WebP) carry a <shreddit-player> whose
         // `src` is the playable rendition: a signed cf.preview.redd.it / v.redd.it MP4
@@ -1482,6 +1482,35 @@ class RedditOfficialSource @Inject constructor(
         ".preview.redd.it" in url ||
             "external-preview.redd.it" in url ||
             url.contains("preview-image")
+
+    /**
+     * Reddit's SSR bakes a `blur=40` CDN param into the feed-card preview
+     * rendition of NSFW/spoiler cards
+     * (`preview.redd.it/<id>.<ext>?blur=40&...`). That frosted file is what the
+     * app loads as the feed preview, so even with the app-side
+     * BlurTransformation removed by the "Show NSFW/Spoiler preview" toggles the
+     * preview stays blurred — the blur is IN THE URL, not in the app.
+     * Live-verified 2026-09-14 (r/nsfw/hot capture): the same file's sharp
+     * original is served anonymously at `i.redd.it/<id>.<ext>` (16/16 cards,
+     * 200 OK), while dropping the param from the signed preview URL 403s — so
+     * the sharp bytes must come from i.redd.it, not from a param tweak.
+     * `external-preview.redd.it` posters (redgifs/YouTube embeds) are NOT
+     * rewritten: their filenames are opaque (no i.redd.it twin exists).
+     * The rewrite only happens when the card itself also references the
+     * i.redd.it original (its own content-href / lightbox link), which proves
+     * the file exists there — native video posters (v.redd.it ids) have no
+     * i.redd.it still and are left untouched.
+     */
+    private val blurredRendition = Regex(
+        """https?://(?:cf\.)?preview\.redd\.it/([0-9a-z]+\.(?:jpeg|jpg|png|webp))\?[^"'\s]*blur=\d+"""
+    )
+
+    private fun unblurRendition(url: String, card: Element): String {
+        // Case 1: the CDN-baked blur param on a preview.redd.it rendition.
+        val match = blurredRendition.find(url) ?: return url
+        val file = match.groupValues[1]
+        return if ("i.redd.it/$file" in card.html()) "https://i.redd.it/$file" else url
+    }
 
     /**
      * The largest rendition in an `<img srcset>`, or null. Reddit's lightbox and
