@@ -169,4 +169,32 @@ class NsfwSpoilerHandlingTest {
             assertFalse("card ${card.attr("id")} not flagged but isSpoiler=true", post.data.isSpoiler)
         }
     }
+
+    @Test
+    fun `spoiler video poster swaps to the sharp player rendition`() = runBlocking {
+        // 2026-09-14 report, the r/outerwilds post t3_1wfq2yl: a SPOILER video
+        // whose card background is external-preview.redd.it/<sig>.jpeg?blur=40
+        // (frosted, 30KB; the param is bound to the signature, re-fetch 403s) —
+        // so the app's blur toggle visibly did nothing. But the same image has
+        // a SHARP signed rendition: the <shreddit-player>'s poster attr
+        // (external-preview.redd.it/<slug>-v0-<sig>.jpeg, 200 sharp). The parser
+        // must swap to it (token suffix match), and leave external-embed cards
+        // (different poster image) on their CDN rendition.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("spoiler_video_detail.html"))
+        val card = doc.select("shreddit-post").firstOrNull { it.attr("id") == "t3_1wfq2yl" }
+            ?: error("t3_1wfq2yl card missing from the capture")
+        val post = source.parsePostCardForTest(card, doc)
+        assertNotNull(post)
+        assertTrue("spoiler flag lost on t3_1wfq2yl", post!!.data.isSpoiler)
+        val thumb = post.data.thumbnail
+        assertNotNull("t3_1wfq2yl has no thumbnail", thumb)
+        assertFalse(
+            "t3_1wfq2yl poster still the CDN-frosted rendition (the reported bug): $thumb",
+            thumb!!.contains("blur=")
+        )
+        assertTrue(
+            "t3_1wfq2yl poster should be the player's sharp rendition, got: $thumb",
+            thumb.contains("potentially-dumb-question-v0-")
+        )
+    }
 }

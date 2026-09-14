@@ -1240,12 +1240,13 @@ class RedditOfficialSource @Inject constructor(
 
     /** Selects the real post cards, dropping ads (a different tag) by construction. */
     private fun parsePostCards(doc: Document): List<PostChild> =
-        doc.select("shreddit-post").mapNotNull { postChildFromElement(it) }
+        doc.select("shreddit-post").mapNotNull { postChildFromElement(it, doc) }
 
     /** Test-only: parse a single SSR post card (thumbnail selection, defaults, mapping). */
-    internal fun parsePostCardForTest(el: Element): PostChild? = postChildFromElement(el)
+    internal fun parsePostCardForTest(el: Element, doc: Document? = null): PostChild? =
+        postChildFromElement(el, doc)
 
-    private fun postChildFromElement(el: Element): PostChild? {
+    private fun postChildFromElement(el: Element, doc: Document? = null): PostChild? {
         val name = el.attr("id").takeIf { it.startsWith("t3_") } ?: return null
         val sub = el.attr("subreddit-name").ifBlank { "unknown" }
         val permalink = el.attr("permalink")
@@ -1363,6 +1364,22 @@ class RedditOfficialSource @Inject constructor(
                 map["gallery_data"] = gallery.data
                 map["media_metadata"] = gallery.metadata
             }
+        }
+
+        // Video cards whose preview image is CDN-baked ?blur=40 (NSFW / spoiler
+        // posts): the card's <img> background is the frosted rendition, but the
+        // SAME image has a sharp signed rendition — the <shreddit-player>'s
+        // `poster` attr (the feed/detail player's own poster frame). 2026-09-14:
+        // your r/outerwilds spoiler-video post — bg
+        // external-preview.redd.it/<sig>.jpeg?blur=40 (403 re-fetch, 30KB frosted)
+        // vs the player's poster external-preview.redd.it/<slug>-v0-<sig>.jpeg
+        // (200, 26KB sharp, same image). Rule: only swap when the player's poster
+        // FILE TOKEN SUFFIXES the card image's token (reddit prefixes its own
+        // native video posters with "<slug>-v0-"); external-embed cards (redgifs/
+        // YouTube) carry a DIFFERENT poster image, so their frosted background is
+        // left untouched — no sharp same-image rendition exists for those.
+        if (postType == "video") {
+            unblurVideoPoster(map, el, doc, name)
         }
 
         // The post BODY. SSR cards carry it in the `shreddit-post-text-body` slot:
@@ -1510,6 +1527,50 @@ class RedditOfficialSource @Inject constructor(
         val match = blurredRendition.find(url) ?: return url
         val file = match.groupValues[1]
         return if ("i.redd.it/$file" in card.html()) "https://i.redd.it/$file" else url
+    }
+
+    private val externalPreviewFile = Regex(
+        """https?://external-preview\.redd\.it/([A-Za-z0-9_-]+)\.(?:jpeg|jpg|png|webp)\?"""
+    )
+
+    /**
+     * Video posters with a CDN-baked ?blur=40: swap the card's frosted background
+     * image for the sharp rendition of the SAME image the player advertises.
+     *
+     * Native (v.redd.it) video cards: the <img> background is
+     * external-preview.redd.it/<sig>.jpeg?blur=40, while the <shreddit-player>
+     * carries poster="external-preview.redd.it/<slug>-v0-<sig>.jpeg" — a sharp,
+     * signed rendition of the very same image (reddit prefixes the file token
+     * with "<slug>-v0-"). Verified 2026-09-14 on the r/outerwilds post
+     * t3_1wfq2yl: bg 403s on re-fetch (signature bound), poster 200 sharp.
+     *
+     * External-embed cards (redgifs/YouTube/other domains) carry a DIFFERENT
+     * poster image, so the token-suffix check fails and the frosted background
+     * is left untouched — no sharp same-image rendition exists for those (the
+     * ?blur param is bound to their signature; dropping it 403s).
+     */
+    private fun unblurVideoPoster(
+        map: MutableMap<String, Any?>,
+        card: Element,
+        doc: Document?,
+        postId: String
+    ) {
+        val thumb = map["thumbnail"] as? String ?: return
+        val blurParam = Regex("""blur=\d+""").find(thumb) ?: return
+        val bgToken = externalPreviewFile.find(thumb)?.groupValues?.get(1) ?: return
+
+        // The player may live in this card or, on detail pages, in a sibling
+        // shreddit-post element (reddit renders the post twice: header card
+        // + content card). Look up by post-id across the document, falling
+        // back to the card's own player.
+        val player = card.selectFirst("shreddit-player")
+            ?: doc?.select("shreddit-player")?.firstOrNull { it.attr("post-id") == postId }
+            ?: return
+        val poster = player.attr("poster")
+        if (poster.isBlank() || blurParam.value in poster) return
+        val posterToken = externalPreviewFile.find(poster)?.groupValues?.get(1) ?: return
+        if (!posterToken.endsWith(bgToken)) return
+        map["thumbnail"] = poster
     }
 
     /**
