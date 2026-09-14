@@ -1379,17 +1379,32 @@ class RedditOfficialSource @Inject constructor(
             map["selftext_html"] = selfTextHtml
         }
 
-        // The post NSFW flag. The shreddit-post card element itself carries no
-        // nsfw attribute, but media cards embed a shreddit-media-lightbox-listener
-        // whose `telemetry` JSON holds {"post":{"id":..., "nsfw":bool, ...}}
-        // (wire-verified 2026-09-14: every image card in the popular feed).
-        // Without this, ensurePostDefaults forces over_18=false on EVERY
-        // official-source post, so the "Show NSFW preview" blur setting could
-        // never engage for them.
-        val nsfwAttr = el.selectFirst("shreddit-media-lightbox-listener")?.attr("telemetry").orEmpty()
-        nsfwAttr.let { json ->
-            Regex("\"post\"\\s*:\\s*\\{[^}]*?\"nsfw\"\\s*:\\s*(true|false)").find(json)
-                ?.groupValues?.get(1)?.let { map["over_18"] = it.toBoolean() }
+        // The post NSFW / spoiler flags. The shreddit-post card element carries no
+        // such attribute; reddit marks content-blurred cards with a
+        // `shreddit-blurred-container` element (inside the card's media block)
+        // whose `reason` attribute is "nsfw" or "spoiler" — the same marker the
+        // reddit.com frontend itself uses to render the blur. Verified live
+        // 2026-09-14: r/nsfw/hot cards carry reason="nsfw" (28/28, incl.
+        // redgifs/embedded posts whose telemetry JSON is absent), and a
+        // r/acecombat spoiler card carried reason="spoiler". The card telemetry
+        // JSON only carries nsfw (never spoiler) and is missing on many cards,
+        // so it is a fallback, not the primary source.
+        // Without these, ensurePostDefaults forces over_18/spoiler=false on EVERY
+        // official-source post, so the "Show NSFW preview" / "Show Spoiler
+        // preview" blur settings could never engage for them.
+        val blurredReason = el.selectFirst("shreddit-blurred-container")?.attr("reason").orEmpty()
+        // NSFW: the container reason, OR the lightbox telemetry JSON
+        // {"post":{...,"nsfw":bool,...}} (present on most native image/video
+        // cards, absent on embeds — the two sources are checked independently so
+        // a post that is both NSFW and a spoiler still keeps the NSFW flag).
+        val telemetry = el.selectFirst("shreddit-media-lightbox-listener")?.attr("telemetry").orEmpty()
+        val nsfwFromTelemetry = Regex("\"post\"\\s*:\\s*\\{[^}]*?\"nsfw\"\\s*:\\s*(true|false)")
+            .find(telemetry)?.groupValues?.getOrNull(1) == "true"
+        map["over_18"] = (blurredReason == "nsfw") || nsfwFromTelemetry
+        // Spoiler: only the container reason carries it (the telemetry has no
+        // spoiler field).
+        if (blurredReason == "spoiler") {
+            map["spoiler"] = true
         }
 
         // The post FLAIR tag (e.g. "age verification"): the browser shows it under
