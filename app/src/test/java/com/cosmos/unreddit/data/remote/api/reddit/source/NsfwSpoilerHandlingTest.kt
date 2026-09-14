@@ -94,6 +94,67 @@ class NsfwSpoilerHandlingTest {
     }
 
     @Test
+    fun `flagged cards get the sharp original preview not the CDN blurred rendition`() = runBlocking {
+        // 2026-09-14: the app's "Show NSFW preview" toggle only removes the
+        // app-side Gaussian blur. For flagged feed cards the loaded preview was
+        // ALSO reddit's server-side blurred rendition
+        // (preview.redd.it/<id>?blur=40), so the toggle visibly did nothing —
+        // "especially on some videos". The parser must rewrite those to the
+        // sharp i.redd.it original (same file id, anonymously served).
+        val doc = org.jsoup.Jsoup.parse(loadFixture("nsfw_feed_hot.html"))
+        val cards = doc.select("shreddit-post").toList()
+        val flagged = cards.filter {
+            it.select("shreddit-blurred-container").firstOrNull()?.attr("reason") == "nsfw" ||
+                it.hasAttr("nsfw")
+        }
+        var rewritten = 0
+        for (card in flagged) {
+            val post = source.parsePostCardForTest(card) ?: continue
+            val thumb = post.data.thumbnail
+            // External embeds (redgifs/YouTube) have opaque external-preview
+            // ids with no i.redd.it twin — left untouched, asserted separately.
+            if (thumb == null || "external-preview.redd.it" in thumb) continue
+            // Any in-card preview.redd.it rendition MUST NOT carry the CDN blur.
+            assertFalse(
+                "card ${card.attr("id")} preview is still the CDN-blurred rendition: $thumb",
+                thumb.contains("blur=")
+            )
+            if (thumb.startsWith("https://i.redd.it/")) rewritten++
+        }
+        assertTrue(
+            "expected at least one card rewritten to the sharp i.redd.it original, " +
+                "but none were (the feed would still load ?blur=40 renditions)",
+            rewritten > 0
+        )
+    }
+
+    @Test
+    fun `external video posters stay on the CDN rendition`() = runBlocking {
+        // 2026-09-14 "especially on some videos": NSFW video (redgifs/YouTube)
+        // cards carry their poster on external-preview.redd.it with the CDN
+        // blur BAKED INTO THE SIGNED URL (?blur=40). Verified: dropping the
+        // param 403s (signature mismatch), the token is opaque (no i.redd.it
+        // twin), and no other sharp rendition exists on reddit's CDNs. The
+        // parser must NOT invent an i.redd.it path for these — the poster stays
+        // on the CDN rendition (the app-side Gaussian still toggles over it,
+        // and tapping plays the full-quality video).
+        val doc = org.jsoup.Jsoup.parse(loadFixture("nsfw_feed_hot.html"))
+        val cards = doc.select("shreddit-post").toList()
+        var externalPosters = 0
+        for (card in cards) {
+            val post = source.parsePostCardForTest(card) ?: continue
+            val thumb = post.data.thumbnail ?: continue
+            if ("external-preview.redd.it" !in thumb) continue
+            externalPosters++
+            assertTrue(
+                "external-site poster was rewritten to a bogus path: $thumb",
+                thumb.startsWith("https://external-preview.redd.it/")
+            )
+        }
+        assertTrue("expected external-site posters in the capture", externalPosters > 0)
+    }
+
+    @Test
     fun `non-flagged cards stay unflagged`() = runBlocking {
         // Cards with NO blurred-container and NO nsfw telemetry must not be
         // spuriously flagged (regression: don't over-apply the flag).
