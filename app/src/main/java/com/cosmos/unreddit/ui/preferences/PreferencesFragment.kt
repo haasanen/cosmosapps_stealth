@@ -51,6 +51,7 @@ class PreferencesFragment : PreferenceFragmentCompat() {
     private var showNsfwPreference: SwitchPreferenceCompat? = null
     private var showNsfwPreviewPreference: SwitchPreferenceCompat? = null
     private var showSpoilerPreviewPreference: SwitchPreferenceCompat? = null
+    private var autoplayPreviewsPreference: SwitchPreferenceCompat? = null
     private var backupPreference: Preference? = null
     private var sourcePreference: Preference? = null
     private var cacheTtlPreference: Preference? = null
@@ -137,6 +138,15 @@ class PreferencesFragment : PreferenceFragmentCompat() {
         )?.apply {
             setOnPreferenceChangeListener { _, newValue ->
                 viewModel.setShowSpoilerPreview(newValue as Boolean)
+                true
+            }
+        }
+
+        autoplayPreviewsPreference = findPreference<SwitchPreferenceCompat>(
+            PreferencesKeys.AUTOPLAY_PREVIEWS.name
+        )?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                viewModel.setAutoplayPreviews(newValue as Boolean)
                 true
             }
         }
@@ -276,6 +286,12 @@ class PreferencesFragment : PreferenceFragmentCompat() {
             launch {
                 viewModel.showSpoilerPreview.collect { showSpoilerPreview ->
                     showSpoilerPreviewPreference?.isChecked = showSpoilerPreview
+                }
+            }
+
+            launch {
+                viewModel.autoplayPreviews.collect { autoplayPreviews ->
+                    autoplayPreviewsPreference?.isChecked = autoplayPreviews
                 }
             }
 

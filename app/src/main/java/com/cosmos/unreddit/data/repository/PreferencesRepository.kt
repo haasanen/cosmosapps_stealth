@@ -93,6 +93,20 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
+    suspend fun setAutoplayPreviews(autoplayPreviews: Boolean) {
+        preferencesDatastore.setValue(
+            ContentPreferences.PreferencesKeys.AUTOPLAY_PREVIEWS,
+            autoplayPreviews
+        )
+    }
+
+    fun getAutoplayPreviews(defaultValue: Boolean = true): Flow<Boolean> {
+        return preferencesDatastore.getValue(
+            ContentPreferences.PreferencesKeys.AUTOPLAY_PREVIEWS,
+            defaultValue
+        )
+    }
+
     suspend fun setRedditSource(redditSource: Int) {
         preferencesDatastore.setValue(
             DataPreferences.PreferencesKeys.REDDIT_SOURCE,
@@ -175,7 +189,9 @@ class PreferencesRepository @Inject constructor(
                 preferences[ContentPreferences.PreferencesKeys.SHOW_NSFW_PREVIEW] ?: false
             val showSpoilerPreview =
                 preferences[ContentPreferences.PreferencesKeys.SHOW_SPOILER_PREVIEW] ?: false
-            ContentPreferences(showNsfw, showNsfwPreview, showSpoilerPreview)
+            val autoplayPreviews =
+                preferences[ContentPreferences.PreferencesKeys.AUTOPLAY_PREVIEWS] ?: true
+            ContentPreferences(showNsfw, showNsfwPreview, showSpoilerPreview, autoplayPreviews)
         }
     }
 

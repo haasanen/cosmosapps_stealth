@@ -37,6 +37,13 @@
             app:title="@string/preference_show_spoiler_preview"
             app:persistent="false"/>
 
+        <SwitchPreferenceCompat
+            app:key="autoplay_previews"
+            app:title="@string/preference_autoplay_previews"
+            app:summary="@string/preference_autoplay_previews_summary"
+            app:defaultValue="true"
+            app:persistent="false"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory

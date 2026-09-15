@@ -1,6 +1,7 @@
 package com.cosmos.unreddit.ui.postlist
 
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -17,8 +18,11 @@ import com.cosmos.unreddit.databinding.ItemPostLinkBinding
 import com.cosmos.unreddit.databinding.ItemPostTextBinding
 import com.cosmos.unreddit.ui.common.widget.AwardView
 import com.cosmos.unreddit.util.ClickableMovementMethod
+import com.cosmos.unreddit.util.FeedPreviewPlayerPool
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
+import com.google.android.exoplayer2.Player
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 abstract class PostViewHolder(
     itemView: View,
@@ -191,10 +195,81 @@ abstract class PostViewHolder(
         listener
     ) {
 
+        /**
+         * In-feed muted preview playback (2.5.74 request: "preview videos should
+         * start playing automatically when they are visible … without sound, sound
+         * only when opened to fullscreen / the comments").
+         *
+         * Native Reddit videos (v.redd.it MP4/HLS) loop muted in the cell while at
+         * least half of the cell is on screen; tapping still opens the MediaViewer,
+         * which plays with the user's sound settings (the in-cell player is a
+         * different, always-muted instance). External videos (redgifs/YouTube/
+         * imgur/gfycat/streamable) keep the still poster + play badge: their
+         * playable rendition needs the MediaViewer's per-site pipeline (redgifs
+         * resolution lookup, audio track merging, request-property signing), so
+         * auto-playing them in a cell is not a plain URL swap.
+         */
+        private val pool = FeedPreviewPlayerPool.get()
+
+        private val token = object : FeedPreviewPlayerPool.Token {
+            override fun playerAttached(player: Player) {
+                binding.imagePostPreviewPlayer.player = player
+            }
+
+            override fun playerDetached() {
+                // The pool evicted (or released) this token's player. Forget it so a
+                // later updatePlayback() re-acquires instead of touching a released
+                // instance; the PlayerView is cleared either way.
+                this@VideoPostViewHolder.player = null
+                binding.imagePostPreviewPlayer.player = null
+                binding.imagePostPreviewPlayer.visibility = View.GONE
+            }
+        }
+
+        /** The in-cell player bound to the current post, or null. */
+        private var player: Player? = null
+
+        /** The post this cell is bound to (null before bind / after detach). */
+        private var boundPost: PostEntity? = null
+
+        /** True while autoplay applies to the bound post. */
+        private var autoplay = false
+
+        /** Re-checks playback whenever the view tree scrolls (cell enters/leaves). */
+        private val scrollChecker = ViewTreeObserver.OnScrollChangedListener {
+            if (autoplay) updatePlayback()
+        }
+
         init {
             binding.imagePostPreview.setOnClickListener {
                 listener.onMediaClick(bindingAdapterPosition)
             }
+            // The playing PlayerView overlays the preview image, so it must carry
+            // the same "open media" tap (otherwise a tap on a playing video hits
+            // the player, not the image beneath).
+            binding.imagePostPreviewPlayer.setOnClickListener {
+                listener.onMediaClick(bindingAdapterPosition)
+            }
+            // Version-proof attach/detach (RecyclerView 1.2.1 has no ViewHolder
+            // attach/detach callbacks): stop muted playback when the cell leaves
+            // the window (recycled off-screen, list backgrounded) so no stream
+            // keeps running unseen; re-evaluate when it comes back.
+            itemView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {
+                    if (!autoplay) return
+                    if (isSufficientlyVisible()) {
+                        updatePlayback()
+                    } else {
+                        // Not laid out yet (height 0): re-check after the next layout.
+                        v.post { if (autoplay) updatePlayback() }
+                    }
+                }
+
+                override fun onViewDetachedFromWindow(v: View) {
+                    stopPlayback()
+                    boundPost = null
+                }
+            })
         }
 
         override fun bind(
@@ -215,6 +290,90 @@ abstract class PostViewHolder(
                 visibility = View.VISIBLE
                 setIcon(R.drawable.ic_play)
             }
+
+            // A rebind re-evaluates: stop whatever the previous post was playing,
+            // then decide whether this post autoplays at all. When the preview is
+            // hidden by the NSFW/spoiler setting, playing would reveal the content
+            // — so the cell keeps its blurred still and never plays.
+            stopPlayback()
+            boundPost = postEntity
+            autoplay = canAutoplay(
+                postEntity,
+                contentPreferences.autoplayPreviews,
+                postEntity.shouldShowPreview(contentPreferences)
+            )
+            if (autoplay) {
+                itemView.viewTreeObserver.addOnScrollChangedListener(scrollChecker)
+                updatePlayback()
+            }
+        }
+
+        /** At least half of the cell is inside the list's clip bounds. */
+        private fun isSufficientlyVisible(): Boolean {
+            if (itemView.height <= 0) return false
+            val rv = itemView.parent as? RecyclerView ?: return false
+            val loc = IntArray(2)
+            val rvLoc = IntArray(2)
+            itemView.getLocationInWindow(loc)
+            rv.getLocationInWindow(rvLoc)
+            val top = loc[1] - rvLoc[1]
+            val bottom = top + itemView.height
+            val visible = (bottom.coerceAtMost(rv.height) - top.coerceAtLeast(0)).coerceAtLeast(0)
+            return visible >= itemView.height * 0.5f
+        }
+
+        companion object {
+            /**
+             * Pure autoplay-eligibility check for a feed video cell — the only state
+             * read is [post]'s media type/url and the two booleans, so it is unit
+             * tested directly (no view/player). A preview plays muted in the cell
+             * only when the user enabled it, the NSFW/spoiler settings allow the
+             * preview to show, and it is a native Reddit video (a plain v.redd.it
+             * MP4/HLS a player can stream). External videos (redgifs/YouTube/imgur/
+             * gfycat/streamable) need the MediaViewer's per-site pipeline, so they
+             * keep the still poster + play badge.
+             */
+            internal fun canAutoplay(
+                post: PostEntity,
+                autoplayEnabled: Boolean,
+                previewAllowed: Boolean
+            ): Boolean {
+                if (!autoplayEnabled || !previewAllowed) return false
+                if (post.mediaType != MediaType.REDDIT_VIDEO &&
+                    post.mediaType != MediaType.REDDIT_GIF
+                ) return false
+                val host = post.mediaUrl.toHttpUrlOrNull()?.host ?: return false
+                return host == "v.redd.it"
+            }
+        }
+
+        private fun updatePlayback() {
+            val post = boundPost ?: return
+            if (isSufficientlyVisible()) {
+                if (player == null) {
+                    player = pool.acquire(itemView.context, post.mediaUrl, token)
+                    binding.imagePostPreviewPlayer.visibility = View.VISIBLE
+                    binding.buttonTypeIndicator.visibility = View.GONE
+                } else {
+                    player?.play()
+                }
+            } else {
+                player?.pause()
+            }
+        }
+
+        private fun stopPlayback() {
+            if (player != null) {
+                pool.release(token)
+                player = null
+            }
+            if (autoplay) {
+                itemView.viewTreeObserver.removeOnScrollChangedListener(scrollChecker)
+            }
+            autoplay = false
+            binding.imagePostPreviewPlayer.player = null
+            binding.imagePostPreviewPlayer.visibility = View.GONE
+            binding.buttonTypeIndicator.visibility = View.VISIBLE
         }
     }
 

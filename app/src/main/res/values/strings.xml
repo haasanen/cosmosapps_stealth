@@ -152,6 +152,8 @@
     <string name="preference_show_nsfw">Show NSFW content</string>
     <string name="preference_show_nsfw_preview">Show NSFW preview</string>
     <string name="preference_show_spoiler_preview">Show Spoiler preview</string>
+    <string name="preference_autoplay_previews">Play video previews</string>
+    <string name="preference_autoplay_previews_summary">Muted, looping preview videos in the feed (sound when opened)</string>
 
     <string name="preference_reddit_source">Reddit Source</string>
     <string name="preference_reddit_source_reddit">Reddit</string>
