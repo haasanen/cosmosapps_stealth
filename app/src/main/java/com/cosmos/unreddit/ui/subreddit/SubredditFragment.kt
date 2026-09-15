@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import androidx.appcompat.widget.PopupMenu
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.view.GravityCompat
@@ -14,12 +15,15 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
+import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.navArgs
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.cosmos.unreddit.R
+import com.cosmos.unreddit.UiViewModel
 import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.SubredditEntity
@@ -65,6 +69,39 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
     private val bindingAbout get() = _bindingAbout!!
 
     override val viewModel: SubredditViewModel by viewModels()
+
+    private val uiViewModel: UiViewModel by activityViewModels()
+
+    /**
+     * Hides the bottom navigation while scrolling down and shows it again once
+     * the list top is back in view — mirroring the home feed's appbar-offset
+     * behavior. The subreddit header is a MotionLayout (no AppBarLayout), so
+     * both its progress and the post list's position drive the signal:
+     * visible only when the header is fully expanded AND the list is at top.
+     */
+    private var navigationVisible = true
+
+    private fun updateNavigationVisibility(
+        recyclerView: RecyclerView,
+        headerProgress: Float
+    ) {
+        val visible = headerProgress <= HEADER_COLLAPSE_THRESHOLD &&
+            !recyclerView.canScrollVertically(-1)
+        if (visible != navigationVisible) {
+            navigationVisible = visible
+            uiViewModel.setNavigationVisibility(visible)
+        }
+    }
+
+    private val navigationScrollListener =
+        object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                updateNavigationVisibility(
+                    recyclerView,
+                    bindingContent.layoutRoot.progress
+                )
+            }
+        }
 
     private val args: SubredditFragmentArgs by navArgs()
 
@@ -235,11 +272,27 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         bindingContent.listPost.apply {
             applyWindowInsets(left = false, top = false, right = false)
             layoutManager = LinearLayoutManager(requireContext())
+            addOnScrollListener(navigationScrollListener)
             adapter = postListAdapter.withLoadStateHeaderAndFooter(
                 header = NetworkLoadStateAdapter { postListAdapter.retry() },
                 footer = NetworkLoadStateAdapter { postListAdapter.retry() }
             )
         }
+
+        // The collapsing header drives the bottom-nav visibility too (the home
+        // feed gets this from an AppBarLayout offset; here the header is a
+        // MotionLayout, which exposes no progress-change callback in this
+        // constraintlayout version). The header collapse is driven by the
+        // list scroll, so any redraw of the header during a drag is exactly
+        // when the visibility state can change.
+        bindingContent.layoutRoot.viewTreeObserver.addOnDrawListener(
+            ViewTreeObserver.OnDrawListener {
+                updateNavigationVisibility(
+                    bindingContent.listPost,
+                    bindingContent.layoutRoot.progress
+                )
+            }
+        )
 
         bindingContent.pullRefresh.setOnRefreshListener(this)
 
@@ -453,5 +506,7 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
 
     companion object {
         private const val DESCRIPTION_MAX_HEIGHT = 200F
+        /** MotionLayout progress below which the subreddit header is expanded. */
+        private const val HEADER_COLLAPSE_THRESHOLD = 0.001F
     }
 }
