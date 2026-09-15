@@ -1,7 +1,6 @@
 package com.cosmos.unreddit.data.model.db
 
 import android.os.Parcelable
-import android.util.Log
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -146,14 +145,6 @@ data class PostEntity @JvmOverloads constructor(
     fun shouldShowPreview(contentPreferences: ContentPreferences): Boolean {
         val show = (contentPreferences.showNsfwPreview || !isOver18) &&
                 (contentPreferences.showSpoilerPreview || !isSpoiler)
-        // BlurDbg (2.5.69): TEMP diagnostic for the NSFW-blur-removal bug.
-        // One line per decision: what the post carries (nsfw/spoiler), what the
-        // settings say, and the resulting blur (show=false -> blurred).
-        Log.i("BlurDbg", "shouldShowPreview post=$id '${title.take(40)}' " +
-                "nsfw=$isOver18 spoiler=$isSpoiler " +
-                "showNsfwPreview=${contentPreferences.showNsfwPreview} " +
-                "showSpoilerPreview=${contentPreferences.showSpoilerPreview} " +
-                "-> show=$show (blur=${!show})")
         return show
     }
 }
