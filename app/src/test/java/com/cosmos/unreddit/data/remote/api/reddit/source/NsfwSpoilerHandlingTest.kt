@@ -197,4 +197,42 @@ class NsfwSpoilerHandlingTest {
             thumb.contains("potentially-dumb-question-v0-")
         )
     }
+
+    @Test
+    fun `spoiler gallery first page is de-blurred to the i-redd-it original`() {
+        // t3_1wghg7s (2026-09-15, r/outerwilds, spoiler gallery): the FIRST
+        // gallery page is rendered inline as
+        // `preview.redd.it/<id>.jpg?width=320&…&blur=40&…` with NO srcset (the
+        // later pages are sharp srcset images), so the "largest srcset" pick
+        // falls back to the blurred src and the gallery opens on the frosted
+        // image. The sharp original is anonymously served at
+        // i.redd.it/<id>.jpg (200, 1.09 MB), and the card proves the file's
+        // existence by referencing its "-v0-<id>" rendition on the same host
+        // (gallery page 2) — the existence proof the rewrite requires.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("spoiler_gallery_detail.html"))
+        val card = doc.select("shreddit-post")
+            .firstOrNull { it.attr("view-context") == "CommentsPage" }
+            ?: error("no OP card in fixture")
+        val post = source.parsePostCardForTest(card)
+        assertNotNull("t3_1wghg7s did not parse", post)
+        val items = post!!.data.gallery
+        check(items.size >= 2) { "expected a multi-page gallery, got ${items.size}" }
+
+        // Page 1: the ?blur=40 320px src must be swapped for the i.redd.it original.
+        val firstUrl = items[0].url
+        assertFalse(
+            "first gallery page must not be the ?blur=40 rendition, was: $firstUrl",
+            "blur=" in firstUrl
+        )
+        assertTrue(
+            "first page should be the i.redd.it original, was: $firstUrl",
+            firstUrl.startsWith("https://i.redd.it/")
+        )
+
+        // The remaining pages were already sharp: untouched, blur-free, host kept.
+        for (url in items.drop(1).map { it.url }) {
+            assertFalse("unexpectedly blurred: $url", "blur=" in url)
+            assertTrue("lost its signed host: $url", "preview.redd.it" in url)
+        }
+    }
 }
