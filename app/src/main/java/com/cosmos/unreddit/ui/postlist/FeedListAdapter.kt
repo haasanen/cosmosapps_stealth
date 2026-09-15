@@ -40,11 +40,13 @@ class FeedListAdapter(
     var contentPreferences: ContentPreferences = ContentPreferences(
         showNsfw = false,
         showNsfwPreview = false,
-        showSpoilerPreview = false
+        showSpoilerPreview = false,
+        autoplayPreviews = true
     )
         set(value) {
             if (field.showNsfwPreview != value.showNsfwPreview ||
-                field.showSpoilerPreview != value.showSpoilerPreview
+                field.showSpoilerPreview != value.showSpoilerPreview ||
+                field.autoplayPreviews != value.autoplayPreviews
             ) {
                 field = value
                 notifyDataSetChanged()
