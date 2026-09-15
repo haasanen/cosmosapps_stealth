@@ -82,6 +82,18 @@ data class PostEntity @JvmOverloads constructor(
 
     val preview: String?,
 
+    /**
+     * The card's original CDN-baked `?blur=40` rendition (reddit's own frosted
+     * preview for flagged posts), when the parser saw one. The hidden-preview
+     * state (NSFW/spoiler toggle OFF) loads this instead of the sharp image so
+     * the user sees reddit's OWN blur — the app-side blur (2.5.77 downscale)
+     * reads visibly weaker. NULL for non-flagged cards; the caller falls back
+     * to blurring [preview] itself. The URL is signed and short-lived: cached
+     * entities may carry a 403'ing one, which resolves to the same fallback.
+     */
+    @ColumnInfo(name = "preview_blur_url")
+    var previewBlurUrl: String? = null,
+
     @Ignore
     var previewText: CharSequence? = null,
 

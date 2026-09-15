@@ -123,6 +123,15 @@ data class PostData(
 ) {
     @Json(name = "thumbnail")
     var thumbnail: String? = null
+    /**
+     * The card's original CDN-frosted `?blur=40` rendition, injected by the SSR
+     * parser (the JSON API has no such field — API posts stay null). Used only
+     * for the hidden-preview state: loading reddit's own frosted file reads
+     * exactly like the official blur, better than blurring the sharp image
+     * client-side.
+     */
+    @Json(name = "preview_blur_url")
+    var previewBlurUrl: String? = null
     @Transient
     var crosspost: Crosspost? = null
 

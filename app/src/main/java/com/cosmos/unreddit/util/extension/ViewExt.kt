@@ -52,11 +52,22 @@ fun ImageView.load(
     radius: Float = 25F,
     sampling: Float = 4F,
     scale: Scale = Scale.FILL,
+    /**
+     * The source's own frosted rendition (reddit's signed `?blur=40` CDN file
+     * for flagged posts). When [blur] is set, THIS is loaded instead of the
+     * sharp image + client-side blur: it reads exactly like the official
+     * reddit blur (2.5.77's downscale blur was visibly weaker). A 403 (stale
+     * signed URL) falls back to blurring [data] via [BlurTransformation].
+     */
+    blurUrl: String? = null,
     builder: ImageRequest.Builder.() -> Unit = {}
 ) {
+    val source: Any? = if (blur && !blurUrl.isNullOrBlank()) blurUrl else data
+    val frosted = source != null && source != data
+    val self: ImageView = this
     val request = ImageRequest.Builder(context)
-        .data(data)
-        .target(this)
+        .data(source)
+        .target(self)
         .crossfade(true)
         .scale(scale)
         .precision(Precision.AUTOMATIC)
@@ -64,7 +75,28 @@ fun ImageView.load(
         .apply(builder)
         .apply {
             if (blur) {
-                transformations(BlurTransformation(context, radius, sampling))
+                if (source == data) {
+                    // No frosted rendition available: blur the image client-side.
+                    transformations(BlurTransformation(context, radius, sampling))
+                }
+                if (frosted) {
+                    error { throwable: Throwable ->
+                        // The frosted rendition failed (stale signed URL from the
+                        // offline cache, network error); blur the sharp image
+                        // instead so the cell is never left unblurred.
+                        context.imageLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(data)
+                                .target(self)
+                                .scale(scale)
+                                .precision(Precision.AUTOMATIC)
+                                .placeholder(R.drawable.image_placeholder)
+                                .transformations(BlurTransformation(context, radius, sampling))
+                                .apply(builder)
+                                .build()
+                        )
+                    }
+                }
             }
         }
         .build()
