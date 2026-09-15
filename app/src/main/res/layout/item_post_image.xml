@@ -15,7 +15,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/image_post_preview"
+        app:layout_constraintBottom_toTopOf="@id/image_post_preview_card"
         layout="@layout/include_post_info"/>
 
     <FrameLayout
@@ -61,7 +61,7 @@
         android:textAppearance="@style/TextAppearancePostTitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/image_post_preview"
+        app:layout_constraintTop_toBottomOf="@id/image_post_preview_card"
         app:layout_constraintBottom_toTopOf="@id/include_post_flairs"
         android:layout_marginHorizontal="@dimen/post_title_margin"
         tools:text="This is a post" />
@@ -105,8 +105,8 @@
         android:id="@+id/button_type_indicator"
         android:layout_width="@dimen/app_bar_button_size"
         android:layout_height="@dimen/app_bar_button_size"
-        app:layout_constraintStart_toStartOf="@id/image_post_preview"
-        app:layout_constraintBottom_toBottomOf="@id/image_post_preview"
+        app:layout_constraintStart_toStartOf="@id/image_post_preview_card"
+        app:layout_constraintBottom_toBottomOf="@id/image_post_preview_card"
         android:layout_margin="@dimen/post_type_indicator_margin"
         android:focusable="false"
         android:clickable="false"
