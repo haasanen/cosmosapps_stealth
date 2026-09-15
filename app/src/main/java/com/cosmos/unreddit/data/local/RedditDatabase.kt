@@ -30,7 +30,7 @@ import com.cosmos.unreddit.data.model.db.Subscription
         Redirect::class,
         FeedCache::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -237,6 +237,15 @@ abstract class RedditDatabase : RoomDatabase() {
                 if (hasTable && !hasCurrentSchema) {
                     database.execSQL("DROP TABLE `feed_cache`")
                 }
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // 2.5.78: the card's own CDN-frosted ?blur=40 rendition, used for
+                // the hidden-preview state (reddit's official blur). Nullable —
+                // old rows and non-flagged posts have none.
+                database.execSQL("ALTER TABLE `post` ADD COLUMN `preview_blur_url` TEXT")
             }
         }
     }

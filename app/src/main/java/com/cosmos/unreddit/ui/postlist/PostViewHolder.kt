@@ -162,7 +162,8 @@ abstract class PostViewHolder(
 
             binding.imagePostPreview.load(
                 postEntity.preview,
-                !postEntity.shouldShowPreview(contentPreferences)
+                !postEntity.shouldShowPreview(contentPreferences),
+                blurUrl = postEntity.previewBlurUrl
             ) {
                 error(R.drawable.preview_image_fallback)
                 fallback(R.drawable.preview_image_fallback)
@@ -312,7 +313,8 @@ abstract class PostViewHolder(
 
             binding.imagePostPreview.load(
                 postEntity.preview,
-                !postEntity.shouldShowPreview(contentPreferences)
+                !postEntity.shouldShowPreview(contentPreferences),
+                blurUrl = postEntity.previewBlurUrl
             ) {
                 error(R.drawable.preview_video_fallback)
                 fallback(R.drawable.preview_video_fallback)
@@ -486,7 +488,8 @@ abstract class PostViewHolder(
 
             binding.imagePostLinkPreview.load(
                 postEntity.preview,
-                !postEntity.shouldShowPreview(contentPreferences)
+                !postEntity.shouldShowPreview(contentPreferences),
+                blurUrl = postEntity.previewBlurUrl
             ) {
                 error(R.drawable.preview_link_fallback)
                 fallback(R.drawable.preview_link_fallback)

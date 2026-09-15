@@ -266,7 +266,12 @@ class PostAdapter(
         ) {
             binding.imagePost.apply {
                 visibility = View.VISIBLE
-                load(preview, !post.shouldShowPreview(contentPreferences), builder = requestBuilder)
+                load(
+                    preview,
+                    !post.shouldShowPreview(contentPreferences),
+                    blurUrl = post.previewBlurUrl,
+                    builder = requestBuilder
+                )
             }
         }
     }

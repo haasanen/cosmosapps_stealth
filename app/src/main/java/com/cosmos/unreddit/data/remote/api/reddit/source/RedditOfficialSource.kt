@@ -1424,6 +1424,23 @@ class RedditOfficialSource @Inject constructor(
             map["spoiler"] = true
         }
 
+        // The post's ORIGINAL CDN-frosted rendition (2.5.78): for flagged cards
+        // the first genuine preview image is the signed ?blur=40 file — exactly
+        // the blur reddit.com shows. The rewrites above replace it with a sharp
+        // rendition (good for the SHOWN state), but when the preview is HIDDEN
+        // the app must blur something, and a client-side blur reads weaker than
+        // reddit's. So keep the card's own frosted URL and load IT in the hidden
+        // state. Only stored when the card actually carries one; non-flagged
+        // cards stay null and the app-side blur applies. The URL is signed
+        // (short-lived); a stale one 403s and the view falls back to blurring
+        // the sharp preview.
+        val frostedPreview = imgSources.firstOrNull {
+            "blur=" in it && (it.contains("preview.redd.it") || it.contains("external-preview.redd.it"))
+        }
+        if (frostedPreview != null) {
+            map["preview_blur_url"] = frostedPreview
+        }
+
         // The post FLAIR tag (e.g. "age verification"): the browser shows it under
         // the title; SSR renders it as a `shreddit-post-flair` element whose visible
         // label is the `.flair-content` div (or an img alt for image flairs).

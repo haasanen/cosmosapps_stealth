@@ -235,4 +235,36 @@ class NsfwSpoilerHandlingTest {
             assertTrue("lost its signed host: $url", "preview.redd.it" in url)
         }
     }
+
+    @Test
+    fun `flagged cards keep reddit's own frosted rendition for the hidden state`() {
+        // 2.5.78: when the preview is hidden the app loads reddit's OWN
+        // ?blur=40 rendition (the card's original signed URL), not a
+        // client-side blur of the sharp image — the official blur is stronger
+        // and matches reddit.com. The parser must carry that URL
+        // (preview_blur_url). (The shown state staying sharp is pinned by the
+        // thumbnail test; previewUrl is not read here — it touches
+        // MimeTypeMap, which unit tests don't mock.)
+        val doc = org.jsoup.Jsoup.parse(loadFixture("nsfw_feed_hot.html"))
+        val cards = doc.select("shreddit-post").toList()
+        var flaggedWithFrost = 0
+        for (card in cards) {
+            val flagged = card.select("shreddit-blurred-container").firstOrNull()?.attr("reason") in
+                listOf("nsfw", "spoiler")
+            if (!flagged) continue
+            val post = source.parsePostCardForTest(card) ?: continue
+            val frost = post.data.previewBlurUrl
+            if (frost == null) continue
+            assertTrue(
+                "frosted rendition must carry the CDN blur param: $frost",
+                "blur=" in frost
+            )
+            flaggedWithFrost++
+        }
+        assertTrue(
+            "expected flagged cards carrying the card's own frosted rendition " +
+                "(hidden-preview state would lose reddit's official blur)",
+            flaggedWithFrost > 0
+        )
+    }
 }
