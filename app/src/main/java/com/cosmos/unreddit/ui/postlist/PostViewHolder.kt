@@ -1,7 +1,6 @@
 package com.cosmos.unreddit.ui.postlist
 
 import android.view.View
-import android.view.ViewTreeObserver
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -235,9 +234,44 @@ abstract class PostViewHolder(
         /** True while autoplay applies to the bound post. */
         private var autoplay = false
 
-        /** Re-checks playback whenever the view tree scrolls (cell enters/leaves). */
-        private val scrollChecker = ViewTreeObserver.OnScrollChangedListener {
-            if (autoplay) updatePlayback()
+        /**
+         * The feed's RecyclerView enclosing this cell (walk the parent chain —
+         * intermediate containers are possible depending on the list wrapper).
+         */
+        private fun findList(): RecyclerView? {
+            var parent: android.view.ViewParent? = itemView.parent
+            while (parent != null) {
+                if (parent is RecyclerView) return parent
+                parent = parent.parent
+            }
+            return null
+        }
+
+        /**
+         * Scroll detection on the list itself. A ViewTreeObserver scroll listener
+         * on the ITEM would never fire: RecyclerView scrolls by translating its
+         * children, not by scrolling them, so only the list's own scroll events
+         * reach us.
+         */
+        private val scrollListener = object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (autoplay) updatePlayback()
+            }
+
+            override fun onScrollStateChanged(rv: RecyclerView, state: Int) {
+                if (state == RecyclerView.SCROLL_STATE_IDLE && autoplay) updatePlayback()
+            }
+        }
+
+        /** The list this cell is attached to (listener attached/detached with it). */
+        private var list: RecyclerView? = null
+
+        /**
+         * Fires on fresh layouts (a cold feed fill never scrolls, so without this
+         * the first on-screen video would wait for the first scroll to start).
+         */
+        private val layoutTrigger = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            if (autoplay && v.height > 0) updatePlayback()
         }
 
         init {
@@ -250,24 +284,22 @@ abstract class PostViewHolder(
             binding.imagePostPreviewPlayer.setOnClickListener {
                 listener.onMediaClick(bindingAdapterPosition)
             }
-            // Version-proof attach/detach (RecyclerView 1.2.1 has no ViewHolder
-            // attach/detach callbacks): stop muted playback when the cell leaves
-            // the window (recycled off-screen, list backgrounded) so no stream
-            // keeps running unseen; re-evaluate when it comes back.
+            itemView.addOnLayoutChangeListener(layoutTrigger)
+            // Attach/detach owns the list scroll listener (bind() can run while the
+            // cell is still detached), and stops playback when the cell leaves the
+            // window (recycled off-screen, list backgrounded) so no stream keeps
+            // running unseen.
             itemView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
-                    if (!autoplay) return
-                    if (isSufficientlyVisible()) {
-                        updatePlayback()
-                    } else {
-                        // Not laid out yet (height 0): re-check after the next layout.
-                        v.post { if (autoplay) updatePlayback() }
-                    }
+                    list = findList()
+                    list?.addOnScrollListener(scrollListener)
+                    updatePlayback()
                 }
 
                 override fun onViewDetachedFromWindow(v: View) {
+                    list?.removeOnScrollListener(scrollListener)
+                    list = null
                     stopPlayback()
-                    boundPost = null
                 }
             })
         }
@@ -302,24 +334,19 @@ abstract class PostViewHolder(
                 contentPreferences.autoplayPreviews,
                 postEntity.shouldShowPreview(contentPreferences)
             )
-            if (autoplay) {
-                itemView.viewTreeObserver.addOnScrollChangedListener(scrollChecker)
-                updatePlayback()
-            }
+            if (autoplay) updatePlayback()
         }
 
-        /** At least half of the cell is inside the list's clip bounds. */
+        /** At least half of the cell is inside the list's visible bounds. */
         private fun isSufficientlyVisible(): Boolean {
             if (itemView.height <= 0) return false
-            val rv = itemView.parent as? RecyclerView ?: return false
+            val rv = findList() ?: return false
             val loc = IntArray(2)
             val rvLoc = IntArray(2)
             itemView.getLocationInWindow(loc)
             rv.getLocationInWindow(rvLoc)
             val top = loc[1] - rvLoc[1]
-            val bottom = top + itemView.height
-            val visible = (bottom.coerceAtMost(rv.height) - top.coerceAtLeast(0)).coerceAtLeast(0)
-            return visible >= itemView.height * 0.5f
+            return visibleFraction(top, itemView.height, rv.height) * 2 >= itemView.height
         }
 
         companion object {
@@ -345,6 +372,17 @@ abstract class PostViewHolder(
                 val host = post.mediaUrl.toHttpUrlOrNull()?.host ?: return false
                 return host == "v.redd.it"
             }
+
+            /**
+             * Pure visibility geometry (unit tested): the number of pixels of a
+             * cell [height] tall positioned at [top] (in list coordinates) that
+             * fall inside a list whose visible height is [listHeight].
+             */
+            internal fun visibleFraction(top: Int, height: Int, listHeight: Int): Int {
+                if (height <= 0 || listHeight <= 0) return 0
+                val bottom = top + height
+                return (bottom.coerceAtMost(listHeight) - top.coerceAtLeast(0)).coerceAtLeast(0)
+            }
         }
 
         private fun updatePlayback() {
@@ -366,9 +404,6 @@ abstract class PostViewHolder(
             if (player != null) {
                 pool.release(token)
                 player = null
-            }
-            if (autoplay) {
-                itemView.viewTreeObserver.removeOnScrollChangedListener(scrollChecker)
             }
             autoplay = false
             binding.imagePostPreviewPlayer.player = null
