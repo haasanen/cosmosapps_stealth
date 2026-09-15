@@ -1468,6 +1468,9 @@ class RedditOfficialSource @Inject constructor(
             val url = (largestSrcsetUrl(img) ?: srcUrl)
                 .takeIf { it.isNotBlank() && !isAvatarImageUrl(it) }
                 ?: continue
+            // De-blur the rendition (gallery page 1 of a flagged post is the
+            // CDN-frosted ?blur=40 320px src — see unblurGalleryRendition).
+            val sharpUrl = unblurGalleryRendition(url, el)
             val mediaId = "t3_${postId}_${index}"
             dataItems.add(mapOf("media_id" to mediaId, "caption" to null))
             // media_metadata[mediaId] = GalleryItem { id, m, s{u,x,y} }.
@@ -1475,7 +1478,7 @@ class RedditOfficialSource @Inject constructor(
                 "id" to mediaId,
                 "m" to "image/jpeg",
                 "s" to mapOf(
-                    "u" to url,
+                    "u" to sharpUrl,
                     "x" to (img.attr("width").toIntOrNull() ?: 0),
                     "y" to (img.attr("height").toIntOrNull() ?: 0)
                 )
@@ -1527,6 +1530,32 @@ class RedditOfficialSource @Inject constructor(
         val match = blurredRendition.find(url) ?: return url
         val file = match.groupValues[1]
         return if ("i.redd.it/$file" in card.html()) "https://i.redd.it/$file" else url
+    }
+
+    /**
+     * Same CDN-baked ?blur=40 as [unblurRendition], for GALLERY pages. Reddit
+     * renders the FIRST page of a flagged gallery post inline as
+     * `preview.redd.it/<id>.<ext>?width=320&…&blur=40&…` with NO srcset (the
+     * later pages are sharp srcset images), so [largestSrcsetUrl] falls back to
+     * the blurred src and the gallery opens on the frosted image
+     * (2026-09-15, t3_1wghg7s r/outerwilds spoiler gallery — the user's
+     * "first image is blurred in the gallery" report; same shape as the
+     * goblin gallery). The sharp original is again anonymously served at
+     * `i.redd.it/<id>.<ext>` (verified 200, 1.09 MB).
+     *
+     * The existence proof differs from the single-thumbnail case: the card may
+     * reference the i.redd.it original OR one of the same image's signed
+     * `-v0-<id>` renditions (reddit's own prefix for its native files — in the
+     * capture, gallery page 2 IS the sharp rendition of the page-1 image).
+     * Either proves the i.redd.it file exists.
+     */
+    private fun unblurGalleryRendition(url: String, card: Element): String {
+        val match = blurredRendition.find(url) ?: return url
+        val file = match.groupValues[1]
+        val token = file.substringBeforeLast('.')
+        val cardHtml = card.html()
+        val proven = "i.redd.it/$file" in cardHtml || "-v0-$token" in cardHtml
+        return if (proven) "https://i.redd.it/$file" else url
     }
 
     private val externalPreviewFile = Regex(
