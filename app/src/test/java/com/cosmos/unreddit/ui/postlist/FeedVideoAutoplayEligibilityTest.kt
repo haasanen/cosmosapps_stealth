@@ -6,6 +6,7 @@ import com.cosmos.unreddit.data.model.PosterType
 import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.db.PostEntity
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -102,5 +103,34 @@ class FeedVideoAutoplayEligibilityTest {
     fun `non-video post never autoplays`() {
         val p = post(MediaType.IMAGE, "https://i.redd.it/abc123.jpeg")
         assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    // --- Visible-fraction geometry (the "at least half on screen" rule) -------
+
+    @Test
+    fun `fully visible cell`() {
+        assertEquals(800, PostViewHolder.VideoPostViewHolder.visibleFraction(0, 800, 900))
+    }
+
+    @Test
+    fun `exactly half visible cell`() {
+        assertEquals(400, PostViewHolder.VideoPostViewHolder.visibleFraction(500, 800, 900))
+    }
+
+    @Test
+    fun `just under half visible cell`() {
+        assertEquals(399, PostViewHolder.VideoPostViewHolder.visibleFraction(501, 800, 900))
+    }
+
+    @Test
+    fun `scrolled out cells are invisible`() {
+        assertEquals(0, PostViewHolder.VideoPostViewHolder.visibleFraction(900, 800, 900))
+        assertEquals(0, PostViewHolder.VideoPostViewHolder.visibleFraction(-800, 800, 900))
+    }
+
+    @Test
+    fun `zero sized inputs are invisible`() {
+        assertEquals(0, PostViewHolder.VideoPostViewHolder.visibleFraction(0, 0, 900))
+        assertEquals(0, PostViewHolder.VideoPostViewHolder.visibleFraction(0, 800, 0))
     }
 }
