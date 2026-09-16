@@ -219,7 +219,8 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
             R.id.postListFragment,
             R.id.subscriptionsFragment,
             R.id.subredditFragment,
-            R.id.profileFragment -> {
+            R.id.profileFragment,
+            R.id.preferencesFragment -> {
                 viewModel.setNavigationVisibility(true)
             }
 

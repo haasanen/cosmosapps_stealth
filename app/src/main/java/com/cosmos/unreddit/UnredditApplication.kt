@@ -58,7 +58,6 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
             private val inner = FileUncaughtExceptionHandler(this@UnredditApplication)
             override fun uncaughtException(t: Thread, e: Throwable) {
                 com.cosmos.unreddit.ui.postlist.FeedDebug.log("UNCAUGHT on ${t.name}: ${e.javaClass.name}: ${e.message}")
-                // TEMP: full cause chain — the outer frame alone never identifies the root cause.
                 var cause: Throwable? = e.cause
                 var depth = 1
                 while (cause != null && depth <= 8) {
@@ -70,7 +69,11 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
                     cause = cause.cause
                     depth++
                 }
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log("    at ${e.stackTraceOrNull(3)}")
+                // Full stack to the log FILE (the 3-frame logcat line is never enough once
+                // the build is R8-minified — the app frame is what pins the crash). The full
+                // trace also goes to the uncaught/ file the [inner] handler writes.
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("FULL STACK", e)
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("    (full stack -> log file + uncaught/ )")
                 inner.uncaughtException(t, e)
             }
         })
