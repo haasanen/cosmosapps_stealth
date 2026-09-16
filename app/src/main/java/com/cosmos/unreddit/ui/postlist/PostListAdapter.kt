@@ -21,6 +21,35 @@ class PostListAdapter(
     private val onLinkClickListener: RedditView.OnLinkClickListener? = null
 ) : PagingDataAdapter<PostEntity, RecyclerView.ViewHolder>(POST_COMPARATOR) {
 
+    // Tracks the RecyclerView we are attached to so data-set notifications can be deferred to
+    // the next frame when the list is mid-layout. Firing a notify* while RecyclerView is
+    // computing a layout throws IllegalStateException("Cannot call this method while
+    // RecyclerView is computing a layout or scrolling"). The home feed avoids this via
+    // submitList (which posts its update between frames), but a Paging adapter notifies inline —
+    // opening a subreddit with the spoiler/NSFW preview setting enabled rebinds the whole list
+    // during its initial layout pass and used to crash (r/outerwilds, 2026-09-16).
+    private var attachedRecyclerView: RecyclerView? = null
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        attachedRecyclerView = recyclerView
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        if (attachedRecyclerView === recyclerView) attachedRecyclerView = null
+    }
+
+    /** Runs [action] now, or posts it to the next frame if the list is computing a layout. */
+    private fun runWhenListIdle(action: () -> Unit) {
+        val rv = attachedRecyclerView
+        if (rv != null && rv.isComputingLayout()) {
+            rv.post(action)
+        } else {
+            action()
+        }
+    }
+
     interface PostClickListener {
         fun onClick(post: PostEntity)
 
@@ -79,7 +108,10 @@ class PostListAdapter(
                 field.autoplayPreviews != value.autoplayPreviews
             ) {
                 field = value
-                notifyDataSetChanged()
+                // A full rebind of a list that is mid-layout (opening a subreddit with the
+                // spoiler/NSFW preview setting enabled fires this during the first layout
+                // pass) would throw — defer it to the next frame when that happens.
+                runWhenListIdle { notifyDataSetChanged() }
             }
         }
 
@@ -119,7 +151,7 @@ class PostListAdapter(
             getItem(position)?.let {
                 postClickListener.onSaveClick(it)
                 it.saved = !it.saved
-                notifyItemChanged(position, it)
+                runWhenListIdle { notifyItemChanged(position, it) }
             }
         }
     }
@@ -200,7 +232,7 @@ class PostListAdapter(
 
     private fun setPostSeen(position: Int, post: PostEntity) {
         post.seen = true
-        notifyItemChanged(position, post)
+        runWhenListIdle { notifyItemChanged(position, post) }
     }
 
     companion object {
