@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
+import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.RecyclerView
 import com.cosmos.unreddit.ui.common.PostDividerItemDecoration
 import com.cosmos.unreddit.ui.postlist.FeedDebug
@@ -88,7 +89,7 @@ class PostRecyclerView @JvmOverloads constructor(
         return false
     }
 
-    private val globalLayoutListener = object : androidx.view.ViewTreeObserver.OnGlobalLayoutListener {
+    private val globalLayoutListener = object : ViewTreeObserver.OnGlobalLayoutListener {
         override fun onGlobalLayout() {
             // Schedule the check a message later: onGlobalLayout itself is part of the
             // traversal bookkeeping; an idle posted message is a moment we KNOW no pass runs in.

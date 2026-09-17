@@ -530,7 +530,16 @@ class PullToRefreshLayout @JvmOverloads constructor(
         try {
             mTarget!!.layout(targetLeft, targetTop, targetRight, targetBottom)
         } catch (ignored: Exception) {
+            // KEEP THE CATCH: an exception inside the target's layout pass must not crash the
+            // app (and the PostRecyclerView watchdog heals the leaked layout/scroll counter
+            // that this pass now leaves behind — RecyclerView 1.2.1 wraps passes without
+            // try/finally, so an in-pass throw otherwise poisons every later notify*).
+            // But it MUST be logged to the file: before this, the root cause only went to
+            // logcat as "error: ignored=" and was invisible in the crash reports.
             Log.e(logTag, "error: ignored=" + ignored.toString() + " " + ignored.stackTrace.toString())
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException(
+                "PullToRefreshLayout LAYOUT PASS THREW (swallowed) $logTag", ignored
+            )
         }
         val refreshViewLeft = (width - refreshView.measuredWidth) / 2
         val refreshViewTop = reviseRefreshViewLayoutTop(mRefreshInitialOffset.toInt())
