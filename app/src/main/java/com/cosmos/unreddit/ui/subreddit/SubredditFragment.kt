@@ -107,6 +107,21 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
 
     private lateinit var postListAdapter: PostListAdapter
 
+    /**
+     * Hides the bottom nav while the header is collapsed / the list is scrolled
+     * down (see [updateNavigationVisibility]). Registered on the header's
+     * ViewTreeObserver, which can outlive the fragment's view: after
+     * onDestroyView has nulled the bindings, a frame dispatched before the
+     * observer drops the listener NPEs on [bindingContent] (crash on back,
+     * 2.5.83: SubredditFragment$$ExternalSyntheticLambda1.onDraw). Removed in
+     * onDestroyView; the listener also null-checks defensively, so a late
+     * dispatch can never crash.
+     */
+    private val navigationDrawListener = ViewTreeObserver.OnDrawListener {
+        val content = _bindingContent ?: return@OnDrawListener
+        updateNavigationVisibility(content.listPost, content.layoutRoot.progress)
+    }
+
     // Last known refresh state of the feed, so retry() can tell whether the
     // post list actually failed (paging 3.1.1 exposes loadStateFlow as a plain
     // Flow, so there is no .value to read).
@@ -285,14 +300,12 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
         // constraintlayout version). The header collapse is driven by the
         // list scroll, so any redraw of the header during a drag is exactly
         // when the visibility state can change.
-        bindingContent.layoutRoot.viewTreeObserver.addOnDrawListener(
-            ViewTreeObserver.OnDrawListener {
-                updateNavigationVisibility(
-                    bindingContent.listPost,
-                    bindingContent.layoutRoot.progress
-                )
-            }
-        )
+        //
+        // The listener MUST be removed in onDestroyView: the ViewTreeObserver
+        // is owned by the View and outlives the fragment, so without removal it
+        // keeps firing on post-death frames and NPEs on _bindingContent (crash
+        // on back, 2.5.83).
+        bindingContent.layoutRoot.viewTreeObserver.addOnDrawListener(navigationDrawListener)
 
         bindingContent.pullRefresh.setOnRefreshListener(this)
 
@@ -480,6 +493,16 @@ class SubredditFragment : BaseFragment(), PopupMenu.OnMenuItemClickListener,
 
     override fun onDestroyView() {
         super.onDestroyView()
+
+        // Remove the nav-visibility draw listener BEFORE nulling the bindings:
+        // the ViewTreeObserver outlives the fragment, and a frame can still
+        // dispatch it during the back transition (see navigationDrawListener).
+        if (_bindingContent != null) {
+            val vto = _bindingContent!!.layoutRoot.viewTreeObserver
+            if (vto.isAlive) {
+                vto.removeOnDrawListener(navigationDrawListener)
+            }
+        }
 
         (binding.subredditContent.pullRefresh.refreshView as? PullToRefreshLayout.RefreshCallback)
             ?.reset()
