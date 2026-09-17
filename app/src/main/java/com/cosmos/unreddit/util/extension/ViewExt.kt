@@ -56,8 +56,10 @@ fun ImageView.load(
      * The source's own frosted rendition (reddit's signed `?blur=40` CDN file
      * for flagged posts). When [blur] is set, THIS is loaded instead of the
      * sharp image + client-side blur: it reads exactly like the official
-     * reddit blur (2.5.77's downscale blur was visibly weaker). A 403 (stale
-     * signed URL) falls back to blurring [data] via [BlurTransformation].
+     * reddit blur (2.5.77's downscale blur was visibly weaker). If the
+     * rendition fails (stale signed URL from the offline cache, network
+     * error) Coil's `listener(onError = …)` falls back to blurring [data]
+     * via [BlurTransformation] so the cell is never left unblurred.
      */
     blurUrl: String? = null,
     builder: ImageRequest.Builder.() -> Unit = {}
@@ -80,7 +82,17 @@ fun ImageView.load(
                     transformations(BlurTransformation(context, radius, sampling))
                 }
                 if (frosted) {
-                    error { throwable: Throwable ->
+                    // A bare `error { … }` here does NOT register a Coil callback:
+                    // Coil 2.2.2's ImageRequest.Builder only has error(Int) and
+                    // error(Drawable), so `error { … }` silently resolves to the
+                    // KOTLIN STDLIB `kotlin.error(message)` — i.e.
+                    // `throw IllegalStateException(…)` — thrown on EVERY frosted
+                    // (spoiler) bind, mid layout pass. That leaked RecyclerView
+                    // 1.2.1's mLayoutOrScrollCounter (no try/finally around
+                    // onLayoutChildren) and crashed the list on the next page-insert,
+                    // and it also meant the frosted preview was never enqueued/loaded.
+                    // The real Coil error callback is listener(onError = …).
+                    listener(onError = { _, _ ->
                         // The frosted rendition failed (stale signed URL from the
                         // offline cache, network error); blur the sharp image
                         // instead so the cell is never left unblurred.
@@ -95,7 +107,7 @@ fun ImageView.load(
                                 .apply(builder)
                                 .build()
                         )
-                    }
+                    })
                 }
             }
         }
