@@ -17,11 +17,10 @@ import com.cosmos.unreddit.databinding.ItemPostLinkBinding
 import com.cosmos.unreddit.databinding.ItemPostTextBinding
 import com.cosmos.unreddit.ui.common.widget.AwardView
 import com.cosmos.unreddit.util.ClickableMovementMethod
-import com.cosmos.unreddit.util.FeedPreviewPlayerPool
+import com.cosmos.unreddit.util.InAppVideoResolver
+import com.cosmos.unreddit.util.VideoPreviewController
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
-import com.google.android.exoplayer2.Player
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 abstract class PostViewHolder(
     itemView: View,
@@ -196,44 +195,16 @@ abstract class PostViewHolder(
     ) {
 
         /**
-         * In-feed muted preview playback (2.5.74 request: "preview videos should
-         * start playing automatically when they are visible … without sound, sound
-         * only when opened to fullscreen / the comments").
-         *
-         * Native Reddit videos (v.redd.it MP4/HLS) loop muted in the cell while at
-         * least half of the cell is on screen; tapping still opens the MediaViewer,
-         * which plays with the user's sound settings (the in-cell player is a
-         * different, always-muted instance). External videos (redgifs/YouTube/
-         * imgur/gfycat/streamable) keep the still poster + play badge: their
-         * playable rendition needs the MediaViewer's per-site pipeline (redgifs
-         * resolution lookup, audio track merging, request-property signing), so
-         * auto-playing them in a cell is not a plain URL swap.
+         * In-feed muted preview playback (2.5.74 request; 2.5.86 "play everything
+         * the app plays in-app"). The cell decides VISIBILITY (>= half on screen);
+         * the shared [VideoPreviewController] does the rest — resolving a playable
+         * URL for ANY in-app video type (reddit native, imgur, gfycat, redgifs,
+         * streamable, generic; site APIs resolved on demand), and the frost-baked
+         * poster swap is handled in [bind] via [InAppVideoResolver.sharpPreview].
+         * Tapping still opens the MediaViewer, which plays with the user's sound
+         * settings.
          */
-        private val pool = FeedPreviewPlayerPool.get()
-
-        private val token = object : FeedPreviewPlayerPool.Token {
-            override fun playerAttached(player: Player) {
-                binding.imagePostPreviewPlayer.player = player
-            }
-
-            override fun playerDetached() {
-                // The pool evicted (or released) this token's player. Forget it so a
-                // later updatePlayback() re-acquires instead of touching a released
-                // instance; the PlayerView is cleared either way.
-                this@VideoPostViewHolder.player = null
-                binding.imagePostPreviewPlayer.player = null
-                binding.imagePostPreviewPlayer.visibility = View.GONE
-            }
-        }
-
-        /** The in-cell player bound to the current post, or null. */
-        private var player: Player? = null
-
-        /** The post this cell is bound to (null before bind / after detach). */
-        private var boundPost: PostEntity? = null
-
-        /** True while autoplay applies to the bound post. */
-        private var autoplay = false
+        private lateinit var controller: VideoPreviewController
 
         /**
          * The feed's RecyclerView enclosing this cell (walk the parent chain —
@@ -256,11 +227,11 @@ abstract class PostViewHolder(
          */
         private val scrollListener = object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                if (autoplay) updatePlayback()
+                controller.onVisibleChanged()
             }
 
             override fun onScrollStateChanged(rv: RecyclerView, state: Int) {
-                if (state == RecyclerView.SCROLL_STATE_IDLE && autoplay) updatePlayback()
+                if (state == RecyclerView.SCROLL_STATE_IDLE) controller.onVisibleChanged()
             }
         }
 
@@ -272,7 +243,7 @@ abstract class PostViewHolder(
          * the first on-screen video would wait for the first scroll to start).
          */
         private val layoutTrigger = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            if (autoplay && v.height > 0) updatePlayback()
+            if (v.height > 0) controller.onVisibleChanged()
         }
 
         init {
@@ -285,6 +256,17 @@ abstract class PostViewHolder(
             binding.imagePostPreviewPlayer.setOnClickListener {
                 listener.onMediaClick(bindingAdapterPosition)
             }
+            controller = VideoPreviewController(
+                context = itemView.context,
+                playerView = binding.imagePostPreviewPlayer,
+                playBadge = binding.buttonTypeIndicator,
+                visibilityProvider = { isSufficientlyVisible() },
+                sharpPosterCallback = { url ->
+                    binding.imagePostPreview.load(url, false) {
+                        fallback(R.drawable.preview_video_fallback)
+                    }
+                }
+            )
             itemView.addOnLayoutChangeListener(layoutTrigger)
             // Attach/detach owns the list scroll listener (bind() can run while the
             // cell is still detached), and stops playback when the cell leaves the
@@ -294,13 +276,13 @@ abstract class PostViewHolder(
                 override fun onViewAttachedToWindow(v: View) {
                     list = findList()
                     list?.addOnScrollListener(scrollListener)
-                    updatePlayback()
+                    controller.onVisibleChanged()
                 }
 
                 override fun onViewDetachedFromWindow(v: View) {
                     list?.removeOnScrollListener(scrollListener)
                     list = null
-                    stopPlayback()
+                    controller.release()
                 }
             })
         }
@@ -311,32 +293,35 @@ abstract class PostViewHolder(
         ) {
             super.bind(postEntity, contentPreferences)
 
+            val previewAllowed = postEntity.shouldShowPreview(contentPreferences)
+
             binding.imagePostPreview.load(
                 postEntity.preview,
-                !postEntity.shouldShowPreview(contentPreferences),
+                !previewAllowed,
                 blurUrl = postEntity.previewBlurUrl
             ) {
                 error(R.drawable.preview_video_fallback)
                 fallback(R.drawable.preview_video_fallback)
             }
 
+            // Frost-baked CDN poster (external video embeds): reddit's frosted
+            // ?blur=40 file has no sharp twin on reddit's CDNs, so the "Show
+            // NSFW/spoiler preview" toggle could never un-blur it. When the
+            // preview is allowed, swap in the site's own sharp still (redgifs
+            // exposes one via its API; others keep the frosted poster).
             binding.buttonTypeIndicator.apply {
                 visibility = View.VISIBLE
                 setIcon(R.drawable.ic_play)
             }
 
-            // A rebind re-evaluates: stop whatever the previous post was playing,
-            // then decide whether this post autoplays at all. When the preview is
-            // hidden by the NSFW/spoiler setting, playing would reveal the content
-            // — so the cell keeps its blurred still and never plays.
-            stopPlayback()
-            boundPost = postEntity
-            autoplay = canAutoplay(
-                postEntity,
-                contentPreferences.autoplayPreviews,
-                postEntity.shouldShowPreview(contentPreferences)
-            )
-            if (autoplay) updatePlayback()
+            // A rebind re-evaluates: the controller stops whatever the previous
+            // post was playing, then decides whether this post autoplays at all.
+            // When the preview is hidden by the NSFW/spoiler setting, playing
+            // would reveal the content — so the cell keeps its blurred still and
+            // never plays. (bind must run before maybeLoadSharpPoster: the swap
+            // keys off the bound post.)
+            controller.bind(postEntity, contentPreferences)
+            controller.maybeLoadSharpPoster(contentPreferences)
         }
 
         /** At least half of the cell is inside the list's visible bounds. */
@@ -353,47 +338,22 @@ abstract class PostViewHolder(
 
         companion object {
             /**
-             * Pure autoplay-eligibility check for a feed video cell — the only state
-             * read is [post]'s media type/url and the two booleans, so it is unit
-             * tested directly (no view/player). A preview plays muted in the cell
-             * only when the user enabled it, the NSFW/spoiler settings allow the
-             * preview to show, and it is a native Reddit video (a plain v.redd.it
-             * MP4/HLS a player can stream). External videos (redgifs/YouTube/imgur/
-             * gfycat/streamable) need the MediaViewer's per-site pipeline, so they
-             * keep the still poster + play badge.
+             * Pure autoplay-eligibility check for a feed video cell — the only
+             * state read is [post]'s media type and the two booleans, so it is
+             * unit tested directly (no view/player). 2.5.86: EVERY video the app
+             * plays in its own player autoplays (reddit native, imgur, gfycat,
+             * redgifs, streamable, generic video); only site-opening links and
+             * non-videos don't. Gated by the setting and the preview allowance.
              */
             internal fun canAutoplay(
                 post: PostEntity,
                 autoplayEnabled: Boolean,
                 previewAllowed: Boolean
-            ): Boolean {
-                if (!autoplayEnabled || !previewAllowed) return false
-                if (post.mediaType != MediaType.REDDIT_VIDEO &&
-                    post.mediaType != MediaType.REDDIT_GIF
-                ) return false
-                return isNativeRedditPlayable(post.mediaUrl)
-            }
-
-            /**
-             * True when [url] is a native reddit video rendition a player can stream
-             * in-cell: a `v.redd.it` MP4/HLS playlist, or the signed
-             * `preview.redd.it` / `cf.preview.redd.it` **MP4** rendition a GIF /
-             * animated card carries (`?format=mp4`). Plain `v.redd.it` video cards
-             * resolve to the first; animated (GIF) cards resolve to the second —
-             * the host allowlist must cover both or GIFs silently never autoplay
-             * (2026-09-17 "the video preview setting doesn't work"). Still images
-             * (`.jpg` on preview.redd.it, no `format=mp4`) and external sites
-             * (redgifs/YouTube/imgur/gfycat/streamable) are not.
-             */
-            internal fun isNativeRedditPlayable(url: String): Boolean {
-                val u = url.toHttpUrlOrNull() ?: return false
-                return when (u.host) {
-                    "v.redd.it" -> true
-                    "preview.redd.it", "cf.preview.redd.it" ->
-                        u.queryParameter("format") == "mp4"
-                    else -> false
-                }
-            }
+            ): Boolean = InAppVideoResolver.canAutoplay(
+                post.mediaType,
+                autoplayEnabled,
+                previewAllowed
+            )
 
             /**
              * Pure visibility geometry (unit tested): the number of pixels of a
@@ -405,32 +365,6 @@ abstract class PostViewHolder(
                 val bottom = top + height
                 return (bottom.coerceAtMost(listHeight) - top.coerceAtLeast(0)).coerceAtLeast(0)
             }
-        }
-
-        private fun updatePlayback() {
-            val post = boundPost ?: return
-            if (isSufficientlyVisible()) {
-                if (player == null) {
-                    player = pool.acquire(itemView.context, post.mediaUrl, token)
-                    binding.imagePostPreviewPlayer.visibility = View.VISIBLE
-                    binding.buttonTypeIndicator.visibility = View.GONE
-                } else {
-                    player?.play()
-                }
-            } else {
-                player?.pause()
-            }
-        }
-
-        private fun stopPlayback() {
-            if (player != null) {
-                pool.release(token)
-                player = null
-            }
-            autoplay = false
-            binding.imagePostPreviewPlayer.player = null
-            binding.imagePostPreviewPlayer.visibility = View.GONE
-            binding.buttonTypeIndicator.visibility = View.VISIBLE
         }
     }
 

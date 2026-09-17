@@ -267,4 +267,68 @@ class NsfwSpoilerHandlingTest {
             flaggedWithFrost > 0
         )
     }
+
+    @Test
+    fun `redgifs cards classify as videos with a frost-baked preview flag`() = runBlocking {
+        // 2.5.86 ("play everything the app plays in-app" + "nsfw preview blur
+        // removal doesn't work"): redgifs NSFW cards used to parse as a plain
+        // LINK with a frosted external-preview poster — no play badge, and a
+        // toggle that could never un-blur (the ?blur=40 file is the post's ONLY
+        // preview; the token is opaque, no i.redd.it twin on reddit's CDNs —
+        // verified byte-level on this capture). They are videos the app plays
+        // in its own player (MediaViewer → redgifs API), so they must classify
+        // REDGIFS/VIDEO and carry frostBakedPreview so the preview-ON state
+        // swaps in the site's sharp still.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("nsfw_feed_hot.html"))
+        val cards = doc.select("shreddit-post").toList()
+        var redgifs = 0
+        for (card in cards) {
+            val post = source.parsePostCardForTest(card) ?: continue
+            if (post.data.mediaType != com.cosmos.unreddit.data.model.MediaType.REDGIFS) continue
+            redgifs++
+            assertEquals(
+                "card ${card.attr("id")} redgifs post must be PostType.VIDEO, " +
+                    "was ${post.data.postType}",
+                com.cosmos.unreddit.data.model.PostType.VIDEO,
+                post.data.postType
+            )
+            assertTrue(
+                "card ${card.attr("id")} redgifs frosted poster must carry " +
+                    "frostBakedPreview (the toggle has no other un-blur path)",
+                post.data.frostBakedPreview
+            )
+            val thumb = post.data.thumbnail
+            assertNotNull("card ${card.attr("id")} has no poster", thumb)
+            assertTrue(
+                "card ${card.attr("id")} poster is the CDN-frosted rendition: $thumb",
+                thumb!!.contains("blur=")
+            )
+        }
+        assertTrue(
+            "expected redgifs cards in the NSFW capture, found $redgifs " +
+                "(reclassification untested)",
+            redgifs > 0
+        )
+    }
+
+    @Test
+    fun `native flagged images are not flagged frost-baked`() = runBlocking {
+        // Regression guard for the frost-baked flag: it must apply ONLY to
+        // external-embed frosted posters. Native image posts already have a
+        // sharp i.redd.it preview in the shown state, so frostBakedPreview
+        // would wrongly trigger a site-API swap that finds no site to query.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("nsfw_feed_hot.html"))
+        val cards = doc.select("shreddit-post").toList()
+        var native = 0
+        for (card in cards) {
+            val post = source.parsePostCardForTest(card) ?: continue
+            if (post.data.mediaType != com.cosmos.unreddit.data.model.MediaType.IMAGE) continue
+            native++
+            assertFalse(
+                "card ${card.attr("id")} native image must not be frost-baked",
+                post.data.frostBakedPreview
+            )
+        }
+        assertTrue("expected native image cards in the capture", native > 0)
+    }
 }

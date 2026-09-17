@@ -132,6 +132,19 @@ data class PostData(
      */
     @Json(name = "preview_blur_url")
     var previewBlurUrl: String? = null
+
+    /**
+     * True when [thumbnail] (the post's feed preview) IS the CDN-baked `?blur=40`
+     * rendition and no sharp rendition exists on reddit's CDNs — external-embed
+     * video posters (redgifs/YouTube/gfycat/streamable) where the token is opaque
+     * (no i.redd.it twin). The "Show NSFW/spoiler preview" toggle then cannot
+     * un-blur the card itself; instead the app swaps in a sharp still resolved
+     * from the post's own site (2026-09-17 "nsfw preview blur removal setting
+     * doesn't work"). Native posts never set this (their sharp i.redd.it preview
+     * is already in [thumbnail]).
+     */
+    @Json(name = "frost_baked_preview")
+    var frostBakedPreview: Boolean = false
     @Transient
     var crosspost: Crosspost? = null
 

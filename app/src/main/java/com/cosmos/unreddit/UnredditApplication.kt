@@ -14,6 +14,7 @@ import coil.decode.ImageDecoderDecoder
 import com.cosmos.unreddit.data.model.preferences.UiPreferences
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.util.FileUncaughtExceptionHandler
+import com.cosmos.unreddit.util.InAppVideoResolver
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -27,6 +28,16 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    /**
+     * App-scoped in-app video resolver (2.5.86): view holders are not injection
+     * points, so the singleton is held here and reached via
+     * [InAppVideoResolver.get]. Resolves the playable URL (and, where a site
+     * offers it, a sharp preview still) for every video the app plays in its own
+     * player, for feed auto-play and the detail-header preview.
+     */
+    @Inject
+    lateinit var inAppVideoResolver: InAppVideoResolver
 
     var appTheme: Int = -1
         set(mode) {

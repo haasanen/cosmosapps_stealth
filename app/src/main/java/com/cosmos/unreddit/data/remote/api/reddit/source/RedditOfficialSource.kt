@@ -1258,7 +1258,22 @@ class RedditOfficialSource @Inject constructor(
         val score = el.attr("score").toIntOrNull() ?: 0
         val comments = el.attr("comment-count").toIntOrNull() ?: 0
         val ratio = el.attr("upvote-ratio").toDoubleOrNull()
-        val domain = el.attr("domain").ifBlank { "self.$sub" }
+        // External video embeds: the card's `domain` is often a SUBDOMAIN
+        // (v3.redgifs.com, www.streamable.com, v2.gfycat.com), so PostData's
+        // exact-match host checks ("redgifs.com", "streamable.com", "gfycat.com")
+        // miss and the post degrades to a plain LINK (frosted cover, no play
+        // badge, not in-app playable). Normalize those to their apex host so the
+        // post classifies as its real MediaType (→ PostType.VIDEO). (2026-09-17:
+        // NSFW feed dump showed 5 redgifs cards parsed as LINK dom=v3.redgifs.com.)
+        val domain = el.attr("domain").ifBlank { "self.$sub" }.let { raw ->
+            val clean = raw.removePrefix("www.").removePrefix("v2.").removePrefix("v3.")
+            when {
+                clean.endsWith("redgifs.com") -> "redgifs.com"
+                clean.endsWith("gfycat.com") -> "gfycat.com"
+                clean.endsWith("streamable.com") -> "streamable.com"
+                else -> raw
+            }
+        }
         val postType = el.attr("post-type")
         val contentHref = el.attr("content-href")
         val isSelf = postType == "text" || domain.startsWith("self.")
@@ -1439,6 +1454,20 @@ class RedditOfficialSource @Inject constructor(
         }
         if (frostedPreview != null) {
             map["preview_blur_url"] = frostedPreview
+        }
+        // 2026-09-17 "nsfw preview blur removal doesn't work": for EXTERNAL video
+        // embeds (redgifs/gfycat/streamable) the frosted poster IS the post's only
+        // preview — the token is opaque, so no i.redd.it twin exists and the
+        // rewrites above left [thumbnail] on the ?blur=40 file. The "Show NSFW
+        // preview" toggle can never un-blur that image; the app must swap in a
+        // sharp still resolved from the post's own site. Flag it (native
+        // image/video cards already have a sharp i.redd.it thumbnail, so only the
+        // frost-baked external posters set this).
+        if (frostedPreview != null &&
+            frostedPreview == thumbnail &&
+            domain in setOf("redgifs.com", "gfycat.com", "streamable.com")
+        ) {
+            map["frost_baked_preview"] = true
         }
 
         // The post FLAIR tag (e.g. "age verification"): the browser shows it under

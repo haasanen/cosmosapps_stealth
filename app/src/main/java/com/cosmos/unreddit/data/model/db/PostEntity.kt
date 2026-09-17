@@ -94,6 +94,15 @@ data class PostEntity @JvmOverloads constructor(
     @ColumnInfo(name = "preview_blur_url")
     var previewBlurUrl: String? = null,
 
+    /**
+     * The feed preview [preview] is a CDN-baked `?blur=40` poster with no sharp
+     * reddit-CDN twin (external-embed video). The preview-ON state must swap in
+     * a sharp still resolved from the post's own site (see InAppVideoResolver);
+     * see PostData.frostBakedPreview. @Ignore: SSR-parser-only, never persisted.
+     */
+    @Ignore
+    var frostBakedPreview: Boolean = false,
+
     @Ignore
     var previewText: CharSequence? = null,
 
