@@ -55,26 +55,32 @@ class ViewExtLoadGuardTest {
 
     private fun loadViewExtKtFile(): File {
         // Locate the COMPILED ViewExtKt facade (the bytes that get R8-processed and
-        // shipped). The unit-test working directory and classpath layout vary between
-        // AGP/Hilt transforms, so search up from the working directory for the
-        // deterministic build output, then fall back to the class loader.
+        // shipped). Two robust sources, in order:
+        //  1) The test's OWN classloader — in a unit test it is the same classloader
+        //     that loaded the app under test, so it sees ViewExtKt.class however AGP
+        //     lays the app classes out (a directory or a jar, debug or release). This
+        //     is variant-agnostic, unlike a hardcoded build-output path.
+        //  2) A filesystem search up from the working directory, as a fallback for
+        //     the (rare) case the class is not resolvable as a resource.
         val rel = "com/cosmos/unreddit/util/extension/ViewExtKt.class"
-        var dir: File? = File(System.getProperty("user.dir"))
-        var hops = 0
-        while (dir != null && hops < 4) {
-            val file = File(dir, "build/tmp/kotlin-classes/release/$rel")
-            if (file.isFile) return file
-            dir = dir.parentFile
-            hops++
-        }
-        val url = Object::class.java.getResource("/$rel")
+        val url = ViewExtLoadGuardTest::class.java.classLoader?.getResource(rel)
         if (url != null) {
             val f = File.createTempFile("viewext", ".class")
             f.deleteOnExit()
             url.openStream().use { input -> f.outputStream().use { input.copyTo(it) } }
             return f
         }
-        org.junit.Assert.fail("ViewExtKt.class not found above ${System.getProperty("user.dir")} nor on the test classpath")
+        for (variant in listOf("debug", "release")) {
+            var dir: File? = File(System.getProperty("user.dir"))
+            var hops = 0
+            while (dir != null && hops < 4) {
+                val file = File(dir, "build/tmp/kotlin-classes/$variant/$rel")
+                if (file.isFile) return file
+                dir = dir.parentFile
+                hops++
+            }
+        }
+        org.junit.Assert.fail("ViewExtKt.class not found via the test classloader or above ${System.getProperty("user.dir")}")
         throw IllegalStateException("unreachable")
     }
 
