@@ -3,6 +3,7 @@ package com.cosmos.unreddit.ui.common.widget
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.ViewTreeObserver
 import androidx.recyclerview.widget.RecyclerView
@@ -27,7 +28,15 @@ import java.lang.reflect.Modifier
  * layout pass has finished — a moment when the counter MUST be zero. If it is still elevated, a
  * pass leaked it. The reset is self-verifying: candidate int fields are zeroed one at a time and
  * only kept zero if that actually clears `super.isComputingLayout()`; anything else is restored,
- * so it works even in the R8 release build where the field is renamed (here: `G`).
+ * so it works even in the R8 release build where the field is renamed.
+ *
+ * The known poison that leaks the counter (r/outerwilds, builds 2.5.79–2.5.82): every frosted
+ * (spoiler) bind threw inside `onBindViewHolder` because `ViewExtKt.load`'s `error { … }`
+ * resolved to the Kotlin stdlib `kotlin.error(…)` (Coil 2.2.2 has no `error{}` overload), i.e.
+ * `throw IllegalStateException`. Fixed in 2.5.83 by switching to Coil's real
+ * `listener(onError = …)`; this watchdog is the backstop for any future in-pass throw.
+ * The listener is armed in [onAttachedToWindow] — registering in `init` orphans it, because the
+ * pre-attach `ViewTreeObserver` is replaced on attach (which is why 2.5.82 logged nothing).
  */
 class PostRecyclerView @JvmOverloads constructor(
     context: Context,
@@ -36,19 +45,27 @@ class PostRecyclerView @JvmOverloads constructor(
 ) : RecyclerView(context, attrs, defStyleAttr) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastResetAt = 0L
 
     private val counterWatch = Runnable {
         if (!isAttachedToWindow) return@Runnable
         if (!isComputingLayout()) return@Runnable
-        // We are in an idle looper message: no layout/scroll code can be on the stack, so an
-        // elevated counter here is a leak, not a pass in flight.
+        // We are in an idle looper message: no layout/scroll code can be on the
+        // stack, so an elevated counter here is a leak, not a pass in flight.
+        // Throttled: a reset triggers a re-layout, which (while the poison is
+        // still there) can leak the counter again — never reset faster than
+        // once per 250ms so a persistent poison cannot pin the main thread in
+        // a reset/re-layout loop.
+        val now = SystemClock.uptimeMillis()
+        if (now - lastResetAt < 250L) return@Runnable
         FeedDebug.log(
             "PostRecyclerView COUNTER STUCK at $this: a layout/scroll pass leaked " +
                 "mLayoutOrScrollCounter (something threw inside the pass — see the first " +
-                "exception logged in this launch, e.g. 'PullToRefreshLayout layout pass'). " +
-                "Resetting."
+                "exception logged in this launch, e.g. 'PullToRefreshLayout LAYOUT PASS " +
+                "THREW'). Resetting."
         )
         if (resetStuckCounter()) {
+            lastResetAt = SystemClock.uptimeMillis()
             requestLayout()
         }
     }
@@ -103,11 +120,29 @@ class PostRecyclerView @JvmOverloads constructor(
     init {
         addItemDecoration(PostDividerItemDecoration(context))
         isVerticalScrollBarEnabled = false
-        viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
+        // NOTE: the global-layout listener is armed in onAttachedToWindow, NOT here.
+        // A view inflated from XML is not attached at construction time: its
+        // ViewTreeObserver is a non-recording placeholder that gets REPLACED when
+        // the view is attached to the window, so a listener added in init is
+        // orphaned and never fires. (That is why 2.5.82 logged zero 'COUNTER
+        // STUCK' lines despite the list being provably poisoned.)
+    }
+
+    override fun onAttachedToWindow() {
+        // Arm on the REAL (recording) ViewTreeObserver. If the counter is already
+        // leaked at attach, the first check runs one idle message later.
+        if (viewTreeObserver.isAlive) {
+            viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
+        }
+        mainHandler.removeCallbacks(counterWatch)
+        mainHandler.post(counterWatch)
+        super.onAttachedToWindow()
     }
 
     override fun onDetachedFromWindow() {
-        viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
+        if (viewTreeObserver.isAlive) {
+            viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
+        }
         mainHandler.removeCallbacks(counterWatch)
         super.onDetachedFromWindow()
     }
