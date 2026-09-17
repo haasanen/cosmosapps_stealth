@@ -371,8 +371,28 @@ abstract class PostViewHolder(
                 if (post.mediaType != MediaType.REDDIT_VIDEO &&
                     post.mediaType != MediaType.REDDIT_GIF
                 ) return false
-                val host = post.mediaUrl.toHttpUrlOrNull()?.host ?: return false
-                return host == "v.redd.it"
+                return isNativeRedditPlayable(post.mediaUrl)
+            }
+
+            /**
+             * True when [url] is a native reddit video rendition a player can stream
+             * in-cell: a `v.redd.it` MP4/HLS playlist, or the signed
+             * `preview.redd.it` / `cf.preview.redd.it` **MP4** rendition a GIF /
+             * animated card carries (`?format=mp4`). Plain `v.redd.it` video cards
+             * resolve to the first; animated (GIF) cards resolve to the second —
+             * the host allowlist must cover both or GIFs silently never autoplay
+             * (2026-09-17 "the video preview setting doesn't work"). Still images
+             * (`.jpg` on preview.redd.it, no `format=mp4`) and external sites
+             * (redgifs/YouTube/imgur/gfycat/streamable) are not.
+             */
+            internal fun isNativeRedditPlayable(url: String): Boolean {
+                val u = url.toHttpUrlOrNull() ?: return false
+                return when (u.host) {
+                    "v.redd.it" -> true
+                    "preview.redd.it", "cf.preview.redd.it" ->
+                        u.queryParameter("format") == "mp4"
+                    else -> false
+                }
             }
 
             /**

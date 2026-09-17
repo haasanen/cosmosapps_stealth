@@ -69,6 +69,37 @@ class FeedVideoAutoplayEligibilityTest {
     }
 
     @Test
+    fun `gif card signed mp4 rendition on preview_redd_it plays`() {
+        // 2.5.85: an animated (GIF) card's playable rendition is the signed
+        // ?format=mp4 URL on preview.redd.it / cf.preview.redd.it — the gate must
+        // accept it or GIFs silently never autoplay (2026-09-17 report).
+        val p = post(
+            MediaType.REDDIT_GIF,
+            "https://preview.redd.it/l7conq7h7yoh1.gif?width=592&format=mp4&s=9ca921"
+        )
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `gif card signed mp4 rendition on cf_preview_redd_it plays`() {
+        val p = post(
+            MediaType.REDDIT_GIF,
+            "https://cf.preview.redd.it/pi3ddoktcfnh1.gif?width=220&format=mp4&s=ddbf90"
+        )
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `still image url on preview_redd_it does not play`() {
+        // preview.redd.it serves stills too (no format=mp4) — not a playable rendition.
+        val p = post(
+            MediaType.REDDIT_GIF,
+            "https://preview.redd.it/abc123.jpeg?width=640&s=deadbeef"
+        )
+        assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
     fun `autoplay disabled never plays`() {
         val p = post(MediaType.REDDIT_VIDEO, "https://v.redd.it/abc123/DASHPlaylist.m3u8")
         assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, false, true))
