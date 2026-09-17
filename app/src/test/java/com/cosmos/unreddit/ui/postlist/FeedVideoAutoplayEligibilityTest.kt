@@ -12,11 +12,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 2.5.74: feed video previews should auto-play muted when visible. The
- * eligibility decision ([PostViewHolder.VideoPostViewHolder.canAutoplay]) is the
- * load-bearing rule — it decides which cells stream. It is pure (no view/player),
- * so it is pinned here: only enabled + preview-allowed + native v.redd.it videos
- * play; external embeds and hidden NSFW/spoiler previews never do.
+ * 2.5.86: "everything that plays as a video within the app should auto-play" —
+ * the eligibility decision ([PostViewHolder.VideoPostViewHolder.canAutoplay]) is
+ * the load-bearing rule: it decides which cells stream. It is pure (no
+ * view/player), so it is pinned here.
+ *
+ * 2.5.85 rule: only native v.redd.it / signed-?format=mp4 reddit renditions
+ * played; external embeds kept the still poster + badge.
+ * 2.5.86 rule: EVERY [MediaType] the app plays in its own (ExoPlayer) view
+ * autoplays — reddit video/GIF, imgur gif/video, gfycat, redgifs, streamable,
+ * generic video. The URL no longer gates eligibility (the shared
+ * InAppVideoResolver resolves the playable file for each type); only the
+ * user's setting and the NSFW/spoiler preview allowance do. Site-opening links
+ * and non-videos never play.
  */
 class FeedVideoAutoplayEligibilityTest {
 
@@ -57,22 +65,22 @@ class FeedVideoAutoplayEligibilityTest {
     private fun hostOf(url: String): String = url.substringAfter("://").substringBefore('/')
 
     @Test
-    fun `native reddit video with autoplay on and preview allowed plays`() {
+    fun `native reddit video plays`() {
         val p = post(MediaType.REDDIT_VIDEO, "https://v.redd.it/abc123/DASHPlaylist.m3u8")
         assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
     }
 
     @Test
-    fun `native reddit gif preview plays`() {
+    fun `native reddit gif plays`() {
         val p = post(MediaType.REDDIT_GIF, "https://v.redd.it/abc123/DASHPlaylist.m3u8")
         assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
     }
 
     @Test
-    fun `gif card signed mp4 rendition on preview_redd_it plays`() {
-        // 2.5.85: an animated (GIF) card's playable rendition is the signed
-        // ?format=mp4 URL on preview.redd.it / cf.preview.redd.it — the gate must
-        // accept it or GIFs silently never autoplay (2026-09-17 report).
+    fun `gif card signed mp4 rendition plays`() {
+        // A GIF/animated card's playable rendition is the signed ?format=mp4 URL
+        // on preview.redd.it — the gate is media-type based now (the URL is
+        // resolved by InAppVideoResolver), so this plays.
         val p = post(
             MediaType.REDDIT_GIF,
             "https://preview.redd.it/l7conq7h7yoh1.gif?width=592&format=mp4&s=9ca921"
@@ -81,22 +89,42 @@ class FeedVideoAutoplayEligibilityTest {
     }
 
     @Test
-    fun `gif card signed mp4 rendition on cf_preview_redd_it plays`() {
-        val p = post(
-            MediaType.REDDIT_GIF,
-            "https://cf.preview.redd.it/pi3ddoktcfnh1.gif?width=220&format=mp4&s=ddbf90"
-        )
+    fun `imgur gif plays`() {
+        val p = post(MediaType.IMGUR_GIF, "https://i.imgur.com/abc123.gif")
         assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
     }
 
     @Test
-    fun `still image url on preview_redd_it does not play`() {
-        // preview.redd.it serves stills too (no format=mp4) — not a playable rendition.
-        val p = post(
-            MediaType.REDDIT_GIF,
-            "https://preview.redd.it/abc123.jpeg?width=640&s=deadbeef"
-        )
-        assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    fun `imgur video plays`() {
+        val p = post(MediaType.IMGUR_VIDEO, "https://i.imgur.com/abc123.mp4")
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `redgifs external video plays (app plays it in its own player)`() {
+        // The MediaViewer resolves redgifs through the site API, so the post
+        // "plays as a video within the app" — it autoplays (site API call made
+        // on demand by the resolver).
+        val p = post(MediaType.REDGIFS, "https://www.redgifs.com/watch/ABC")
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `gfycat external video plays`() {
+        val p = post(MediaType.GFYCAT, "https://gfycat.com/SomeGif")
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `streamable external video plays`() {
+        val p = post(MediaType.STREAMABLE, "https://streamable.com/abc")
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `generic video link plays`() {
+        val p = post(MediaType.VIDEO, "https://example.com/video.mp4")
+        assertTrue(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
     }
 
     @Test
@@ -119,20 +147,14 @@ class FeedVideoAutoplayEligibilityTest {
     }
 
     @Test
-    fun `redgifs external video never autoplays`() {
-        val p = post(MediaType.REDGIFS, "https://www.redgifs.com/watch/ABC")
-        assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
-    }
-
-    @Test
-    fun `youtube external video never autoplays`() {
-        val p = post(MediaType.VIDEO, "https://www.youtube.com/watch?v=abc")
-        assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
-    }
-
-    @Test
-    fun `non-video post never autoplays`() {
+    fun `image post never autoplays`() {
         val p = post(MediaType.IMAGE, "https://i.redd.it/abc123.jpeg")
+        assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
+    }
+
+    @Test
+    fun `gallery post never autoplays`() {
+        val p = post(MediaType.REDDIT_GALLERY, "https://preview.redd.it/abc123.jpeg")
         assertFalse(PostViewHolder.VideoPostViewHolder.canAutoplay(p, true, true))
     }
 

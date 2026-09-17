@@ -49,6 +49,7 @@ class PostMapper2 @Inject constructor(
                 isOver18,
                 previewUrl,
                 previewBlurUrl,
+                frostBakedPreview,
                 (redditText.blocks.getOrNull(0)?.block as? Block.TextBlock)?.text,
                 awardings.sortedByDescending { it.count }.map { Award(it.count, it.getIcon()) },
                 isSpoiler,
