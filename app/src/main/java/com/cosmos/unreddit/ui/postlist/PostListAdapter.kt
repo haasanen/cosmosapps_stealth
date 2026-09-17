@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.CoroutineDispatcher
 import com.cosmos.unreddit.data.model.PostType
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
@@ -18,8 +19,19 @@ import com.cosmos.unreddit.util.ClickableMovementMethod
 class PostListAdapter(
     private val repository: PostListRepository,
     private val postClickListener: PostClickListener,
-    private val onLinkClickListener: RedditView.OnLinkClickListener? = null
-) : PagingDataAdapter<PostEntity, RecyclerView.ViewHolder>(POST_COMPARATOR) {
+    private val onLinkClickListener: RedditView.OnLinkClickListener? = null,
+    // Paging runs its internal page-appends (differCallback.onInserted ->
+    // Adapter.notifyItemRangeInserted) on this dispatcher. The default Dispatchers.Main takes
+    // the coroutine fast-path and runs that notify INLINE, which can land inside a RecyclerView
+    // layout/scroll pass and throw IllegalStateException("Cannot call this method while
+    // RecyclerView is computing a layout or scrolling"). This dispatcher always posts to the
+    // main looper, so the append lands in its own message after the in-flight pass completes —
+    // the same between-frames safety AsyncListDiffer/submitList gives the home feed.
+    mainDispatcher: CoroutineDispatcher = PostListFrameDispatcher()
+) : PagingDataAdapter<PostEntity, RecyclerView.ViewHolder>(
+    POST_COMPARATOR,
+    mainDispatcher = mainDispatcher
+) {
 
     // Tracks the RecyclerView we are attached to so data-set notifications can be deferred to
     // the next frame when the list is mid-layout. Firing a notify* while RecyclerView is
