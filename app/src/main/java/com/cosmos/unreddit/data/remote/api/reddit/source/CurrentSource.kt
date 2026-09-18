@@ -116,13 +116,15 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // Arctic has its own (prefix-based) user search; other sources fall back to the
-        // official API (TODO: Replace by source when an endpoint is available for Teddit)
-        return if (sourceType == DataPreferences.RedditSource.ARCTIC) {
-            source.searchUser(query, sort, timeSorting, after)
-        } else {
-            redditSource.searchUser(query, sort, timeSorting, after)
-        }
+        // The official reddit.com user search (challenge-solving) is the only
+        // RELIABLE path, so it serves every selected source:
+        //  - ARCTIC's `/api/users/search` is prefix-only (no match unless the
+        //    query is the start of a username) and rate-limits aggressively
+        //    (422 "slow down a bit" on common short prefixes) — verified live.
+        //  - the old JSON `/search?type=user` endpoint (the previous "fallback")
+        //    returns the 8KB JS-challenge HTML page, not JSON, so parsing always
+        //    threw → the "Something went wrong" banner (2026-09-18 report).
+        return redditOfficialSource.searchUser(query, sort, timeSorting, after)
     }
 
     override suspend fun searchSubreddit(
