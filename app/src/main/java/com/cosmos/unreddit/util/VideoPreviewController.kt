@@ -50,6 +50,15 @@ class VideoPreviewController(
     private val playerView: PlayerView,
     private val playBadge: View,
     private val visibilityProvider: () -> Boolean,
+    /**
+     * The still poster behind the player (feed cell / detail header preview
+     * image). Hidden while the player plays and restored when it stops.
+     * The feed cell's still carries the 8dp elevation that lifts it ABOVE the
+     * 0dp player in the FrameLayout's draw order — without hiding it, the
+     * playing video bled out of the still's rounded corners (2026-09-18
+     * r/Unity3D screenshot: "video playing behind the image preview").
+     */
+    private val posterView: View? = null,
     private val restoreStillBadge: ((PostEntity) -> Unit)? = null,
     private val sharpPosterCallback: ((url: String) -> Unit)? = null
 ) {
@@ -79,6 +88,7 @@ class VideoPreviewController(
             playerView.visibility = View.GONE
             // Restore the still state: the post is still bound and (if the
             // setting allows) a later scroll will re-resolve/re-acquire.
+            posterView?.visibility = View.VISIBLE
             restoreStillBadge()
         }
     }
@@ -189,6 +199,17 @@ class VideoPreviewController(
             override fun onPlayerError(error: PlaybackException) {
                 onPlaybackFailed()
             }
+
+            // The feed cell's still poster is drawn ABOVE the player (its 8dp
+            // elevation beats the player's 0dp in the FrameLayout draw order) —
+            // drop it when the FIRST video frame lands, or the video bleeds out
+            // of the still's rounded corners (2026-09-18 r/Unity3D report).
+            // Not at acquire() time: the player surface is a SurfaceView, whose
+            // hole shows the window background (black) while buffering — hiding
+            // the poster early would flash black on slow networks.
+            override fun onRenderedFirstFrame() {
+                posterView?.visibility = View.GONE
+            }
         })
         playerView.visibility = View.VISIBLE
         playBadge.visibility = View.GONE
@@ -212,6 +233,7 @@ class VideoPreviewController(
         }
         playerView.player = null
         playerView.visibility = View.GONE
+        posterView?.visibility = View.VISIBLE
         restoreStillBadge()
     }
 

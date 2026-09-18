@@ -261,6 +261,11 @@ abstract class PostViewHolder(
                 playerView = binding.imagePostPreviewPlayer,
                 playBadge = binding.buttonTypeIndicator,
                 visibilityProvider = { isSufficientlyVisible() },
+                // This still carries the 8dp elevation that lifts it above the
+                // 0dp player in the FrameLayout draw order — the controller
+                // hides it while a stream plays (video bleeding out of the
+                // rounded corners otherwise, 2026-09-18 r/Unity3D report).
+                posterView = binding.imagePostPreview,
                 // Feed video cells always show the play badge when not playing.
                 restoreStillBadge = {
                     binding.buttonTypeIndicator.apply {
