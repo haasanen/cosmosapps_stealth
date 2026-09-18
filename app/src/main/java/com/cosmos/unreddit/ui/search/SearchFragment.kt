@@ -167,7 +167,13 @@ class SearchFragment : BaseFragment() {
     }
 
     private fun handleSearchAction(query: String) {
-        if (SearchUtil.isQueryValid(query)) {
+        val subreddit = SearchUtil.subredditShortcut(query)
+        if (subreddit != null) {
+            // `r/<name>` is a direct navigation, not a search: open it
+            // whichever tab is active.
+            openSubreddit(subreddit)
+            showSearchInput(false)
+        } else if (SearchUtil.isQueryValid(query)) {
             viewModel.setQuery(query)
             showSearchInput(false)
         }
