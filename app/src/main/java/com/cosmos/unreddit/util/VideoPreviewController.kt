@@ -49,14 +49,26 @@ class VideoPreviewController(
 
     private val token = object : FeedPreviewPlayerPool.Token {
         override fun playerAttached(player: Player) {
+            this@VideoPreviewController.player = player
             playerView.player = player
         }
 
         override fun playerDetached() {
-            // The pool evicted this token's player (budget exceeded or release);
-            // the controller already nulled it.
+            // The pool evicted this token's player (2-slot cap) and released
+            // it — the controller MUST forget it too, or the next playback
+            // evaluation would call play() on a released player (crash).
+            // Clearing the PlayerView's player too (a released ExoPlayer
+            // still attached to the surface is what the pool previously
+            // left behind — PlayerView's replay button would call play()
+            // on it and crash). This callback does NOT fire on a voluntary
+            // release() (the pool only invokes it for eviction), so
+            // clearing here is always correct.
+            player = null
             playerView.player = null
             playerView.visibility = View.GONE
+            // Restore the still state: the post is still bound and (if the
+            // setting allows) a later scroll will re-resolve/re-acquire.
+            playBadge.visibility = View.VISIBLE
         }
     }
 
@@ -153,12 +165,17 @@ class VideoPreviewController(
 
     private fun acquire(url: String) {
         if (player != null) return
-        player = pool.acquire(context, url, token)
+        val acquired = pool.acquire(context, url, token)
+        // The pool's eviction runs inside acquire(): if the slot had to go to
+        // another surface, THIS token's player was evicted+released and
+        // playerDetached() already reset the still state — `player` is null.
+        // Don't expose an empty player surface.
+        if (player == null || player !== acquired) return
         // A stream that fails to start (dead signed URL, site API lied, network
         // loss) must not leave the surface showing an empty player — restore the
         // still poster + play badge. The pool's eviction path already handles
         // budget pressure; this covers playback errors only.
-        player?.addListener(object : Player.Listener {
+        acquired.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 onPlaybackFailed()
             }
