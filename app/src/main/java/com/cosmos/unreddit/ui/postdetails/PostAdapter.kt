@@ -15,6 +15,7 @@ import com.cosmos.unreddit.data.model.preferences.ContentPreferences
 import com.cosmos.unreddit.databinding.ItemPostHeaderBinding
 import com.cosmos.unreddit.ui.common.widget.RedditView
 import com.cosmos.unreddit.ui.postlist.PostListAdapter
+import com.cosmos.unreddit.ui.postlist.PostViewHolder
 import com.cosmos.unreddit.util.VideoPreviewController
 import com.cosmos.unreddit.util.extension.load
 import com.cosmos.unreddit.util.extension.setRatio
@@ -95,21 +96,49 @@ class PostAdapter(
          * the user's sound settings. The shared [VideoPreviewController] resolves
          * a playable URL (site APIs on demand) and owns the player.
          *
-         * The header is a single-item list (no scrolling), so the surface is
-         * "visible" whenever it is attached to a window.
+         * The header is the first item of the detail RecyclerView (header +
+         * resource-state + comments), so it scrolls away with the comments —
+         * the surface counts as visible only while >= half of it is inside the
+         * list (same rule as the feed), so the stream stops when the user
+         * scrolls to the comments.
          */
         private lateinit var controller: VideoPreviewController
+
+        private fun findList(): RecyclerView? {
+            var parent: android.view.ViewParent? = itemView.parent
+            while (parent != null) {
+                if (parent is RecyclerView) return parent
+                parent = parent.parent
+            }
+            return null
+        }
+
+        /** At least half of the header is inside the list's visible bounds. */
+        private fun isSufficientlyVisible(): Boolean {
+            if (itemView.height <= 0) return false
+            val rv = findList() ?: return false
+            val loc = IntArray(2)
+            val rvLoc = IntArray(2)
+            itemView.getLocationInWindow(loc)
+            rv.getLocationInWindow(rvLoc)
+            val top = loc[1] - rvLoc[1]
+            return PostViewHolder.VideoPostViewHolder.visibleFraction(top, itemView.height, rv.height) * 2 >= itemView.height
+        }
 
         init {
             controller = VideoPreviewController(
                 context = binding.root.context,
                 playerView = binding.imagePostPlayer,
                 playBadge = binding.buttonTypeIndicator,
-                visibilityProvider = { itemView.isAttachedToWindow },
+                visibilityProvider = { isSufficientlyVisible() },
                 sharpPosterCallback = { url ->
                     // Frost-baked external poster (redgifs): swap in the site's
-                    // sharp still when the preview is allowed to show.
-                    if (post != null && post?.frostBakedPreview == true) {
+                    // sharp still when the preview is allowed to show. Defensive
+                    // binding check: a late dispatch after onDestroyView must
+                    // never dereference a dead binding.
+                    if (binding.root.isAttachedToWindow &&
+                        post != null && post?.frostBakedPreview == true
+                    ) {
                         binding.imagePost.load(url, false) {
                             error(R.drawable.preview_video_fallback)
                             fallback(R.drawable.preview_video_fallback)
@@ -117,15 +146,32 @@ class PostAdapter(
                     }
                 }
             )
-            // Stop the stream when the header leaves the window (scrolled past,
-            // view destroyed) so nothing keeps running unseen.
+            // Re-evaluate on scroll (the header scrolls away with the comments —
+            // the stream must stop when it's mostly off-screen) and stop on
+            // detach (view destroyed / list backgrounded).
             itemView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) = Unit
+                override fun onViewAttachedToWindow(v: View) {
+                    findList()?.addOnScrollListener(scrollListener)
+                    controller.onVisibleChanged()
+                }
 
                 override fun onViewDetachedFromWindow(v: View) {
+                    findList()?.removeOnScrollListener(scrollListener)
                     controller.release()
                 }
             })
+        }
+
+        private val scrollListener = object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (itemView.isAttachedToWindow) controller.onVisibleChanged()
+            }
+
+            override fun onScrollStateChanged(rv: RecyclerView, state: Int) {
+                if (state == RecyclerView.SCROLL_STATE_IDLE &&
+                    itemView.isAttachedToWindow
+                ) controller.onVisibleChanged()
+            }
         }
 
         fun bind(post: PostEntity) {
