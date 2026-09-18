@@ -131,6 +131,13 @@ class PostAdapter(
                 playerView = binding.imagePostPlayer,
                 playBadge = binding.buttonTypeIndicator,
                 visibilityProvider = { isSufficientlyVisible() },
+                // The badge is this header's TYPE INDICATOR (gallery/play/link
+                // per post type, GONE for text posts) — the controller may only
+                // hide it while a stream plays; when playback stops/fails it
+                // restores the per-type decision here instead of blindly
+                // re-showing it (2026-09-18 "War Dogs" report: an iconless
+                // chip was left visible on a text post).
+                restoreStillBadge = { post -> applyTypeIndicator(post) },
                 sharpPosterCallback = { url ->
                     // Frost-baked external poster (redgifs): swap in the site's
                     // sharp still when the preview is allowed to show. Defensive
@@ -203,6 +210,15 @@ class PostAdapter(
 
             bindFlairs(post)
 
+            // The 250dp media container hosts the preview image + in-header
+            // player, and the type indicator is pinned to its bottom-left.
+            // TEXT posts have neither (the 2026-09-18 "War Dogs" report: a
+            // blank 250dp band + iconless chip under the title) — hide the
+            // whole area; the body text then sits directly under the title,
+            // like the feed's text cells do.
+            binding.imagePostContainer.visibility =
+                if (post.type == PostType.TEXT) View.GONE else View.VISIBLE
+
             when (post.type) {
                 PostType.IMAGE -> {
                     bindImage(post) {
@@ -234,27 +250,7 @@ class PostAdapter(
                 }
             }
 
-            binding.buttonTypeIndicator.apply {
-                when {
-                    post.mediaType == MediaType.REDDIT_GALLERY ||
-                            post.mediaType == MediaType.IMGUR_ALBUM ||
-                            post.mediaType == MediaType.IMGUR_GALLERY -> {
-                        visibility = View.VISIBLE
-                        setIcon(R.drawable.ic_gallery)
-                    }
-                    post.type == PostType.VIDEO -> {
-                        visibility = View.VISIBLE
-                        setIcon(R.drawable.ic_play)
-                    }
-                    post.type == PostType.LINK -> {
-                        isVisible = true
-                        setIcon(R.drawable.ic_link)
-                    }
-                    else -> {
-                        visibility = View.GONE
-                    }
-                }
-            }
+            applyTypeIndicator(post)
 
             binding.includePostMetrics.buttonMore.setOnClickListener {
                 postClickListener.onMenuClick(post)
@@ -371,6 +367,38 @@ class PostAdapter(
                     setAwards(post.awards)
                 } else {
                     visibility = View.GONE
+                }
+            }
+        }
+
+        /**
+         * The header's type indicator (bottom-left of the media area): gallery
+         * for galleries, play for videos, link for links, GONE otherwise
+         * (text posts). Owned by the adapter — the [VideoPreviewController]
+         * only HIDES the badge while a stream plays and calls this back to
+         * restore it, so a stopped stream can never leave a wrong/iconless
+         * chip up (2026-09-18 "War Dogs" report).
+         */
+        private fun applyTypeIndicator(post: PostEntity) {
+            binding.buttonTypeIndicator.apply {
+                when {
+                    post.mediaType == MediaType.REDDIT_GALLERY ||
+                            post.mediaType == MediaType.IMGUR_ALBUM ||
+                            post.mediaType == MediaType.IMGUR_GALLERY -> {
+                        visibility = View.VISIBLE
+                        setIcon(R.drawable.ic_gallery)
+                    }
+                    post.type == PostType.VIDEO -> {
+                        visibility = View.VISIBLE
+                        setIcon(R.drawable.ic_play)
+                    }
+                    post.type == PostType.LINK -> {
+                        isVisible = true
+                        setIcon(R.drawable.ic_link)
+                    }
+                    else -> {
+                        visibility = View.GONE
+                    }
                 }
             }
         }
