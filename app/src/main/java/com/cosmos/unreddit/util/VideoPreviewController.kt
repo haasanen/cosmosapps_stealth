@@ -34,12 +34,23 @@ import kotlinx.coroutines.launch
  * @param sharpPosterCallback receives a site sharp-still URL when a frost-baked
  *   CDN preview (redgifs et al.) can be un-blurred; the host loads it into its
  *   preview ImageView. Null = no swap (keep the frosted poster).
+ *
+ * @param restoreStillBadge restores the HOST-OWNED still badge (icon +
+ *   visibility) for [post] after the controller stops/evicts/fails a stream.
+ *   The badge is the host's element (the detail header's TYPE INDICATOR —
+ *   gallery/play/link per post type — and the feed cell's play badge); the
+ *   controller may only HIDE it while playing. The 2026-09-18 "War Dogs"
+ *   report: stopPlayback() used to re-show it unconditionally, and the
+ *   detail screen's payload rebind (update()) runs stopPlayback() without
+ *   re-applying the per-type decision — leaving an ICONLESS chip visible on
+ *   text posts. Null = the controller never re-shows it (legacy behavior).
  */
 class VideoPreviewController(
     private val context: Context,
     private val playerView: PlayerView,
     private val playBadge: View,
     private val visibilityProvider: () -> Boolean,
+    private val restoreStillBadge: ((PostEntity) -> Unit)? = null,
     private val sharpPosterCallback: ((url: String) -> Unit)? = null
 ) {
 
@@ -68,7 +79,7 @@ class VideoPreviewController(
             playerView.visibility = View.GONE
             // Restore the still state: the post is still bound and (if the
             // setting allows) a later scroll will re-resolve/re-acquire.
-            playBadge.visibility = View.VISIBLE
+            restoreStillBadge()
         }
     }
 
@@ -155,9 +166,8 @@ class VideoPreviewController(
                 } else if (src == null) {
                     // The site API failed (or the type isn't resolvable after
                     // all): never leave an empty player — restore the still
-                    // preview + play badge.
+                    // preview + the host's badge state.
                     stopPlayback()
-                    playBadge.visibility = View.VISIBLE
                 }
             }
         }
@@ -173,8 +183,8 @@ class VideoPreviewController(
         if (player == null || player !== acquired) return
         // A stream that fails to start (dead signed URL, site API lied, network
         // loss) must not leave the surface showing an empty player — restore the
-        // still poster + play badge. The pool's eviction path already handles
-        // budget pressure; this covers playback errors only.
+        // still poster + the host's badge state. The pool's eviction path already
+        // handles budget pressure; this covers playback errors only.
         acquired.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 onPlaybackFailed()
@@ -187,7 +197,6 @@ class VideoPreviewController(
     /** Restores the still-preview state after a failed stream. */
     protected open fun onPlaybackFailed() {
         stopPlayback()
-        playBadge.visibility = View.VISIBLE
     }
 
     private fun stopPlayback() {
@@ -203,7 +212,23 @@ class VideoPreviewController(
         }
         playerView.player = null
         playerView.visibility = View.GONE
-        playBadge.visibility = View.VISIBLE
+        restoreStillBadge()
+    }
+
+    /**
+     * Restores the host-owned still badge for the bound post (icon + visibility
+     * per post type). The controller only ever HIDES the badge while playing;
+     * re-showing a WRONG badge (e.g. the detail header's iconless chip on a
+     * text post) is what caused the 2026-09-18 report — the host owns the
+     * per-type decision and re-applies it here.
+     */
+    private fun restoreStillBadge() {
+        val post = bound
+        if (post == null) {
+            playBadge.visibility = View.GONE
+            return
+        }
+        restoreStillBadge?.invoke(post)
     }
 
     /** Stops playback and forgets the bound post. Idempotent. */

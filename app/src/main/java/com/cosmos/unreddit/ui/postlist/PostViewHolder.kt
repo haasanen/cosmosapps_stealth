@@ -261,6 +261,13 @@ abstract class PostViewHolder(
                 playerView = binding.imagePostPreviewPlayer,
                 playBadge = binding.buttonTypeIndicator,
                 visibilityProvider = { isSufficientlyVisible() },
+                // Feed video cells always show the play badge when not playing.
+                restoreStillBadge = {
+                    binding.buttonTypeIndicator.apply {
+                        visibility = View.VISIBLE
+                        setIcon(R.drawable.ic_play)
+                    }
+                },
                 sharpPosterCallback = { url ->
                     binding.imagePostPreview.load(url, false) {
                         fallback(R.drawable.preview_video_fallback)
