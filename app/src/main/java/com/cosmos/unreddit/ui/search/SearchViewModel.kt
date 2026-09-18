@@ -28,7 +28,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -37,7 +36,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.take
 import javax.inject.Inject
 
@@ -60,6 +58,17 @@ class SearchViewModel @Inject constructor(
     private val _query: MutableStateFlow<String> = MutableStateFlow("")
     val query: StateFlow<String> get() = _query
 
+    /**
+     * Monotonic search generation. A plain [MutableStateFlow] for the query alone
+     * CONFLATES an identical resubmit (`updateValue("linux")` when it's already
+     * "linux" emits nothing), so [searchData] would not re-emit, [data] would not
+     * restart, and [cachedIn] would hand back the SAME in-memory results — the
+     * 2026-09-18 "search again after switching VPN country shows the old
+     * subreddits" report. Bumping this on every explicit submit forces a fresh
+     * network fetch even for an unchanged term.
+     */
+    private val _searchGeneration: MutableStateFlow<Long> = MutableStateFlow(0L)
+
     private val _lastRefreshPost: MutableStateFlow<Long> =
         MutableStateFlow(System.currentTimeMillis())
     val lastRefreshPost: StateFlow<Long> = _lastRefreshPost.asStateFlow()
@@ -76,16 +85,13 @@ class SearchViewModel @Inject constructor(
     val subredditDataFlow: Flow<PagingData<SubredditEntity>>
     val userDataFlow: Flow<PagingData<User>>
 
-    private val searchData: StateFlow<Data.Fetch> = combine(
+    private val searchData: Flow<Pair<Data.Fetch, Long>> = combine(
         query,
-        sorting
-    ) { query, sorting ->
-        Data.Fetch(query, sorting)
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        Data.Fetch("", DEFAULT_SORTING)
-    )
+        sorting,
+        _searchGeneration
+    ) { q, s, generation ->
+        Data.Fetch(q, s) to generation
+    }
 
     private val userData: Flow<Data.User> = combine(
         historyIds,
@@ -96,8 +102,8 @@ class SearchViewModel @Inject constructor(
     }
 
     val data: Flow<Pair<Data.Fetch, Data.User>> = searchData
-        .dropWhile { it.query.isBlank() }
-        .flatMapLatest { searchData -> userData.take(1).map { searchData to it } }
+        .dropWhile { it.first.query.isBlank() }
+        .flatMapLatest { search -> userData.take(1).map { search.first to it } }
 
     init {
         postDataFlow = data
@@ -158,6 +164,11 @@ class SearchViewModel @Inject constructor(
 
     fun setQuery(query: String) {
         _query.updateValue(query)
+        // A search is an explicit act: even an UNCHANGED term must refetch (the
+        // user may have switched VPN country, so the same query now maps to a
+        // different geo-localized result set). The StateFlow above would otherwise
+        // conflate it away — see _searchGeneration.
+        _searchGeneration.updateValue(_searchGeneration.value + 1L)
     }
 
     companion object {
