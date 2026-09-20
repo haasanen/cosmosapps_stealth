@@ -26,7 +26,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         arguments?.run {
-            source = serializable(KEY_SOURCE) ?: DataPreferences.RedditSource.ARCTIC
+            source = serializable(KEY_SOURCE) ?: DataPreferences.RedditSource.REDDIT_OFFICIAL
         }
     }
 
@@ -54,7 +54,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
     private fun initView() {
         binding.run {
             // Legacy stored values (REDDIT, TEDDIT, REDDIT_SCRAP) are no longer selectable;
-            // fall back to ARCTIC so they never remain silently selected.
+            // fall back to Reddit Official so they never remain silently selected.
             radioArctic.isChecked = source == DataPreferences.RedditSource.ARCTIC
             radioRedditOfficial.isChecked = source == DataPreferences.RedditSource.REDDIT_OFFICIAL
             radioRedditAtom.isChecked = source == DataPreferences.RedditSource.REDDIT_ATOM
@@ -66,7 +66,7 @@ class RedditSourceDialogFragment : DialogFragment(), OnShowListener {
             R.id.radio_arctic -> DataPreferences.RedditSource.ARCTIC
             R.id.radio_reddit_official -> DataPreferences.RedditSource.REDDIT_OFFICIAL
             R.id.radio_reddit_atom -> DataPreferences.RedditSource.REDDIT_ATOM
-            else -> DataPreferences.RedditSource.ARCTIC
+            else -> DataPreferences.RedditSource.REDDIT_OFFICIAL
         }
 
         doAndDismiss {
