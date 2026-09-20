@@ -8,7 +8,7 @@
 
     <RadioGroup
         android:id="@+id/radio_group"
-        android:checkedButton="@+id/radio_arctic"
+        android:checkedButton="@+id/radio_reddit_official"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         app:layout_constraintStart_toStartOf="parent"
