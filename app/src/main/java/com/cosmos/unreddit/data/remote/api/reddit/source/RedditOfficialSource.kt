@@ -127,9 +127,27 @@ class RedditOfficialSource @Inject constructor(
             // order) is threaded back for pagination.
             getSubredditFanOut(subreddit, sort, timeSorting, after)
         } else {
-            val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
-            val body = fetchPage(url)
-            val doc = Jsoup.parse(body)
+            var url = subredditFeedUrl(subreddit, sort, timeSorting, after)
+            var body = fetchPage(url)
+            var doc = Jsoup.parse(body)
+            // Wrong-case subreddit name → reddit's blank shell page (200, ~360 KB, no
+            // header, zero cards, no redirect). Resolve the canonical name via the
+            // case-insensitive RSS channel and re-fetch; a feed that is STILL a shell
+            // afterwards means the subreddit does not exist.
+            if (isShellPage(doc)) {
+                canonicalSubredditName(subreddit)?.let { canonical ->
+                    url = subredditFeedUrl(canonical, sort, timeSorting, after)
+                    body = fetchPage(url)
+                    doc = Jsoup.parse(body)
+                }
+            }
+            if (isShellPage(doc)) {
+                throw IOException(
+                    "Reddit.com has no subreddit r/$subreddit " +
+                        "(page returned no content). Subreddit names are case-sensitive " +
+                        "— check the spelling."
+                )
+            }
             val children = loadFeedContinuation(doc, parsePostCards(doc))
             requireFeedHasPosts(url, body, children)
             Listing(
@@ -216,10 +234,10 @@ class RedditOfficialSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): List<PostChild>? = try {
-        val url = subredditFeedUrl(subreddit, sort, timeSorting, after)
-        val body = fetchPage(url)
-        val doc = Jsoup.parse(body)
-        val posts = loadFeedContinuation(doc, parsePostCards(doc))
+        var url = subredditFeedUrl(subreddit, sort, timeSorting, after)
+        var body = fetchPage(url)
+        var doc = Jsoup.parse(body)
+        var posts = loadFeedContinuation(doc, parsePostCards(doc))
         // A real feed page — even a genuinely EMPTY subreddit — is a full SSR document
         // (tens of KB of chrome around the cards). A SMALL page with zero post cards is
         // a block/interstitial variant that matches no challenge marker: the 2026-09-03
@@ -230,6 +248,32 @@ class RedditOfficialSource @Inject constructor(
         // they may be a real layout change, and the backstop abort still bounds them.)
         if (posts.isEmpty() && body.length < EMPTY_FEED_PAGE_MIN_CHARS) {
             throw CfBlockException()
+        }
+        // Large 0-card page with NO community header: reddit's SSR is case-sensitive
+        // about subreddit names and a wrong-case name returns a 200 "shell" page
+        // (chrome, no shreddit-subreddit-header, no cards) — live-verified
+        // 2026-09-21 for /r/gingerbreadhouses vs /r/GingerbreadHouses. Learn the
+        // canonical name from the sub's RSS feed (open, case-insensitive) and
+        // retry once. A real layout change keeps the header, so it skips this
+        // branch; and if the retry comes back card-less too, we KEEP the
+        // pre-existing confirmed-empty semantics (no throw): the sub is treated
+        // the same as any other large 0-card page, its cache is dropped only as
+        // an empty sub, and the backstop abort still bounds a site-wide change.
+        if (posts.isEmpty() && body.length >= EMPTY_FEED_PAGE_MIN_CHARS && isShellPage(doc)) {
+            canonicalSubredditName(subreddit)?.let { canonical ->
+                if (canonical != subreddit) {
+                    val retryUrl = subredditFeedUrl(canonical, sort, timeSorting, after)
+                    val retryBody = fetchPage(retryUrl)
+                    val retryDoc = Jsoup.parse(retryBody)
+                    val retryPosts = loadFeedContinuation(retryDoc, parsePostCards(retryDoc))
+                    if (retryPosts.isNotEmpty()) {
+                        url = retryUrl
+                        body = retryBody
+                        doc = retryDoc
+                        posts = retryPosts
+                    }
+                }
+            }
         }
         posts
     } catch (e: CancellationException) {
@@ -489,8 +533,25 @@ class RedditOfficialSource @Inject constructor(
     //endregion
 
     override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
-        val doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$subreddit/"))
-        AboutChild(buildAboutData(subreddit, doc))
+        var name = subreddit
+        var doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$name/"))
+        // Same wrong-case shell page as the feed (see isShellPage): resolve the
+        // canonical name and re-fetch. Before this fix the shell page parsed to a
+        // header-less AboutData (blank subscriber count) and downstream threw a
+        // message-less exception → the generic "Something went wrong" banner.
+        if (isShellPage(doc)) {
+            canonicalSubredditName(subreddit)?.let {
+                name = it
+                doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$name/"))
+            }
+            if (isShellPage(doc)) {
+                throw IOException(
+                    "Reddit.com has no subreddit r/$subreddit. Subreddit names are " +
+                        "case-sensitive — check the spelling."
+                )
+            }
+        }
+        AboutChild(buildAboutData(name, doc))
     }
 
     /**
@@ -1161,13 +1222,41 @@ class RedditOfficialSource @Inject constructor(
 
     //region URL builders
 
-    /** The Atom feed URL for a (possibly joined) subreddit list. */
     private fun getSubredditViaAtomUrl(multiredd: String, sort: Sort, after: String?): String =
         buildString {
             append("https://www.reddit.com/r/").append(multiredd).append('/')
             append(feedSortPath(sort)).append("/.rss?over18=1")
             if (!after.isNullOrBlank()) append("&after=").append(after)
         }
+
+    /**
+     * A subreddit page with NO `shreddit-subreddit-header` element is reddit.com's
+     * blank "shell" page: full chrome (~360 KB), zero post cards, zero header — a 200
+     * with nothing. reddit.com's SSR HTML is CASE-SENSITIVE about the subreddit name
+     * (live-verified 2026-09-20: /r/gingerbreadhouses/ → 360 KB shell, 0 posts, 0
+     * header; /r/GingerbreadHouses/ → 539 KB real page, 3 posts, 2 headers; same
+     * session, over18=1 makes no difference, and there is no 301 redirect to fix the
+     * case). A real feed/about page — even an empty subreddit — always carries the
+     * header, so its absence is a reliable shell detector.
+     */
+    private fun isShellPage(doc: Document): Boolean =
+        doc.selectFirst("shreddit-subreddit-header") == null
+
+    /**
+     * The canonical (correctly-cased) name of [sub], learned from its RSS feed — which
+     * reddit serves openly (no challenge, no login) and CASE-INSENSITIVELY, and which
+     * stamps the feed-level `<category term="ExactCase" label="r/ExactCase"/>`.
+     * Returns null when the feed has no entries / is unavailable (the sub likely does
+     * not exist at all), or when no category element is present.
+     */
+    private suspend fun canonicalSubredditName(sub: String): String? {
+        val url = "https://www.reddit.com/r/$sub/hot/.rss?over18=1&limit=1"
+        val xml = runCatching { fetchAtomBody(url) }.getOrNull() ?: return null
+        val doc = Jsoup.parse(xml)
+        if (doc.select("entry").isEmpty()) return null
+        return doc.selectFirst("category")?.attr("term")
+            ?.takeIf { it.isNotBlank() && it != sub }
+    }
 
     private fun subredditFeedUrl(
         subreddit: String,
