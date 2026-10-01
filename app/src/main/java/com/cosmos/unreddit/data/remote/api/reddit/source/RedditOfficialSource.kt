@@ -1387,7 +1387,29 @@ class RedditOfficialSource @Inject constructor(
             val absoluteHref =
                 if (href.startsWith("/")) "https://www.reddit.com$href" else href
             if (postType == "crosspost") {
+                // Image crossposts carry the target's full-res i.redd.it file in
+                // their own <img> tags (see below). Video crossposts have NO such
+                // image — the target's playable rendition lives in the card's
+                // <shreddit-player> src (a v.redd.it HLS/MP4 URL), and the
+                // content-href is the target post's permalink, not a media file.
+                // Using the permalink as the post url makes mediaUrl fall through
+                // to it (every media fallback is null), so the media viewer gets an
+                // HTML page: "None of the extractors could read the stream" + a
+                // still feed preview (2026-10-01 r/3Dprinting xpost 1wu7r0i of the
+                // r/pastrymolds video 1wu7jel). Repoint url to the BARE v.redd.it
+                // base instead — PostData.mediaUrl then applies the same stable
+                // unsigned HLSPlaylist.m3u8 derivation a native v.redd.it card
+                // gets (the signed player src is shorter-lived than the derived
+                // url, same reason native video cards are left to the derivation).
                 imgSources.firstOrNull { it.startsWith("https://i.redd.it/") }
+                    ?: el.selectFirst("shreddit-player")?.attr("src")
+                        ?.takeIf { it.contains("v.redd.it/") }
+                        ?.let { src ->
+                            val id = src.substringAfter("v.redd.it/")
+                                .substringBefore("/")
+                                .substringBefore("?")
+                            if (id.isEmpty()) null else "https://v.redd.it/$id"
+                        }
                     ?: absoluteHref
             } else {
                 absoluteHref

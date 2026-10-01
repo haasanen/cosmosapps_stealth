@@ -567,6 +567,69 @@ class RedditOfficialSourceTest {
     }
 
     @Test
+    fun `crosspost video cards resolve the bare video base, not the target permalink`() = runBlocking {
+        // Regression for the 2026-10-01 report (r/3Dprinting crosspost 1wu7r0i of
+        // the r/pastrymolds video 1wu7jel): the feed preview showed a still poster
+        // and tapping it opened the media viewer with "Something went wrong -
+        // Retry". Logcat showed the player receiving the TARGET post's permalink
+        // (https://www.reddit.com/r/pastrymolds/comments/1wu7jel/...) as the video
+        // url: ExoPlayer's extractors cannot parse an HTML page
+        // ("None of the available extractors could read the stream"). The crosspost
+        // parser's image fallback (in-card i.redd.it) never matches a video target,
+        // so the url stayed the content-href permalink and mediaUrl fell through to
+        // it. The card DOES carry the playable rendition — its in-card
+        // <shreddit-player> src is a v.redd.it HLS URL; the parser must repoint the
+        // post url to the bare v.redd.it base so the stable HLSPlaylist.m3u8
+        // derivation (PostData.mediaUrl) does the work, like a native video card.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("crosspost_video_card.html"))
+        val card = doc.select("shreddit-post").first { it.attr("id") == "t3_1wu7r0i" }
+        assertEquals("t3_1wu7r0i", card.attr("id"))
+        assertEquals("crosspost", card.attr("post-type"))
+        assertEquals("v.redd.it", card.attr("domain"))
+        assertEquals(
+            "/r/pastrymolds/comments/1wu7jel/from_3d_print_to_cake_making_my_rose_skull_mold/",
+            card.attr("content-href")
+        )
+        assertTrue(
+            "fixture card must carry the in-card player",
+            card.selectFirst("shreddit-player")?.attr("src")?.contains("v.redd.it/6m9szknruzlh1") == true
+        )
+
+        val post = source.parsePostCardForTest(card)
+        assertNotNull("crosspost video card did not parse", post)
+        val data = post!!.data
+
+        // url must be the BARE v.redd.it base (unsigned, stable), NOT the target
+        // permalink and NOT the signed, expiry-limited player src.
+        assertEquals(
+            "crosspost video url must be the bare v.redd.it base",
+            "https://v.redd.it/6m9szknruzlh1", data.url
+        )
+        // typed as REDDIT_VIDEO (domain v.redd.it), so the feed cell is eligible
+        // for in-cell preview playback and the tap opens the in-app player.
+        assertEquals(
+            "mediaType=${data.mediaType} domain=${data.domain}",
+            MediaType.REDDIT_VIDEO, data.mediaType
+        )
+        // mediaUrl must be the stable unsigned HLS playlist (the same derivation a
+        // native v.redd.it card gets) — never the target permalink.
+        assertEquals(
+            "mediaUrl must be the derived HLS url, got: ${data.mediaUrl}",
+            "https://v.redd.it/6m9szknruzlh1/HLSPlaylist.m3u8?f=hd",
+            data.mediaUrl
+        )
+        assertFalse(
+            "mediaUrl must never be the target permalink",
+            data.mediaUrl.contains("www.reddit.com")
+        )
+        // the post's OWN permalink is untouched (header, history, cache keys).
+        assertEquals(
+            "/r/3Dprinting/comments/1wu7r0i/from_3d_print_to_cake_making_my_rose_skull_mold/",
+            data.permalink
+        )
+    }
+
+    @Test
     fun `text post cards carry the body html and the flair label`() = runBlocking {
         // Regression for the 2026-09-08 report ("Welp it happened.", r/privacy): a
         // text post rendered title + comments but NO body on the detail screen, and
