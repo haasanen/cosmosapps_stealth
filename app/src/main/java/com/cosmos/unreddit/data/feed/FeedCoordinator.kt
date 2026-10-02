@@ -311,7 +311,13 @@ class FeedCoordinator @Inject constructor(
 
     /**
      * One full refresh cycle: emit cache, fan out progressively, persist, purge.
-     * Calling it again (sort change, pull-to-refresh) cancels the running cycle.
+     * Calling it again (sort change, pull-to-refresh) cancels the running cycle —
+     * EXCEPT a MANUAL pull (pull-to-refresh gesture) arriving while a cycle is
+     * already running: that is dropped, and the in-flight refresh runs to
+     * completion uninterrupted (2026-10-02, Simo: "I've cancelled so many
+     * refreshes by mistake" — a second pull must not restart a refresh that is
+     * already in progress). Every deliberate change (sub/sort/profile/NSFW,
+     * profile switch) arrives as manual=false and still supersedes the cycle.
      */
     fun refresh(
         profileId: Int,
@@ -323,6 +329,18 @@ class FeedCoordinator @Inject constructor(
         ttlMs: Long = FeedPurge.DEFAULT_TTL_MS,
         manual: Boolean = false
     ): Job {
+        val running = activeCycle
+        if (admitRefresh(manual, running) == RefreshAdmission.DROP) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "refresh: MANUAL pull dropped — a refresh cycle is already running " +
+                    "(user pulls must not cancel an in-flight refresh)"
+            )
+            // DROP is only returned when a cycle is LIVE (admitRefresh requires
+            // activeCycle?.isActive == true), so the running cycle is non-null
+            // here. Hand it back so the in-flight refresh is not discarded and a
+            // caller could still await it.
+            return requireNotNull(running)
+        }
         this.ttlMs = ttlMs
         this.showNsfw = showNsfw
         val multiredd = subs.joinToString("+")
@@ -1289,5 +1307,23 @@ class FeedCoordinator @Inject constructor(
          * nothing and the cost of a stale one is one extra refresh.
          */
         private const val PENDING_RETRY_TTL_MS = 24L * 3_600_000L
+    }
+}
+
+/**
+ * Whether a [FeedCoordinator.refresh] call may proceed, given that a cycle may
+ * already be running. A MANUAL pull (the pull-to-refresh gesture) is DROPPED
+ * while a cycle is in flight so an accidental second pull cannot cancel and
+ * restart the in-flight refresh (2026-10-02, Simo). Every non-manual trigger —
+ * a deliberate sub/sort/profile/NSFW change, a profile switch — PROCEEDS and
+ * supersedes the running cycle, exactly as before.
+ */
+enum class RefreshAdmission { PROCEED, DROP }
+
+fun admitRefresh(manual: Boolean, activeCycle: Job?): RefreshAdmission {
+    return if (manual && activeCycle?.isActive == true) {
+        RefreshAdmission.DROP
+    } else {
+        RefreshAdmission.PROCEED
     }
 }
