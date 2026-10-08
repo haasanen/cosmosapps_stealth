@@ -111,6 +111,19 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
                 }
             }
             .crossfade(true)
+            // 2.5.95: FATAL "Software rendering doesn't support hardware
+            // bitmaps" (x2 in the Oct 6/7 logcat) — when the WINDOW is
+            // software-rendered (keyguard/transition surfaces set
+            // AttachInfo.mDrawingCache, so View.draw takes the
+            // buildDrawingCache path), a hardware bitmap drawn into that
+            // software canvas throws IllegalArgumentException and kills the
+            // process mid-feed-scroll. Feed previews are the biggest bitmaps
+            // in the app, so they hit it first. Hardware bitmaps are only a
+            // memory optimization; disallow them app-wide so every bitmap is
+            // software-drawable. (AwardView/AwardGroup had per-widget
+            // allowHardware(false) patches for the same crash; this
+            // supersedes them.)
+            .allowHardware(false)
             .build()
     }
 

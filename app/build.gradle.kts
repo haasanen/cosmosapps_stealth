@@ -158,6 +158,9 @@ dependencies {
     testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 
     androidTestImplementation("androidx.test:runner:${Dependencies.Versions.testRunner}")
+    // ImageLoaderHardwareBitmapTest asserts the app's Coil loader never emits
+    // hardware bitmaps; Coil is `implementation`-scoped, so the test needs it too.
+    androidTestImplementation("io.coil-kt:coil:${Dependencies.Versions.coil}")
     androidTestImplementation("androidx.test.ext:junit:${Dependencies.Versions.test}")
     androidTestImplementation("androidx.test.espresso:espresso-core:${Dependencies.Versions.espresso}")
 }
