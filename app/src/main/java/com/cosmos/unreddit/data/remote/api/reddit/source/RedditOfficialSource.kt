@@ -1610,7 +1610,15 @@ class RedditOfficialSource @Inject constructor(
         val dataItems = mutableListOf<Map<String, Any?>>()
         val metadataById = LinkedHashMap<String, Any?>()
         var index = 0
-        for (img in el.select("img.media-lightbox-img")) {
+        // One img per gallery page. Reddit's carousel also renders a hidden
+        // `div.lightboxed-content > zoomable-img > img` copy of every page (the
+        // lightbox variant); selecting all media-lightbox-img doubled the gallery
+        // (2026-10-08 r/homelab 1x04mcd: 5 pages shown as 10). The visible
+        // `non-lightboxed-content` img is the one with the srcset renditions.
+        val imgs = el.select("img.media-lightbox-img").toList()
+            .filterNot { it.parents().any { p -> p.hasClass("lightboxed-content") } }
+            .distinctBy { it.attr("src").ifBlank { it.attr("data-lazy-src") } }
+        for (img in imgs) {
             // Gallery pages are served on cf.preview.redd.it — only exclude avatars.
             // The lightbox `src` is the SMALL rendition (width=640, lossy webp);
             // scaled to fullscreen it reads as a soft/blurred image even on

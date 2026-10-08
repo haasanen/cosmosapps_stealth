@@ -488,6 +488,32 @@ class RedditOfficialSourceTest {
     }
 
     @Test
+    fun `gallery pages are not duplicated by the hidden lightboxed-content copy`() = runBlocking {
+        // Regression for the 2026-10-08 report (r/homelab 1x04mcd, 5-image gallery
+        // shown as 10): reddit's carousel markup now renders EACH page twice — the
+        // visible `non-lightboxed-content` img and a hidden
+        // `div.lightboxed-content > zoomable-img > img` copy (the lightbox variant).
+        // The parser selected every media-lightbox-img, so the strip doubled.
+        val doc = org.jsoup.Jsoup.parse(loadFixture("gallery_dup_pages.html"))
+        val galleryCard = doc.select("shreddit-post")
+            .first { it.attr("view-context") == "CommentsPage" }
+        assertEquals("t3_1x04mcd", galleryCard.attr("id"))
+        assertEquals("gallery", galleryCard.attr("post-type"))
+
+        val post = source.parsePostCardForTest(galleryCard)
+        assertNotNull("gallery card did not parse", post)
+        val data = post!!.data
+
+        assertEquals("gallery size=${data.gallery.size} urls=${data.gallery.map { it.url.take(70) }}", 5, data.gallery.size)
+        // One entry per distinct media file, in card order.
+        val urls = data.gallery.map { it.url }
+        assertEquals("duplicate gallery urls: $urls", urls.distinct().size, urls.size)
+        assertTrue("gallery pages lost order: $urls",
+            urls.mapNotNull { Regex("improvements-v0-([a-z0-9]+)\\.").find(it)?.groupValues?.get(1) }
+                == listOf("ej7nqfrc73uh1", "pbamtgrc73uh1", "tha3fgrc73uh1", "sz5x7grc73uh1", "ysou7grc73uh1"))
+    }
+
+    @Test
     fun `image cards carry the nsfw flag from the lightbox telemetry`() = runBlocking {
         // Regression for the 2026-09-14 report (blur setting "doesn't work"): the
         // official SSR source never parsed the NSFW flag — ensurePostDefaults forced
