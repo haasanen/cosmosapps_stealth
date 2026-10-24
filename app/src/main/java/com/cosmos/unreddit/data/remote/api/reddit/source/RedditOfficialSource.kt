@@ -2063,7 +2063,9 @@ class RedditOfficialSource @Inject constructor(
             linkKarma = postKarma,
             totalKarma = totalKarma,
             name = user,
-            created = -1L,
+            created = parseAtomTimestamp(
+                doc.selectFirst("[data-testid=cake-day]")?.attr("datetime").orEmpty()
+            ).takeIf { it > 0L } ?: -1L,
             snoovatarImg = avatar,
             commentKarma = commentKarma
         )

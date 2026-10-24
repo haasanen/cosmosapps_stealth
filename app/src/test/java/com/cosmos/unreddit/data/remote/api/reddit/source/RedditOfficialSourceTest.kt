@@ -304,6 +304,9 @@ class RedditOfficialSourceTest {
         val child = source.getUserInfo("Coldplayfan1999") as AboutUserChild
         assertEquals("Coldplayfan1999", child.data.name)
         assertEquals(9674, child.data.totalKarma)
+        // Cake day must come from <time datetime=... data-testid="cake-day">; before this
+        // it was hardcoded to -1L and rendered as 01/01/1970 on every profile.
+        assertEquals(1785801600L, child.data.created)
     }
 
     @Test
