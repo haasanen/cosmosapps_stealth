@@ -843,8 +843,13 @@ class RedditOfficialSource @Inject constructor(
         after: String?
     ): Listing = withContext(ioDispatcher) {
         val url = userPostsUrl(user, sort, after)
-        val doc = Jsoup.parse(fetchPage(url))
-        val children = loadFeedContinuation(doc, parsePostCards(doc))
+        val html = fetchPage(url)
+        val doc = Jsoup.parse(html)
+        val cards = parsePostCards(doc)
+        val children = loadFeedContinuation(doc, cards)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            userFeedDiag(url, html, cards.size, children.size > cards.size)
+        )
         Listing(KIND_LISTING, ListingData(null, children.size, children, nextPostCursor(children), null))
     }
 
@@ -858,8 +863,12 @@ class RedditOfficialSource @Inject constructor(
             append("https://www.reddit.com/user/$user/comments/?count=").append(PAGE_SIZE)
             if (!after.isNullOrBlank()) append("&after=").append(after)
         }
-        val doc = Jsoup.parse(fetchPage(url))
+        val html = fetchPage(url)
+        val doc = Jsoup.parse(html)
         val children = parseProfileComments(doc, user)
+        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+            userFeedDiag(url, html, children.size, nextCommentCursor(children) != null)
+        )
         Listing(
             KIND_LISTING,
             ListingData(null, children.size, children, nextCommentCursor(children), null)
@@ -2204,6 +2213,27 @@ class RedditOfficialSource @Inject constructor(
         private const val POPULAR = "popular"
         private const val PAGE_SIZE = 25
         private const val SSR_RETRIES = 3
+
+        /**
+         * TEMP (2026-10-24): one diagnostic line per user-listing fetch, written to
+         * launch_diag.txt via FeedDebug. Three live hypotheses predict different
+         * values on the user's phone: private profile (hidden-msg=true, cards=0),
+         * logged-out gate (all markers false-ish, cards=0), markup drift
+         * (augmented=true but cards=0). Pure function: assertable without IO.
+         */
+        internal fun userFeedDiag(
+            urlPath: String,
+            body: String,
+            cardsParsed: Int,
+            continued: Boolean
+        ): String =
+            "user-feed diag ${urlPath.removePrefix("https://www.reddit.com").take(60)}" +
+                " len=${body.length}" +
+                " shreddit-post=${body.contains("shreddit-post")}" +
+                " augmented=${body.contains("shreddit-profile-augmented-item")}" +
+                " hidden-msg=${body.contains("keep their posts hidden")}" +
+                " cards=$cardsParsed" +
+                " cont=$continued"
         private const val SSR_RETRY_BASE_MS = 1_000L
         // Multiredd fan-out: concurrency kept low enough that reddit.com's CF layer
         // does not challenge a burst of per-sub feed requests (73 subs at 4-wide

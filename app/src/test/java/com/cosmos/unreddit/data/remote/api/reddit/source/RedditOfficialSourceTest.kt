@@ -791,4 +791,64 @@ class RedditOfficialSourceTest {
     }
 
     //endregion
+
+    // TEMP diagnostics (2026-10-24, empty user listings): one line per user-listing
+    // fetch into launch_diag.txt. Three live hypotheses (private profile / logged-out
+    // gate / markup drift) predict different values here; only the user's phone can
+    // tell them apart. Pure function so it is assertable without the file channel.
+    @Test
+    fun `user feed diag line distinguishes hidden gate and drift`() {
+        val cards = RedditOfficialSource.userFeedDiag(
+            "/user/x/submitted/",
+            "<body><shreddit-post id=1></shreddit-post><shreddit-post id=2></shreddit-post></body>",
+            cardsParsed = 2,
+            continued = true
+        )
+        assertTrue(cards.contains("shreddit-post=true"))
+        assertTrue(cards.contains("augmented=false"))
+        assertTrue(cards.contains("hidden-msg=false"))
+        assertTrue(cards.contains("cards=2"))
+        assertTrue(cards.contains("cont=true"))
+
+        val hidden = RedditOfficialSource.userFeedDiag(
+            "/user/x/submitted/",
+            "<body><h1>Welcome!</h1><p>u/x likes to keep their posts hidden, but check out their stats to learn more about them.</p></body>",
+            cardsParsed = 0,
+            continued = false
+        )
+        assertTrue(hidden.contains("hidden-msg=true"))
+        assertTrue(hidden.contains("shreddit-post=false"))
+        assertTrue(hidden.contains("cards=0"))
+        assertTrue(hidden.contains("cont=false"))
+
+        val drifted = RedditOfficialSource.userFeedDiag(
+            "/user/x/comments/",
+            "<body><shreddit-profile-augmented-item id=1></shreddit-profile-augmented-item></body>",
+            cardsParsed = 0,
+            continued = false
+        )
+        assertTrue(drifted.contains("augmented=true"))
+        assertTrue(drifted.contains("shreddit-post=false"))
+        assertTrue(drifted.contains("hidden-msg=false"))
+    }
+
+    // FeedDebug.log runs on the JVM (unit tests): both channels must degrade to
+    // no-ops, so the diag logging can never break a listing fetch.
+    @Test
+    fun `empty hidden-profile listing returns cleanly and logs`() = runBlocking {
+        // pin_user_hidden.html: the real header from pin_user_p.html, every card
+        // stripped, and Reddit's own hidden-listing sentence in place of the cards.
+        requestedUrls.clear()
+        val src = buildSourceWith("pin_user_hidden.html")
+        val listing = src.getUserPosts("Coldplayfan1999", Sort.HOT, null, null)
+        assertEquals(
+            "first child was: " + listing.data.children.firstOrNull()?.let {
+                (it as? com.cosmos.unreddit.data.remote.api.reddit.model.PostChild)?.data?.permalink
+                    ?: it.javaClass.simpleName
+            },
+            0, listing.data.children.size
+        )
+        val comments = src.getUserComments("Coldplayfan1999", Sort.HOT, null, null)
+        assertEquals(0, comments.data.children.size)
+    }
 }
