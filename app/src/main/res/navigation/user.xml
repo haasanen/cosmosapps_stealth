@@ -19,6 +19,13 @@
         <deepLink
             android:id="@+id/deepLinkUserExternal2"
             app:uri=".*.reddit.com/user/{user}/" />
+        <!-- v2.5.98: /u/ form (share sheets and app-style links use it) -->
+        <deepLink
+            android:id="@+id/deepLinkUserExternal3"
+            app:uri=".*.reddit.com/u/{user}" />
+        <deepLink
+            android:id="@+id/deepLinkUserExternal4"
+            app:uri=".*.reddit.com/u/{user}/" />
 
         <argument
             android:name="user"

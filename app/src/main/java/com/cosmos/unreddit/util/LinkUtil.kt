@@ -18,6 +18,19 @@ object LinkUtil {
     private val SUBREDDIT_REGEX = Regex("/r/[A-Za-z0-9_-]{3,21}")
     private val USER_REGEX = Regex("/u/[A-Za-z0-9_-]{3,20}")
 
+    // v2.5.98: share-sheet bodies are free text ("title\nhttps://… via …");
+    // this pulls the first http(s) token out of them for link routing.
+    private val SHARED_URL_REGEX = Regex("https?://\\S+")
+
+    fun extractUrlFromSharedText(text: String?): String? {
+        val raw = text ?: return null
+        val url = SHARED_URL_REGEX.find(raw)?.value ?: return null
+        // Trailing sentence punctuation must not poison the URL ("…/post." and
+        // "(https://…)" both appear in real share bodies); strip it from the end.
+        return url.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '"', '\'')
+            .ifEmpty { null }
+    }
+
     private val REDDIT_LINK = Regex("(.+?)\\.reddit\\.com")
     private val IMGUR_LINK = Regex("([im]\\.)?(stack\\.)?imgur\\.(com|io)")
     private val GFYCAT_LINK = Regex("(.+?\\.)?gfycat\\.com")

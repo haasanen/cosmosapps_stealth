@@ -1,5 +1,8 @@
 package com.cosmos.unreddit
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
@@ -22,6 +25,7 @@ import com.cosmos.unreddit.data.feed.FeedCoordinator
 import com.cosmos.unreddit.databinding.ActivityMainBinding
 import com.cosmos.unreddit.ui.postlist.PostListFragment
 import com.cosmos.unreddit.util.HideBottomViewBehavior
+import com.cosmos.unreddit.util.LinkUtil
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
 import com.cosmos.unreddit.util.extension.currentNavigationFragment
 import com.cosmos.unreddit.util.extension.launchRepeat
@@ -110,6 +114,41 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
             }
         }
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate END")
+
+        // v2.5.98: VIEW deep links were already consumed by the nav host
+        // during graph setup; the share sheet (ACTION_SEND text/plain) is
+        // ours to route.
+        handleSharedIntent(intent)
+    }
+
+    // v2.5.98: shared links open the link in-app. Extract the URL from the
+    // share text and push it through the same nav deep links the VIEW intent
+    // filter feeds (post /r/ /user/ gallery redd.it). A share whose URL is
+    // not a known reddit destination opens in the browser instead of dumping
+    // the user on a blank home tab.
+    private fun handleSharedIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val url = LinkUtil.extractUrlFromSharedText(intent.getStringExtra(Intent.EXTRA_TEXT))
+            ?: return
+        val uri = try {
+            Uri.parse(url)
+        } catch (e: Exception) {
+            return
+        }
+        val viewIntent = Intent(Intent.ACTION_VIEW, uri)
+        if (!navController.handleDeepLink(viewIntent)) {
+            try {
+                startActivity(viewIntent)
+            } catch (e: ActivityNotFoundException) {
+                // No browser on the device: nothing sensible left to do.
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSharedIntent(intent)
     }
 
     private fun initNavigation() {
