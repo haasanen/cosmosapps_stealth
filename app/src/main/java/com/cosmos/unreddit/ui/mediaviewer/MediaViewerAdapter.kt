@@ -2,6 +2,7 @@ package com.cosmos.unreddit.ui.mediaviewer
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.drawable.Animatable
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -83,6 +84,16 @@ class MediaViewerAdapter(
         notifyDataSetChanged()
     }
 
+    // v2.5.99: stop recycled image holders' animations (GIF pages keep a
+    // ticker running once started; recycled-but-attached holders would burn
+    // it off-screen).
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        super.onViewRecycled(holder)
+        if (holder is ImageViewHolder) {
+            holder.stopAnimation()
+        }
+    }
+
     fun clear() {
         for (player in players) {
             player.release()
@@ -96,6 +107,21 @@ class MediaViewerAdapter(
         private val binding: ItemImageBinding
     ) : RecyclerView.ViewHolder(binding.root), View.OnTouchListener {
 
+        // v2.5.99: animated gallery pages (GIFs). A custom Coil target —
+        // unlike ImageViewTarget — never starts the drawable's Animatable,
+        // so gallery GIF pages rendered frozen on frame 1 while the feed
+        // preview of the same URL animated.
+        private var animatable: Animatable? = null
+
+        fun stopAnimation() {
+            // Only stop while this holder still shows that drawable: the
+            // memory cache can hand the same animated instance to two pages,
+            // and stopping a shared instance freezes the one still on screen.
+            if (binding.image.drawable === animatable) {
+                animatable?.stop()
+            }
+        }
+
         init {
             binding.image.run {
                 setOnTouchListener(this@ImageViewHolder)
@@ -104,6 +130,8 @@ class MediaViewerAdapter(
         }
 
         fun bind(image: GalleryMedia) {
+            stopAnimation()
+            animatable = null
             loadImage(image)
             binding.infoRetry.setActionClickListener { loadImage(image) }
         }
@@ -144,7 +172,13 @@ class MediaViewerAdapter(
                                 }
                             }
                         )
-                        target { drawable -> setImageDrawable(drawable) }
+                        target { drawable ->
+                            setImageDrawable(drawable)
+                            // v2.5.99: start animation for GIF/animated pages;
+                            // the custom target bypasses Coil's ImageViewTarget
+                            // which would do this automatically.
+                            animatable = (drawable as? Animatable)?.also { it.start() }
+                        }
                     }.build()
                 )
             }
