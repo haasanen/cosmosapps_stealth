@@ -100,6 +100,24 @@ object LinkUtil {
         return link.toHttpUrlOrNull()?.pathSegments?.getOrNull(0) ?: ""
     }
 
+    /**
+     * v2.5.100: reddit's SSR comment HTML carries site-relative hrefs —
+     * auto-linked search terms ("/search/?q=…"), and any "/…" or "//host/…"
+     * path. OkHttp refuses to parse them (relative), so they classified as
+     * NO_MEDIA and went straight to CustomTabs with a relative Uri:
+     * no app handles a relative VIEW intent, so the tap crashed the app
+     * (ActivityNotFoundException, r/megalophobia wnremk comments).
+     * Absolutizing against reddit turns them into ordinary links that go
+     * through the full routing table again.
+     */
+    fun toRedditAbsolute(link: String): String {
+        return when {
+            link.startsWith("//") -> "https:$link"
+            link.startsWith("/") -> "https://www.reddit.com$link"
+            else -> link
+        }
+    }
+
     fun getLinkType(link: String): MediaType {
         when {
             link.matches(SUBREDDIT_REGEX) -> return MediaType.REDDIT_SUBREDDIT

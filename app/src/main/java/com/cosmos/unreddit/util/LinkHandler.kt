@@ -69,15 +69,28 @@ class LinkHandler @Inject constructor(
     }
 
     private fun openLink(link: String) {
+        // v2.5.100: site-relative hrefs (search links, permalinks, media paths
+        // in reddit SSR comments) must be absolutized before leaving the app —
+        // see LinkUtil.toRedditAbsolute. With a real URL they may also classify
+        // as something the app handles natively, so re-route instead of browser.
+        val absolute = LinkUtil.toRedditAbsolute(link)
+        if (absolute != link) {
+            val mediaType = LinkUtil.getLinkType(absolute)
+            if (mediaType != MediaType.NO_MEDIA) {
+                handleLink(absolute, mediaType)
+                return
+            }
+        }
+
         if (linkRedirector.isPrivacyEnhancerOn) {
-            val redirectLink = linkRedirector.getRedirectLink(link)
+            val redirectLink = linkRedirector.getRedirectLink(absolute)
             redirectLink?.let {
                 handleLink(it.original, it.redirect, it.mode)
             } ?: run {
-                openBrowser(link)
+                openBrowser(absolute)
             }
         } else {
-            openBrowser(link)
+            openBrowser(absolute)
         }
     }
 
@@ -123,6 +136,12 @@ class LinkHandler @Inject constructor(
     }
 
     fun openBrowser(link: String) {
+        // v2.5.100: a schemeless (relative or empty) Uri can never be resolved
+        // by any VIEW intent — launching it crashes instead of doing nothing.
+        if (Uri.parse(link).scheme == null) {
+            return
+        }
+
         CustomTabsIntent.Builder()
             .setShowTitle(true)
             .setShareState(CustomTabsIntent.SHARE_STATE_ON)
