@@ -99,6 +99,33 @@ class FeedPreviewPlayerPool private constructor() {
         queue.add(entry)
     }
 
+    /**
+     * Releases every pooled player (holders are detached so their surfaces restore
+     * their still posters). Called when the media viewer opens: it is an overlay —
+     * the screens behind stay attached and their paused previews KEEP their hardware
+     * decoder instances (ExoPlayer pause() does not free the codec), and on decoder-
+     * instance-limited SoCs (2026-11-17 Pixel 10a logcat: two pooled previews + one
+     * inline comment GIF held 3 decoders, the viewer's 4th video decoder init failed
+     * MediaCodec NO_MEMORY / PlaybackException code 4001 = "Something went wrong")
+     * the fullscreen player then cannot start. Previews re-acquire on the next
+     * rebind/visibility pass, exactly like after eviction.
+     */
+    @Synchronized
+    fun releaseAll() {
+        while (true) {
+            val victim = queue.poll() ?: break
+            victim.token.playerDetached()
+            try {
+                victim.player.stop()
+            } catch (_: Exception) {
+            }
+            try {
+                victim.player.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /** Releases and forgets the player [token] holds, if any. Idempotent. */
     @Synchronized
     fun release(token: Token) {

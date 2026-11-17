@@ -51,6 +51,30 @@ class RedditView @JvmOverloads constructor(
     // comment keeps a live ExoPlayer around.
     private val inlinePlayers = mutableListOf<SimpleExoPlayer>()
 
+    companion object {
+        /**
+         * Every inline GIF player of every RedditView instance (main thread only).
+         * Inline players are per-view and released on re-bind, but the media viewer
+         * is an overlay: the rows behind it stay bound and attached, so their
+         * inline-GIF players keep their hardware decoders. The viewer releases this
+         * set on open (see MediaViewerFragment) — on decoder-instance-limited SoCs
+         * a 4th simultaneous decoder init fails NO_MEMORY and fullscreen playback
+         * shows "Something went wrong" (2026-11-17 Pixel 10a logcat, code 4001).
+         * Released players re-prepare on the row's next rebind.
+         */
+        private val liveInlinePlayers = mutableSetOf<SimpleExoPlayer>()
+
+        fun releaseAllInlinePlayers() {
+            for (player in liveInlinePlayers.toList()) {
+                try {
+                    player.release()
+                } catch (_: Exception) {
+                }
+            }
+            liveInlinePlayers.clear()
+        }
+    }
+
     init {
         orientation = VERTICAL
     }
@@ -290,6 +314,7 @@ class RedditView @JvmOverloads constructor(
         })
 
         inlinePlayers.add(player)
+        liveInlinePlayers.add(player)
         frame.addView(playerView)
         // v2.5.68: spinner until the first frame is decoded — the gif "video"
         // is an mp4, and until the first format is known the box is just its
@@ -450,7 +475,11 @@ class RedditView @JvmOverloads constructor(
      */
     fun releaseInlinePlayers() {
         for (player in inlinePlayers) {
-            player.release()
+            try {
+                player.release()
+            } catch (_: Exception) {
+            }
+            liveInlinePlayers.remove(player)
         }
         inlinePlayers.clear()
     }

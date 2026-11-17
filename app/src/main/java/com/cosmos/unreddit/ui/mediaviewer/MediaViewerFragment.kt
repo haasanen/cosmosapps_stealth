@@ -28,6 +28,8 @@ import com.cosmos.unreddit.data.model.MediaType
 import com.cosmos.unreddit.data.model.Resource
 import com.cosmos.unreddit.data.worker.MediaDownloadWorker
 import com.cosmos.unreddit.databinding.FragmentMediaViewerBinding
+import com.cosmos.unreddit.ui.common.widget.RedditView
+import com.cosmos.unreddit.util.FeedPreviewPlayerPool
 import com.cosmos.unreddit.ui.common.FullscreenBottomSheetFragment
 import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
 import com.cosmos.unreddit.util.extension.clearWindowInsetsListener
@@ -97,6 +99,16 @@ class MediaViewerFragment : FullscreenBottomSheetFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        // Free the decoders the screens behind hold BEFORE this overlay builds its
+        // own player: paused feed/detail previews (pooled) and inline comment GIFs
+        // keep their MediaCodec instances while merely covered, and on SoCs that
+        // cap concurrent decoder instances the viewer's player then fails to
+        // initialise (2026-11-17 Pixel 10a: 2 pooled + 1 inline + viewer = 4th init
+        // NO_MEMORY, code 4001, "Something went wrong"). Previews restore their
+        // posters and re-acquire on the next rebind/visibility pass.
+        FeedPreviewPlayerPool.get().releaseAll()
+        RedditView.releaseAllInlinePlayers()
 
         behavior?.skipCollapsed = true
 
