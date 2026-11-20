@@ -1340,6 +1340,22 @@ class RedditOfficialSource @Inject constructor(
     private fun parsePostCards(doc: Document): List<PostChild> =
         doc.select("shreddit-post").mapNotNull { postChildFromElement(it, doc) }
 
+    // Signed gif-transcode player srcs: cf.preview.redd.it / preview.redd.it /
+    // external-preview.redd.it, path = <media-token>.gif|.webp + query. The
+    // token equals the stable public i.redd.it origin id (wire-verified
+    // 2026-11-20: i.redd.it/49sr7t7d3f2i1.gif = 200 image/gif, 36 frames,
+    // while every unsigned preview rendition 403s). Only consulted for
+    // players carrying the boolean `gif` marker, so .mp4 transcodes of real
+    // videos and poster jpegs never match.
+    private val ssrGifOriginPattern =
+        Regex("https?://(?:cf\\.|external-)?preview\\.redd\\.it/([A-Za-z0-9]+)\\.(gif|webp)\\?")
+
+    private fun gifCrosspostUrl(player: Element?): String? {
+        if (player == null || !player.hasAttr("gif")) return null
+        val m = ssrGifOriginPattern.find(player.attr("src")) ?: return null
+        return "https://i.redd.it/${m.groupValues[1]}.${m.groupValues[2]}"
+    }
+
     /** Test-only: parse a single SSR post card (thumbnail selection, defaults, mapping). */
     internal fun parsePostCardForTest(el: Element, doc: Document? = null): PostChild? =
         postChildFromElement(el, doc)
@@ -1389,6 +1405,7 @@ class RedditOfficialSource @Inject constructor(
         // otherwise absolutize the href. Live-captured crosspost 2026-09-12
         // (r/linux_gaming xpost of an r/forhonor image post): content-href
         // relative + i.redd.it/hp10y4d1tsoh1.jpeg in-card.
+        val player = el.selectFirst("shreddit-player")
         val url = if (isSelf) {
             absolutePermalink
         } else {
@@ -1410,8 +1427,22 @@ class RedditOfficialSource @Inject constructor(
                 // unsigned HLSPlaylist.m3u8 derivation a native v.redd.it card
                 // gets (the signed player src is shorter-lived than the derived
                 // url, same reason native video cards are left to the derivation).
-                imgSources.firstOrNull { it.startsWith("https://i.redd.it/") }
-                    ?: el.selectFirst("shreddit-player")?.attr("src")
+                // GIF crossposts lose every signal the other branches read:
+                // content-href is the target permalink, the card embeds NO
+                // i.redd.it media <img> (its only i.redd.it images may be
+                // PROFILE-BADGE pngs — live detail capture 2026-11-20 picked
+                // the "Top 1% Poster" badge as the post url), and card AND
+                // player post-type are "crosspost", not "gif". The surviving
+                // marker is the boolean `gif` attr on <shreddit-player>; its
+                // signed src path token is the stable i.redd.it origin id
+                // (i.redd.it/<token>.gif served 200 image/gif, 36-frame
+                // animated; unsigned preview URLs 403 — wire-verified same
+                // session, r/animation 1y10mv1 xpost of 1xzndhv). Derive it
+                // so the animated-card injection below re-arms exactly as for
+                // the native card of the same post.
+                gifCrosspostUrl(player)
+                    ?: imgSources.firstOrNull { it.startsWith("https://i.redd.it/") }
+                    ?: player?.attr("src")
                         ?.takeIf { it.contains("v.redd.it/") }
                         ?.let { src ->
                             val id = src.substringAfter("v.redd.it/")
@@ -1465,10 +1496,15 @@ class RedditOfficialSource @Inject constructor(
         // Plain v.redd.it video cards are deliberately NOT touched: they already
         // play through the stable HLS fallback in PostData.mediaUrl (the signed DASH
         // rendition in `src` is shorter-lived than the derived HLS url).
-        val player = el.selectFirst("shreddit-player")
         val playerSrc = player?.attr("src").orEmpty()
         val href = url.substringBefore('?')
-        val isAnimatedCard = (player?.attr("post-type") == "gif") ||
+        // The web has moved the animated marker from post-type="gif" to a
+        // boolean `gif` attr on the player (live 2026-11-20: gif and
+        // gif-crosspost players both carry `gif=""`, post-type reflects the
+        // post KIND: "gif" native / "crosspost" xpost). Accept both.
+        val playerIsGif = player?.hasAttr("gif") == true ||
+                player?.attr("post-type") == "gif"
+        val isAnimatedCard = playerIsGif ||
                 href.endsWith(".gif") || href.endsWith(".webp")
         if (playerSrc.isNotBlank() && isAnimatedCard) {
             map["is_video"] = true
@@ -1479,7 +1515,7 @@ class RedditOfficialSource @Inject constructor(
                     "height" to 0,
                     "width" to 0,
                     "duration" to 0,
-                    "is_gif" to (player?.attr("post-type") == "gif")
+                    "is_gif" to playerIsGif
                 )
             )
             // Animated list preview: the raw .gif / .webp plays through Coil
