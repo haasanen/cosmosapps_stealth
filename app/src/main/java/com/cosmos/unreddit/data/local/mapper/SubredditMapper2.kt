@@ -3,6 +3,7 @@ package com.cosmos.unreddit.data.local.mapper
 import com.cosmos.unreddit.data.model.db.SubredditEntity
 import com.cosmos.unreddit.data.remote.api.reddit.model.AboutData
 import com.cosmos.unreddit.di.DispatchersModule
+import com.cosmos.unreddit.util.DecorativeTitles
 import com.cosmos.unreddit.util.HtmlParser
 import kotlinx.coroutines.CoroutineDispatcher
 import javax.inject.Inject
@@ -21,7 +22,12 @@ class SubredditMapper2 @Inject constructor(
                 wikiEnabled ?: false,
                 displayName,
                 getHeader(),
-                title,
+                // Decorative faux-small-cap titles (r/Piracy's title is written
+                // with LATIN LETTER SMALL CAPITAL codepoints) render as tofu
+                // boxes where platform fonts lack the glyph (e.g. U+026A).
+                // Fold them to the capitals the author intended; see
+                // util/DecorativeTitles for the table and evidence.
+                DecorativeTitles.fold(title),
                 getPrimaryColor(),
                 activeUserCount,
                 getIcon(),
