@@ -110,9 +110,23 @@ class RedditScrapingSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // TODO
-        return Listing("t3", ListingData(null, null, emptyList(), null, null))
+        // old.reddit search results use the same `div.thing` cards PostScraper reads on
+        // every other page it scrapes. Logged-out network-security policy (live
+        // 2026-11-25, captured fixture): old.reddit answers with its 342 KB
+        // "Welcome to Reddit" sign-in interstitial — a 200 that PostScraper would
+        // silently turn into "no results", so fail it instead and let the caller's
+        // fallback chain see a real error.
+        val body = redditApi.searchPost(query, sort, timeSorting, after).string()
+        if (isOldRedditInterstitial(body)) {
+            throw java.io.IOException("old.reddit search answered the logged-out interstitial")
+        }
+        return PostScraper(ioDispatcher).scrap(body)
     }
+
+    /** True for the logged-out "Welcome to Reddit" page old.reddit serves instead of
+     *  search results (title marker + the results container search pages always carry). */
+    private fun isOldRedditInterstitial(body: String) =
+        body.contains("Welcome to Reddit") && !body.contains("listingsearch")
 
     override suspend fun searchUser(
         query: String,

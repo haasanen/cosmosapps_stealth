@@ -7,6 +7,6 @@ object Config {
     const val compileSdk = 34
     const val targetSdk = 34
 
-    const val versionCode = 202
-    const val versionName = "2.5.102"
+    const val versionCode = 203
+    const val versionName = "2.5.103"
 }
