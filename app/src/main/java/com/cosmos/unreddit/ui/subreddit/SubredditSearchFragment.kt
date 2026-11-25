@@ -8,31 +8,29 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.navArgs
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.R
-import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.databinding.FragmentSubredditSearchBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
-import com.cosmos.unreddit.ui.loadstate.NetworkLoadStateAdapter
-import com.cosmos.unreddit.ui.postlist.PostListAdapter
-import com.cosmos.unreddit.ui.sort.SortFragment
+import com.cosmos.unreddit.ui.web.RedditWebView
 import com.cosmos.unreddit.util.SearchUtil
-import com.cosmos.unreddit.util.extension.addLoadStateListener
-import com.cosmos.unreddit.util.extension.applyWindowInsets
-import com.cosmos.unreddit.util.extension.betterSmoothScrollToPosition
+import com.cosmos.unreddit.util.SearchWebUrls
 import com.cosmos.unreddit.util.extension.clearSortingListener
 import com.cosmos.unreddit.util.extension.hideSoftKeyboard
 import com.cosmos.unreddit.util.extension.launchRepeat
 import com.cosmos.unreddit.util.extension.loadSubredditIcon
-import com.cosmos.unreddit.util.extension.onRefreshFromNetwork
 import com.cosmos.unreddit.util.extension.setSortingListener
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
+/**
+ * In-subreddit search: reddit's own subreddit-search page in the system
+ * WebView (reddit made search JS-only server-side on 2026-11-25 — the served
+ * HTML carries no result cards and plain clients are 403-blocked), with
+ * result taps routed to the native screens. See ui/web/RedditWebView.kt and
+ * the note in SearchFragment.
+ */
 @AndroidEntryPoint
-class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListener {
+class SubredditSearchFragment : BaseFragment() {
 
     private var _binding: FragmentSubredditSearchBinding? = null
     private val binding get() = _binding!!
@@ -40,11 +38,6 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     override val viewModel: SubredditSearchViewModel by viewModels()
 
     private val args: SubredditSearchFragmentArgs by navArgs()
-
-    private lateinit var postListAdapter: PostListAdapter
-
-    @Inject
-    lateinit var repository: PostListRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,9 +57,10 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
         super.onViewCreated(view, savedInstanceState)
         initResultListener()
         initAppBar()
-        initRecyclerView()
         bindViewModel()
-        binding.loadingState.infoRetry.setActionClickListener { postListAdapter.retry() }
+
+        RedditWebView.setup(binding.webSearch, this)
+        loadSearch(viewModel.query.value)
     }
 
     override fun onResume() {
@@ -79,6 +73,13 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
                 cancelCard.isVisible = false
             }
         }
+    }
+
+    private fun loadSearch(query: String) {
+        RedditWebView.load(
+            binding.webSearch,
+            SearchWebUrls.inSubreddit(args.subreddit, query)
+        )
     }
 
     private fun bindViewModel() {
@@ -99,60 +100,15 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
                     }
                 }
             }
-
-            launch {
-                viewModel.searchData.collect {
-                    binding.loadingState.infoRetry.hide()
-                }
-            }
-
-            launch {
-                viewModel.contentPreferences.collect {
-                    postListAdapter.contentPreferences = it
-                }
-            }
-
-            launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
-                }
-            }
-
-            launch {
-                viewModel.postDataFlow.collectLatest {
-                    postListAdapter.submitData(it)
-                }
-            }
-        }
-    }
-
-    private fun initRecyclerView() {
-        postListAdapter = PostListAdapter(repository, this, this).apply {
-            addLoadStateListener(binding.listPost, binding.loadingState) {
-                showRetryBar()
-            }
-        }
-
-        binding.listPost.apply {
-            applyWindowInsets(left = false, top = false, right = false)
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = postListAdapter.withLoadStateHeaderAndFooter(
-                header = NetworkLoadStateAdapter { postListAdapter.retry() },
-                footer = NetworkLoadStateAdapter { postListAdapter.retry() }
-            )
-        }
-
-        launchRepeat(Lifecycle.State.STARTED) {
-            postListAdapter.onRefreshFromNetwork {
-                scrollToTop()
-            }
         }
     }
 
     private fun initAppBar() {
         with(binding.appBar) {
             subredditImage.loadSubredditIcon(args.icon)
-            sortCard.setOnClickListener { showSortDialog() }
+            // Sorting lives on the web page now (its own filter row).
+            sortCard.isVisible = false
+            sortIcon.isVisible = false
             cancelCard.setOnClickListener { cancelSearch() }
             backCard.setOnClickListener { onBackPressed() }
             label.setOnClickListener { showSearchInput(true) }
@@ -161,8 +117,6 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
                 addTarget(backCard)
                 addTarget(subredditImage)
                 addTarget(label)
-                addTarget(sortIcon)
-                addTarget(sortCard)
                 addTarget(cancelCard)
                 setSearchActionListener {
                     handleSearchAction(it)
@@ -175,34 +129,14 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
         setSortingListener { sorting -> sorting?.let { viewModel.setSorting(it) } }
     }
 
-    private fun scrollToTop() {
-        binding.listPost.betterSmoothScrollToPosition(0)
-    }
-
     private fun showSearchInput(show: Boolean) {
         binding.appBar.searchInput.show(binding.appBar.root, show) {
             with(binding.appBar) {
                 backCard.isVisible = !show
                 label.isVisible = !show
-                sortCard.isVisible = !show
-                sortIcon.isVisible = !show
                 subredditImage.isVisible = !show
                 cancelCard.isVisible = show
             }
-        }
-    }
-
-    private fun showSortDialog() {
-        SortFragment.show(
-            childFragmentManager,
-            viewModel.sorting.value,
-            SortFragment.SortType.SEARCH
-        )
-    }
-
-    private fun showRetryBar() {
-        if (!binding.loadingState.infoRetry.isVisible) {
-            binding.loadingState.infoRetry.show()
         }
     }
 
@@ -218,6 +152,8 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     private fun handleSearchAction(query: String) {
         if (SearchUtil.isQueryValid(query)) {
             viewModel.setQuery(query)
+            // Reload explicitly: an identical resubmit must still refresh.
+            loadSearch(query)
             showSearchInput(false)
         }
     }
@@ -225,6 +161,8 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     override fun onBackPressed() {
         if (binding.appBar.searchInput.isVisible && viewModel.query.value.isNotBlank()) {
             showSearchInput(false)
+        } else if (binding.webSearch.canGoBack()) {
+            binding.webSearch.goBack()
         } else {
             super.onBackPressed()
         }
@@ -233,6 +171,7 @@ class SubredditSearchFragment : BaseFragment(), PostListAdapter.PostClickListene
     override fun onDestroyView() {
         super.onDestroyView()
         clearSortingListener()
+        RedditWebView.destroy(binding.webSearch)
         _binding = null
     }
 

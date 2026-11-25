@@ -9,24 +9,28 @@ import androidx.hilt.navigation.fragment.hiltNavGraphViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
-import androidx.recyclerview.widget.RecyclerView
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.databinding.FragmentSearchBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
-import com.cosmos.unreddit.ui.common.adapter.FragmentAdapter
-import com.cosmos.unreddit.ui.sort.SortFragment
+import com.cosmos.unreddit.ui.web.RedditWebView
 import com.cosmos.unreddit.util.SearchUtil
+import com.cosmos.unreddit.util.SearchWebUrls
 import com.cosmos.unreddit.util.extension.clearSortingListener
-import com.cosmos.unreddit.util.extension.getRecyclerView
 import com.cosmos.unreddit.util.extension.launchRepeat
-import com.cosmos.unreddit.util.extension.scrollToTop
 import com.cosmos.unreddit.util.extension.setSortingListener
-import com.google.android.material.tabs.TabLayout
-import com.google.android.material.tabs.TabLayoutMediator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Global reddit search. Since 2026-11-25 reddit renders search results
+ * client-side only (the served HTML carries zero cards; the data call sits
+ * behind a reCAPTCHA Enterprise gate and plain HTTP clients get the 403
+ * "blocked by network security" page), the app embeds reddit's own search
+ * page in the system WebView — the same engine family the user's browser
+ * uses, and the browser search works — and routes result taps into the
+ * native screens via [RedditWebView]. See ui/web/RedditWebView.kt.
+ */
 @AndroidEntryPoint
 class SearchFragment : BaseFragment() {
 
@@ -63,13 +67,19 @@ class SearchFragment : BaseFragment() {
 
         initResultListener()
         initAppBar()
-        initViewPager()
         bindViewModel()
+
+        RedditWebView.setup(binding.webSearch, this)
+        loadSearch(query)
 
         lifecycleScope.launch {
             delay(250)
             showSearchInput(false)
         }
+    }
+
+    private fun loadSearch(query: String) {
+        RedditWebView.load(binding.webSearch, SearchWebUrls.search(query))
     }
 
     private fun bindViewModel() {
@@ -81,67 +91,24 @@ class SearchFragment : BaseFragment() {
                     }
                 }
             }
-
-            launch {
-                viewModel.sorting.collect {
-                    binding.appBar.sortIcon.setSorting(it)
-                }
-            }
         }
-    }
-
-    private fun initViewPager() {
-        val fragments = listOf(
-            FragmentAdapter.Page(R.string.tab_search_post, SearchPostFragment::class.java),
-            FragmentAdapter.Page(
-                R.string.tab_search_subreddit,
-                SearchSubredditFragment::class.java
-            ),
-            FragmentAdapter.Page(R.string.tab_search_user, SearchUserFragment::class.java)
-        )
-
-        val fragmentAdapter = FragmentAdapter(this, fragments)
-
-        binding.viewPager.apply {
-            adapter = fragmentAdapter
-            offscreenPageLimit = 2
-            getRecyclerView()?.overScrollMode = RecyclerView.OVER_SCROLL_NEVER
-        }
-
-        binding.tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab?) {
-                // ignore
-            }
-
-            override fun onTabUnselected(tab: TabLayout.Tab?) {
-                // ignore
-            }
-
-            override fun onTabReselected(tab: TabLayout.Tab?) {
-                tab?.let { binding.viewPager.scrollToTop(it.position) }
-            }
-        })
-
-        TabLayoutMediator(binding.tabs, binding.viewPager) { tab, position ->
-            tab.setText(fragments[position].title)
-        }.attach()
     }
 
     private fun initAppBar() {
         with(binding.appBar) {
+            // Sorting lives on the web page now (its own filter row).
+            sortCard.isVisible = false
+            sortIcon.isVisible = false
             label.setOnClickListener { showSearchInput(true) }
             root.setOnClickListener { showSearchInput(true) }
             searchInput.apply {
                 addTarget(backCard)
                 addTarget(label)
-                addTarget(sortCard)
-                addTarget(sortIcon)
                 addTarget(cancelCard)
                 setSearchActionListener {
                     handleSearchAction(it)
                 }
             }
-            sortCard.setOnClickListener { showSortDialog() }
             backCard.setOnClickListener { onBackPressed() }
             cancelCard.setOnClickListener { showSearchInput(false) }
         }
@@ -157,8 +124,6 @@ class SearchFragment : BaseFragment() {
                 with(binding.appBar) {
                     backCard.isVisible = !show
                     label.isVisible = !show
-                    sortCard.isVisible = !show
-                    sortIcon.isVisible = !show
                     cancelCard.isVisible = show
                 }
             }
@@ -169,27 +134,30 @@ class SearchFragment : BaseFragment() {
     private fun handleSearchAction(query: String) {
         val subreddit = SearchUtil.subredditShortcut(query)
         if (subreddit != null) {
-            // `r/<name>` is a direct navigation, not a search: open it
-            // whichever tab is active.
+            // `r/<name>` is a direct navigation, not a search.
             openSubreddit(subreddit)
             showSearchInput(false)
         } else if (SearchUtil.isQueryValid(query)) {
             viewModel.setQuery(query)
+            // Reload explicitly: the query StateFlow conflates an identical
+            // resubmit, but a repeated search must still refresh the page.
+            loadSearch(query)
             showSearchInput(false)
         }
     }
 
-    private fun showSortDialog() {
-        SortFragment.show(
-            childFragmentManager,
-            viewModel.sorting.value,
-            SortFragment.SortType.SEARCH
-        )
+    override fun onBackPressed() {
+        if (binding.webSearch.canGoBack()) {
+            binding.webSearch.goBack()
+        } else {
+            super.onBackPressed()
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         clearSortingListener()
+        RedditWebView.destroy(binding.webSearch)
         _binding = null
     }
 

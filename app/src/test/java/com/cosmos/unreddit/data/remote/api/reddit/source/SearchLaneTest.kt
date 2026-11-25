@@ -4,8 +4,6 @@ import com.cosmos.unreddit.data.model.Sort
 import com.cosmos.unreddit.data.model.TimeSorting
 import com.cosmos.unreddit.data.remote.api.reddit.ArcticApi
 import com.cosmos.unreddit.data.remote.api.reddit.RedditApi
-import com.cosmos.unreddit.data.remote.api.reddit.model.Listing
-import com.cosmos.unreddit.data.remote.api.reddit.model.ListingData
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.di.NetworkModule
 import kotlinx.coroutines.Dispatchers
@@ -19,8 +17,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Regression tests for the search fallback chain (2026-11-25 "Something went wrong"
- * reddit search report).
+ * Search-lane behaviour pins (2026-11-25 "Something went wrong" reddit search report).
+ *
+ * Global search itself moved to the embedded reddit web UI (2.5.104) because
+ * reddit made search JS-only server-side; these pins keep the user-selectable
+ * source lanes (old.reddit scraping, Arctic Shift prefixes) honest: results
+ * parse, and walls/rate-limits fail LOUD instead of faking "no results".
  *
  * Live ground truth captured 2026-11-25 from this datacenter:
  *  - www SSR /search/: JS challenge page (fixture search_challenge_djineo.html);
@@ -39,33 +41,7 @@ import org.junit.Test
  * search-results page can be captured from a datacenter exit today (that is the
  * bug). The interstitial fixture is a real live capture.
  */
-class SearchFallbackTest {
-
-    // --- searchWithFallback chain ---------------------------------------------------
-
-    @Test
-    fun `primary failure falls through to fallback`() = runBlocking {
-        var fallbackCalled = false
-        val result = searchWithFallback(
-            "test",
-            { throw java.io.IOException("primary down") },
-            { fallbackCalled = true; Listing("t3", ListingData(null, null, emptyList(), null, null)) }
-        )
-        assertTrue("fallback must run after primary failure", fallbackCalled)
-        assertEquals("t3", result.kind)
-    }
-
-    @Test
-    fun `primary success never runs fallback`() = runBlocking {
-        var fallbackCalled = false
-        val result = searchWithFallback(
-            "test",
-            { Listing("t3", ListingData(null, null, emptyList(), null, null)) },
-            { fallbackCalled = true; throw AssertionError("must not run") }
-        )
-        assertEquals("t3", result.kind)
-        assertTrue("fallback must not run on success", !fallbackCalled)
-    }
+class SearchLaneTest {
 
     // --- old.reddit scraping search ---------------------------------------------------
 

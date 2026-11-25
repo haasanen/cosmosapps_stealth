@@ -60,17 +60,7 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // 2026-11-25: the www sources' in-subreddit SSR search hits the same
-        // network-security wall as global search; arctic answers it for real
-        // (subreddit-scoped title/selftext search — live-verified).
-        return when (sourceType) {
-            DataPreferences.RedditSource.ARCTIC -> source.searchInSubreddit(subreddit, query, sort, timeSorting, after)
-            else -> searchWithFallback(
-                "insub/${sourceType.name.lowercase()}",
-                { source.searchInSubreddit(subreddit, query, sort, timeSorting, after) },
-                { arcticShiftSource.searchInSubreddit(subreddit, query, sort, timeSorting, after) }
-            )
-        }
+        return source.searchInSubreddit(subreddit, query, sort, timeSorting, after)
     }
 
     override suspend fun getPost(permalink: String, limit: Int?, sort: Sort): List<Listing> {
@@ -112,25 +102,11 @@ class CurrentSource @Inject constructor(
     ): Listing {
         // Arctic has its own (prefix-based) search; the "Reddit (official)" source has a
         // working live full-text search; the other sources fall back to the official API
-        // (TODO: Replace by source when an endpoint is available for Teddit).
-        // 2026-11-25: reddit's network security BLOCKS the JS-challenge resubmit for
-        // /search/ on every non-JS client (challenge page -> solved GET -> 403
-        // "You've been blocked by network security", fixture-captured; reddit.com/search.json
-        // and api.reddit.com/search 403 outright). The www lanes therefore chain to the
-        // old.reddit scraping source (which may itself interstitial -> the error the UI
-        // shows names both layers via FeedDebug).
+        // (TODO: Replace by source when an endpoint is available for Teddit)
         return when (sourceType) {
             DataPreferences.RedditSource.ARCTIC -> source.searchPost(query, sort, timeSorting, after)
-            DataPreferences.RedditSource.REDDIT_OFFICIAL -> searchWithFallback(
-                "post/official",
-                { redditOfficialSource.searchPost(query, sort, timeSorting, after) },
-                { redditScrapingSource.searchPost(query, sort, timeSorting, after) }
-            )
-            else -> searchWithFallback(
-                "post/json",
-                { redditSource.searchPost(query, sort, timeSorting, after) },
-                { redditScrapingSource.searchPost(query, sort, timeSorting, after) }
-            )
+            DataPreferences.RedditSource.REDDIT_OFFICIAL -> source.searchPost(query, sort, timeSorting, after)
+            else -> redditSource.searchPost(query, sort, timeSorting, after)
         }
     }
 
@@ -141,21 +117,14 @@ class CurrentSource @Inject constructor(
         after: String?
     ): Listing {
         // The official reddit.com user search (challenge-solving) is the only
-        // RELIABLE full-list path, so it serves every selected source:
+        // RELIABLE path, so it serves every selected source:
         //  - ARCTIC's `/api/users/search` is prefix-only (no match unless the
         //    query is the start of a username) and rate-limits aggressively
         //    (422 "slow down a bit" on common short prefixes) — verified live.
         //  - the old JSON `/search?type=user` endpoint (the previous "fallback")
         //    returns the 8KB JS-challenge HTML page, not JSON, so parsing always
         //    threw → the "Something went wrong" banner (2026-09-18 report).
-        // 2026-11-25: the official lane now ALSO hits the network-security block
-        // (see searchPost), so it gets a fallback: arctic's prefix search. Degraded
-        // (only matches usernames STARTING with the query) but real data, not an error.
-        return searchWithFallback(
-            "user/official",
-            { redditOfficialSource.searchUser(query, sort, timeSorting, after) },
-            { arcticShiftSource.searchUser(query, sort, timeSorting, after) }
-        )
+        return redditOfficialSource.searchUser(query, sort, timeSorting, after)
     }
 
     override suspend fun searchSubreddit(
@@ -164,17 +133,7 @@ class CurrentSource @Inject constructor(
         timeSorting: TimeSorting?,
         after: String?
     ): Listing {
-        // 2026-11-25: chain to arctic's subreddit-prefix search (live-verified
-        // `/api/subreddits/search?subreddit_prefix=`) when the selected source's lane
-        // is blocked — for the www sources that is the same network-security wall.
-        return when (sourceType) {
-            DataPreferences.RedditSource.ARCTIC -> source.searchSubreddit(query, sort, timeSorting, after)
-            else -> searchWithFallback(
-                "subreddit/${sourceType.name.lowercase()}",
-                { source.searchSubreddit(query, sort, timeSorting, after) },
-                { arcticShiftSource.searchSubreddit(query, sort, timeSorting, after) }
-            )
-        }
+        return source.searchSubreddit(query, sort, timeSorting, after)
     }
 
     suspend fun setRedditSource(value: Int) {
@@ -194,23 +153,4 @@ class CurrentSource @Inject constructor(
             DataPreferences.RedditSource.REDDIT_ATOM -> redditAtomSource
         }
     }
-}
-
-/**
- * Runs [primary]; on any failure logs the reason to FeedDebug and runs [fallback].
- * A failure in the fallback propagates (it is the last layer).
- */
-internal suspend fun searchWithFallback(
-    lane: String,
-    primary: suspend () -> Listing,
-    fallback: suspend () -> Listing
-): Listing {
-    try {
-        return primary()
-    } catch (e: Exception) {
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-            "search $lane failed (${e.javaClass.simpleName}: ${e.message}); falling back"
-        )
-    }
-    return fallback()
 }
