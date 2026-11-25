@@ -102,7 +102,10 @@ class RedditOfficialSourceTest {
                 path.startsWith("/r/") -> "insub_search1.html"
                 else -> "fv3_search0.html"
             }
-            Regex("^/r/[a-zA-Z0-9_]+/$").containsMatchIn(path) -> "vp_about.html"
+            Regex("^/r/[a-zA-Z0-9_]+/$").containsMatchIn(path) -> when {
+                path == "/r/Piracy/" -> "piracy_about.html"
+                else -> "vp_about.html"
+            }
             path.contains("/r/Android/hot/") -> "ra_android_p1.html"
             else -> "ra_android_p1.html"
         }
@@ -293,6 +296,22 @@ class RedditOfficialSourceTest {
         assertTrue(about.displayName.startsWith("Linux, GNU/Linux"))
         assertEquals(315639, about.activeUserCount)
         assertTrue(about.publicDescriptionHtml?.contains("Welcome to /r/Linux!") == true)
+    }
+
+    @Test
+    fun `subreddit about folds decorative faux-small-cap display-name`() = runBlocking {
+        // Owner screenshot of 2.5.106: r/Piracy header renders "SA?L ... H?GH"
+        // because reddit's display-name attribute carries faux-small-cap
+        // codepoints Android has no glyph for (U+026A). The screen headline
+        // binds exactly this field (layout_subreddit_content.xml:49), so the
+        // source must hand it folded. Fixture carries the wire codepoints
+        // measured 2026-11-25 (U+A731 1D00 026A 029F ... full list in
+        // DecorativeTitlesTest).
+        val child = source.getSubredditInfo("Piracy") as AboutChild
+        val about = child.data
+        assertEquals("Piracy", about.title)
+        assertEquals("Piracy: SAIL THE HIGH SEAS", about.displayName)
+        assertEquals(350_000, about.subscribers)
     }
 
     //endregion

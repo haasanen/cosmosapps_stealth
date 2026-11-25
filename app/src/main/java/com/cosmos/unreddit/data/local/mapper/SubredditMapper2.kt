@@ -20,13 +20,17 @@ class SubredditMapper2 @Inject constructor(
         with(from) {
             return SubredditEntity(
                 wikiEnabled ?: false,
-                displayName,
+                // The subreddit screen's headline view binds displayName
+                // (layout_subreddit_content.xml:49), and reddit's
+                // shreddit-subreddit-header display-name attribute carries the
+                // decorative faux-small-cap string there (r/Piracy: LATIN LETTER
+                // SMALL CAPITAL codepoints → tofu boxes for missing glyphs like
+                // U+026A). Fold both display fields: the official source
+                // synthesises title=name while display-name holds the fancy
+                // string; other sources may put it in either. Fold is idempotent
+                // on ASCII; see util/DecorativeTitles for the table and evidence.
+                DecorativeTitles.fold(displayName),
                 getHeader(),
-                // Decorative faux-small-cap titles (r/Piracy's title is written
-                // with LATIN LETTER SMALL CAPITAL codepoints) render as tofu
-                // boxes where platform fonts lack the glyph (e.g. U+026A).
-                // Fold them to the capitals the author intended; see
-                // util/DecorativeTitles for the table and evidence.
                 DecorativeTitles.fold(title),
                 getPrimaryColor(),
                 activeUserCount,

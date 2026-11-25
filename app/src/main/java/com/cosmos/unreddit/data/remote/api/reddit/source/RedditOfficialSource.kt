@@ -21,6 +21,7 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.PostData
 import com.cosmos.unreddit.di.DispatchersModule.IoDispatcher
 import com.cosmos.unreddit.di.NetworkModule.RedditMoshi
 import com.cosmos.unreddit.di.NetworkModule.RedditScrapOkHttp
+import com.cosmos.unreddit.util.DecorativeTitles
 import com.cosmos.unreddit.util.extension.interlace
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.JsonWriter
@@ -2055,7 +2056,16 @@ class RedditOfficialSource @Inject constructor(
     private fun buildAboutData(sub: String, doc: Document): AboutData {
         val header = doc.selectFirst("shreddit-subreddit-header")
         val name = header?.attr("name")?.ifBlank { sub } ?: sub
-        val displayName = header?.attr("display-name")?.ifBlank { name } ?: name
+        // reddit's display-name attribute carries the subreddit's display
+        // string, which may be faux-small-cap decoration (r/Piracy: LATIN
+        // LETTER SMALL CAPITAL codepoints). Android lacks glyphs for some of
+        // them (U+026A → tofu box on the owner's screenshot of 2.5.106). The
+        // subreddit screen headline binds exactly this field, so fold at the
+        // wire boundary; fold is idempotent on ordinary names. See
+        // util/DecorativeTitles for the measured table and evidence.
+        val displayName = DecorativeTitles.fold(
+            header?.attr("display-name")?.ifBlank { name } ?: name
+        )
         val description = header?.attr("description")?.ifBlank { "" } ?: ""
         val weeklyActive = header?.attr("weekly-active-users")?.takeIf { it.isNotBlank() }
             ?.replace(Regex("[^0-9]"), "")?.toIntOrNull()
