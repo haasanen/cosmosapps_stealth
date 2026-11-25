@@ -1,13 +1,19 @@
 package com.cosmos.unreddit.ui.web
 
+import android.util.Log
 import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import com.cosmos.unreddit.util.SearchWebUrls
 
 /**
@@ -41,6 +47,28 @@ object RedditWebView {
             WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, true)
         }
         webView.isVerticalScrollBarEnabled = false
+        // Diagnostics into FeedDebug (logcat tag FeedDbg + the app's
+        // launch_diag.txt file): a WebView search failure is invisible in a plain
+        // logcat unless the WebView itself reports — and reddit JS errors and
+        // load failures are exactly what a capture must contain (2026-11-25: a
+        // user logcat from a failing build contained only lifecycle noise,
+        // because nothing in the search path ever logged).
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                val line = "search web console [${message.messageLevel()}] " +
+                    "${message.message()} @${message.sourceId()}:${message.lineNumber()}"
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                    FeedDebug.log(line)
+                } else {
+                    try {
+                        Log.d(FeedDebug.TAG, line)
+                    } catch (t: Throwable) {
+                        // Off-device (JVM unit tests): no Log impl.
+                    }
+                }
+                return true
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
@@ -58,7 +86,37 @@ object RedditWebView {
                 return true
             }
 
+            override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                FeedDebug.log("search web: start $url")
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceError
+            ) {
+                if (request.isForMainFrame) {
+                    FeedDebug.log(
+                        "search web FAIL main=${request.url} code=${errorResponse.errorCode} " +
+                            "desc=${errorResponse.description}"
+                    )
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceResponse
+            ) {
+                if (request.isForMainFrame) {
+                    FeedDebug.log(
+                        "search web HTTP ${errorResponse.statusCode} main=${request.url}"
+                    )
+                }
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
+                FeedDebug.log("search web: done $url")
                 view.evaluateJavascript(BANNER_JS, null)
             }
         }
