@@ -107,20 +107,6 @@ class PreferencesRepository @Inject constructor(
         )
     }
 
-    suspend fun setRedditSource(redditSource: Int) {
-        preferencesDatastore.setValue(
-            DataPreferences.PreferencesKeys.REDDIT_SOURCE,
-            redditSource
-        )
-    }
-
-    fun getRedditSource(defaultValue: Int = DataPreferences.RedditSource.REDDIT_OFFICIAL.value): Flow<Int> {
-        return preferencesDatastore.getValue(
-            DataPreferences.PreferencesKeys.REDDIT_SOURCE,
-            defaultValue
-        )
-    }
-
     /**
      * How long (in hours) a cached home-feed post stays usable before it is re-fetched.
      * Defaults to 24 h; the user can raise it (up to a week) when they only open the app
@@ -136,20 +122,6 @@ class PreferencesRepository @Inject constructor(
     fun getCacheTtlHours(defaultValue: Int = 24): Flow<Int> {
         return preferencesDatastore.getValue(
             DataPreferences.PreferencesKeys.CACHE_TTL_HOURS,
-            defaultValue
-        )
-    }
-
-    suspend fun setRedditSourceInstance(instance: String) {
-        preferencesDatastore.setValue(
-            DataPreferences.PreferencesKeys.REDDIT_SOURCE_INSTANCE,
-            instance
-        )
-    }
-
-    fun getRedditSourceInstance(defaultValue: String = ""): Flow<String> {
-        return preferencesDatastore.getValue(
-            DataPreferences.PreferencesKeys.REDDIT_SOURCE_INSTANCE,
             defaultValue
         )
     }

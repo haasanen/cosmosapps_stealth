@@ -11,7 +11,6 @@ import com.cosmos.unreddit.data.model.Sorting
 import com.cosmos.unreddit.data.model.db.PostEntity
 import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.ContentPreferences
-import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.data.repository.PostListRepository
 import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.di.DispatchersModule.DefaultDispatcher
@@ -119,9 +118,7 @@ class PostListViewModel
      * flow — which must not start while the official source is selected — fire its
      * fan-out for the milliseconds before the DataStore finishes loading.
      */
-    val usesCoordinator: StateFlow<Boolean?> = preferencesRepository.getRedditSource()
-        .map { it == DataPreferences.RedditSource.REDDIT_OFFICIAL.value }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val usesCoordinator: StateFlow<Boolean?> = MutableStateFlow(true)
 
     /** Live progressive state from the coordinator (official source). */
     val feedState: StateFlow<FeedCoordinator.FeedState> = feedCoordinator.state

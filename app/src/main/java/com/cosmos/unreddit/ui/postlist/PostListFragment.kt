@@ -28,7 +28,6 @@ import com.cosmos.unreddit.data.model.db.Profile
 import com.cosmos.unreddit.data.model.preferences.DataPreferences
 import com.cosmos.unreddit.data.remote.api.reddit.source.RedditOfficialSource
 import com.cosmos.unreddit.data.repository.PostListRepository
-import com.cosmos.unreddit.data.repository.PreferencesRepository
 import com.cosmos.unreddit.databinding.FragmentPostBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
 import com.cosmos.unreddit.ui.common.widget.PullToRefreshLayout
@@ -105,9 +104,6 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
 
     @Inject
     lateinit var repository: PostListRepository
-
-    @Inject
-    lateinit var preferencesRepository: PreferencesRepository
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -313,14 +309,6 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                 viewModel.usesCoordinator.collect { active ->
                     FeedDebug.log("usesCoordinator -> $active")
                     if (active != null) applyListMode(active)
-                }
-            }
-
-            // TEMP diagnostics: resolve the raw source preference for the panel.
-            launch {
-                preferencesRepository.getRedditSource().collect { v ->
-                    FeedDebug.lastSourcePref.set("$v")
-                    FeedDebug.log("source pref = $v")
                 }
             }
 

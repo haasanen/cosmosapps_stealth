@@ -51,11 +51,6 @@
         app:title="@string/preference_category_data">
 
         <Preference
-            app:key="reddit_source"
-            app:title="@string/preference_reddit_source"
-            app:persistent="false"/>
-
-        <Preference
             app:key="cache_ttl_hours"
             app:title="@string/preference_cache_ttl"
             app:persistent="false"/>

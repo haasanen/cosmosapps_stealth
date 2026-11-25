@@ -1,21 +1,11 @@
 package com.cosmos.unreddit.di
 
-import com.cosmos.unreddit.data.remote.RawJsonInterceptor
-import com.cosmos.unreddit.data.remote.TargetRedditInterceptor
 import com.cosmos.unreddit.data.remote.api.gfycat.GfycatApi
 import com.cosmos.unreddit.data.remote.api.imgur.ImgurApi
 import com.cosmos.unreddit.data.remote.api.imgur.adapter.AlbumDataAdapter
-import com.cosmos.unreddit.data.remote.api.reddit.ArcticApi
-import com.cosmos.unreddit.data.remote.api.reddit.ArcticUserAgentInterceptor
 import com.cosmos.unreddit.data.remote.api.reddit.EmbedApi
 import com.cosmos.unreddit.data.remote.api.reddit.EmbedUserAgentInterceptor
-import com.cosmos.unreddit.data.remote.api.reddit.JsonInterceptor
-import com.cosmos.unreddit.data.remote.api.reddit.RedditApi
 import com.cosmos.unreddit.data.remote.api.reddit.RedditCookieJar
-import com.cosmos.unreddit.data.remote.api.reddit.RedditRssApi
-import com.cosmos.unreddit.data.remote.api.reddit.RedditRssUserAgentInterceptor
-import com.cosmos.unreddit.data.remote.api.reddit.SortingConverterFactory
-import com.cosmos.unreddit.data.remote.api.reddit.TedditApi
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.EditedAdapter
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.MediaMetadataAdapter
 import com.cosmos.unreddit.data.remote.api.reddit.adapter.NullToEmptyStringAdapter
@@ -29,17 +19,12 @@ import com.cosmos.unreddit.data.remote.api.reddit.model.MoreChild
 import com.cosmos.unreddit.data.remote.api.reddit.model.PostChild
 import com.cosmos.unreddit.data.remote.api.redgifs.RedgifsApi
 import com.cosmos.unreddit.data.remote.api.streamable.StreamableApi
-import com.cosmos.unreddit.data.repository.PreferencesRepository
-import com.cosmos.unreddit.util.LinkValidator
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.runBlocking
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -47,6 +32,12 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
+/**
+ * Networking for the single official reddit backend (owner decision
+ * 2026-11-25: "We use official reddit only" — the Teddit / Arctic Shift /
+ * old.reddit scraping / legacy-JSON / Atom-RSS clients and their retrofit
+ * APIs were removed with the source-selection feature).
+ */
 @InstallIn(SingletonComponent::class)
 @Module
 object NetworkModule {
@@ -67,43 +58,12 @@ object NetworkModule {
 
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
-    annotation class RedditOkHttp
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class TedditOkHttp
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
     annotation class GenericOkHttp
 
+    /** Client used by [RedditOfficialSource] (cookie jar + no JSON converters). */
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
     annotation class RedditScrapOkHttp
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class RedditOfficial
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class RedditScrap
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class Arctic
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class ArcticOkHttp
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class Rss
-
-    @Qualifier
-    @Retention(AnnotationRetention.BINARY)
-    annotation class RssOkHttp
 
     @Qualifier
     @Retention(AnnotationRetention.BINARY)
@@ -148,32 +108,6 @@ object NetworkModule {
             .build()
     }
 
-    @RedditOkHttp
-    @Provides
-    @Singleton
-    fun provideRedditOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .addInterceptor(RawJsonInterceptor())
-            .addInterceptor(JsonInterceptor())
-            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
-            .readTimeout(TIMEOUT.first, TIMEOUT.second)
-            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
-            .build()
-    }
-
-    @TedditOkHttp
-    @Provides
-    @Singleton
-    fun provideTedditOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .addInterceptor(RawJsonInterceptor())
-            .addInterceptor(TargetRedditInterceptor())
-            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
-            .readTimeout(TIMEOUT.first, TIMEOUT.second)
-            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
-            .build()
-    }
-
     @GenericOkHttp
     @Provides
     @Singleton
@@ -195,65 +129,6 @@ object NetworkModule {
             .writeTimeout(TIMEOUT.first, TIMEOUT.second)
             .cookieJar(RedditCookieJar())
             .build()
-    }
-
-    @RedditOfficial
-    @Provides
-    @Singleton
-    fun provideRedditApi(
-        @RedditMoshi moshi: Moshi,
-        @RedditOkHttp okHttpClient: OkHttpClient
-    ): RedditApi {
-        return Retrofit.Builder()
-            .baseUrl(RedditApi.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .addConverterFactory(SortingConverterFactory())
-            .client(okHttpClient)
-            .build()
-            .create(RedditApi::class.java)
-    }
-
-    @RedditScrap
-    @Provides
-    @Singleton
-    fun provideRedditScrapingApi(
-        @RedditMoshi moshi: Moshi,
-        @RedditScrapOkHttp okHttpClient: OkHttpClient
-    ): RedditApi {
-        return Retrofit.Builder()
-            .baseUrl(RedditApi.BASE_URL_OLD)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .addConverterFactory(SortingConverterFactory())
-            .client(okHttpClient)
-            .build()
-            .create(RedditApi::class.java)
-    }
-
-    @Provides
-    @Singleton
-    fun provideTedditApi(
-        @RedditMoshi moshi: Moshi,
-        @TedditOkHttp okHttpClient: OkHttpClient,
-        preferencesRepository: PreferencesRepository
-    ): TedditApi {
-        // Get the saved instance unless it's empty, then take Teddit's default instance
-        val url = runBlocking {
-            preferencesRepository
-                .getRedditSourceInstance()
-                .firstOrNull()
-                .takeUnless { it.isNullOrEmpty() }
-                ?: TedditApi.BASE_URL
-        }
-
-        val httpUrl = LinkValidator(url).validUrl ?: TedditApi.BASE_URL.toHttpUrl()
-
-        return Retrofit.Builder()
-            .baseUrl(httpUrl)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .addConverterFactory(SortingConverterFactory())
-            .client(okHttpClient)
-            .build()
-            .create(TedditApi::class.java)
     }
 
     @Provides
@@ -310,59 +185,6 @@ object NetworkModule {
             .client(okHttpClient)
             .build()
             .create(RedgifsApi::class.java)
-    }
-
-    @ArcticOkHttp
-    @Provides
-    @Singleton
-    fun provideArcticOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .addInterceptor(ArcticUserAgentInterceptor())
-            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
-            .readTimeout(TIMEOUT.first, TIMEOUT.second)
-            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
-            .build()
-    }
-
-    @Arctic
-    @Provides
-    @Singleton
-    fun provideArcticApi(
-        @RedditMoshi moshi: Moshi,
-        @ArcticOkHttp okHttpClient: OkHttpClient
-    ): ArcticApi {
-        return Retrofit.Builder()
-            .baseUrl(ArcticApi.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .client(okHttpClient)
-            .build()
-            .create(ArcticApi::class.java)
-    }
-
-    @RssOkHttp
-    @Provides
-    @Singleton
-    fun provideRssOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .addInterceptor(RedditRssUserAgentInterceptor())
-            .connectTimeout(TIMEOUT.first, TIMEOUT.second)
-            .readTimeout(TIMEOUT.first, TIMEOUT.second)
-            .writeTimeout(TIMEOUT.first, TIMEOUT.second)
-            .build()
-    }
-
-    @Rss
-    @Provides
-    @Singleton
-    fun provideRedditRssApi(
-        @RssOkHttp okHttpClient: OkHttpClient
-    ): RedditRssApi {
-        // ResponseBody needs no converter factory
-        return Retrofit.Builder()
-            .baseUrl(RedditRssApi.BASE_URL)
-            .client(okHttpClient)
-            .build()
-            .create(RedditRssApi::class.java)
     }
 
     @EmbedOkHttp

@@ -35,7 +35,6 @@ object FeedDebug {
     val legacyEmissions = AtomicInteger(0)
     val lastTrigger = AtomicReference("none")
     val lastRefreshArgs = AtomicReference("none")
-    val lastSourcePref = AtomicReference("none")
 
     /** Call once from Application.onCreate, before any other milestone. */
     fun init(context: Context) {
