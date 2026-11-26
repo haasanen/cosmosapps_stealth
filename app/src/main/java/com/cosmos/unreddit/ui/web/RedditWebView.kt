@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.ui.web
 
+import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -10,6 +11,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.UserAgentMetadata
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.cosmos.unreddit.ui.base.BaseFragment
@@ -40,6 +42,66 @@ object RedditWebView {
             @Suppress("DEPRECATION")
             databaseEnabled = true
             userAgentString = SearchWebUrls.cleanUserAgent(userAgentString)
+            // The UA string alone does NOT fool reddit's gate: the Sec-CH-UA
+            // client hints still say `"Android WebView"` and the owner's
+            // device log (2026-11-26, vc207) shows the challenge resubmit
+            // taking a main-frame 403 for exactly that fingerprint — while
+            // the owner's Fennec browser (Gecko, NO Sec-CH-UA at all) loads
+            // the same search on the same device/IP. The gate is therefore
+            // anti-"WebView identity", not pro-Chromium. The
+            // USER_AGENT_METADATA override (WebView M125+) rewrites the
+            // Sec-CH-UA* request headers AND navigator.userAgentData
+            // consistently from one metadata object — brands Chrome/Chromium,
+            // versions copied from the engine's own Chrome/x.y.z.w token so
+            // nothing disagrees. Feature-gated: older WebViews keep the
+            // string-only behaviour (2.5.107 status quo), never a crash.
+            val chromeFull = SearchWebUrls.chromeFullVersion(userAgentString)
+            if (chromeFull != null &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)
+            ) {
+                try {
+                    val major = chromeFull.substringBefore('.')
+                    val metadata = UserAgentMetadata.Builder()
+                        .setBrandVersionList(
+                            listOf(
+                                UserAgentMetadata.BrandVersion.Builder()
+                                    .setBrand("Google Chrome")
+                                    .setMajorVersion(major)
+                                    .setFullVersion(chromeFull)
+                                    .build(),
+                                UserAgentMetadata.BrandVersion.Builder()
+                                    .setBrand("Chromium")
+                                    .setMajorVersion(major)
+                                    .setFullVersion(chromeFull)
+                                    .build(),
+                                UserAgentMetadata.BrandVersion.Builder()
+                                    .setBrand("Not_A Brand")
+                                    .setMajorVersion("24")
+                                    .setFullVersion("24.0.0.0")
+                                    .build()
+                            )
+                        )
+                        .setFullVersion(chromeFull)
+                        .setPlatform("Android")
+                        .setPlatformVersion(Build.VERSION.RELEASE + ".0")
+                        .setModel(Build.MODEL)
+                        .setMobile(true)
+                        .setBitness(64)
+                        .setWow64(false)
+                        .setArchitecture("arm64")
+                        .build()
+                    WebSettingsCompat.setUserAgentMetadata(this, metadata)
+                    FeedDebug.log("search web: UA-CH override Chrome $chromeFull (Android ${Build.VERSION.RELEASE}, ${Build.MODEL})")
+                } catch (t: Throwable) {
+                    FeedDebug.log("search web: UA-CH override FAILED $t")
+                }
+            } else {
+                FeedDebug.log(
+                    "search web: no UA-CH override (feature=" +
+                        WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA) +
+                        " chromeToken=$chromeFull)"
+                )
+            }
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
             // Reddit's web UI follows prefers-color-scheme; allow the WebView to

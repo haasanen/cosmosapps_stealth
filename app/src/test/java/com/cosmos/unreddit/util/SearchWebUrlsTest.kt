@@ -2,6 +2,7 @@ package com.cosmos.unreddit.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -76,6 +77,19 @@ class SearchWebUrlsTest {
         assertTrue(cleaned.contains("Chrome/140.0.7339.207"))
         // UAs without the marker are untouched.
         assertEquals("Chrome/140", SearchWebUrls.cleanUserAgent("Chrome/140"))
+    }
+
+    @Test
+    fun `chrome full-version token is extracted for the UA-CH override`() {
+        val phoneUa = "Mozilla/5.0 (Linux; Android 17; Pixel 10a) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Version/4.0 Chrome/141.0.7339.116 Mobile Safari/537.36"
+        assertEquals("141.0.7339.116", SearchWebUrls.chromeFullVersion(phoneUa))
+        // A Gecko-style UA (the owner's Fennec browser) has no Chrome token:
+        // the override must then be SKIPPED, never fabricated.
+        assertNull(SearchWebUrls.chromeFullVersion(
+            "Mozilla/5.0 (Android 17; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0"
+        ))
+        assertNull(SearchWebUrls.chromeFullVersion("Chrome/"))
     }
 
     @Test

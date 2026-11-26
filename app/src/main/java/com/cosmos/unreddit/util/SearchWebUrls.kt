@@ -49,10 +49,23 @@ object SearchWebUrls {
     /**
      * Reddit's network gate treats the WebView's "; wv" marker as a generic
      * embedded client; removing only that marker keeps the engine's real
-     * Chrome identity. (Measured: the same page 403s a "client-ish" UA and
-     * loads for an honest Chrome UA.)
+     * Chrome identity. Necessary but NOT sufficient: the owner's device log
+     * of 2026-11-26 (vc207) shows the cleaned-string WebView still taking a
+     * main-frame 403 on the challenge resubmit, because the Sec-CH-UA client
+     * hints keep declaring "Android WebView" no matter what the UA string
+     * says. The companion fix is the UA-CH metadata override in
+     * ui/web/RedditWebView.kt (USER_AGENT_METADATA feature).
      */
     fun cleanUserAgent(userAgent: String): String = userAgent.replace("; wv)", ")")
+
+    /**
+     * The Chromium full-version token (`x.y.z.w`) inside a UA string, used to
+     * build a consistent Sec-CH-UA brand list. Null when the UA carries no
+     * `Chrome/` token (then the caller must skip the metadata override
+     * rather than fabricate versions).
+     */
+    fun chromeFullVersion(userAgent: String): String? =
+        Regex("Chrome/(\\d+(?:\\.\\d+)*)").find(userAgent)?.groupValues?.get(1)
 
     private val SEARCH_PATH = Regex("""/search(/.*)?|/r/[^/]+/search(/.*)?""")
 

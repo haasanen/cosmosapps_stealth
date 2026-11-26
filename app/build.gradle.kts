@@ -130,7 +130,7 @@ dependencies {
     implementation("com.google.android.material:material:${Dependencies.Versions.material}")
 
     implementation("androidx.browser:browser:${Dependencies.Versions.browser}")
-    implementation("androidx.webkit:webkit:1.10.0")
+    implementation("androidx.webkit:webkit:1.15.0")
 
     implementation("androidx.core:core-splashscreen:${Dependencies.Versions.splashscreen}")
 
