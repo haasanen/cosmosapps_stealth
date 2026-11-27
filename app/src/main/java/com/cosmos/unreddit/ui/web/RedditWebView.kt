@@ -1,7 +1,6 @@
 package com.cosmos.unreddit.ui.web
 
 import android.os.Build
-import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.ConsoleMessage
@@ -38,11 +37,9 @@ object RedditWebView {
         host: BaseFragment,
         onBlocked: ((String) -> Unit)? = null
     ) {
-        // reddit's own JS spams console ERROR (ads, telemetry, captcha hooks);
-        // unbounded, that noise alone grew launch_diag.txt past 80 MB. Keep the
-        // first [CONSOLE_ERRORS_KEPT] per WebView; the rest gets one summary.
-        val consoleKept = java.util.concurrent.atomic.AtomicInteger(0)
-        var consoleCappedLogged = false
+        // Console messages from reddit's own JS go to the system log UNLIMITED
+        // (owner ruling 2026-11-27: no self-imposed write limits — the log
+        // buffer's own rotation decides what survives).
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -118,8 +115,8 @@ object RedditWebView {
             WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, true)
         }
         webView.isVerticalScrollBarEnabled = false
-        // Diagnostics into FeedDebug (logcat tag FeedDbg + the app's
-        // launch_diag.txt file): a WebView search failure is invisible in a plain
+        // Diagnostics into FeedDebug (system log, tag FeedDbg): a WebView
+        // search failure is invisible in a plain
         // logcat unless the WebView itself reports — and reddit JS errors and
         // load failures are exactly what a capture must contain (2026-11-25: a
         // user logcat from a failing build contained only lifecycle noise,
@@ -128,20 +125,7 @@ object RedditWebView {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 val line = "search web console [${message.messageLevel()}] " +
                     "${message.message()} @${message.sourceId()}:${message.lineNumber()}"
-                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                    if (consoleKept.incrementAndGet() <= CONSOLE_ERRORS_KEPT) {
-                        FeedDebug.log(line)
-                    } else if (!consoleCappedLogged) {
-                        consoleCappedLogged = true
-                        FeedDebug.log("search web console: further ERROR lines suppressed")
-                    }
-                } else {
-                    try {
-                        Log.d(FeedDebug.TAG, line)
-                    } catch (t: Throwable) {
-                        // Off-device (JVM unit tests): no Log impl.
-                    }
-                }
+                FeedDebug.log(line)
                 return true
             }
         }
@@ -237,8 +221,6 @@ object RedditWebView {
     /** Best-effort removal of reddit's "Open in the app" promo banners — they
      *  advertise a different (Play Store) build inside this app. Selectors are
      *  best-effort; a no-op when nothing matches. */
-    private const val CONSOLE_ERRORS_KEPT = 25
-
     /** First visible text of the served document — the block/captcha page
      *  identifies itself by wording, which no header tells us. */
     private const val SNIPPET_JS =

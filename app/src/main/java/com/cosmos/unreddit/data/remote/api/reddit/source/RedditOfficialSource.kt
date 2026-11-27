@@ -2364,7 +2364,7 @@ class RedditOfficialSource @Inject constructor(
 
         /**
          * TEMP (2026-10-24): one diagnostic line per user-listing fetch, written to
-         * launch_diag.txt via FeedDebug. Three live hypotheses predict different
+         * the system log via FeedDebug. Three live hypotheses predict different
          * values on the user's phone: private profile (hidden-msg=true, cards=0),
          * logged-out gate (all markers false-ish, cards=0), markup drift
          * (augmented=true but cards=0). Pure function: assertable without IO.

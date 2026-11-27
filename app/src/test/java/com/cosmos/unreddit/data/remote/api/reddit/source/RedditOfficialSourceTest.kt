@@ -812,7 +812,7 @@ class RedditOfficialSourceTest {
     //endregion
 
     // TEMP diagnostics (2026-10-24, empty user listings): one line per user-listing
-    // fetch into launch_diag.txt. Three live hypotheses (private profile / logged-out
+    // fetch into the system log (FeedDbg). Three live hypotheses (private profile / logged-out
     // gate / markup drift) predict different values here; only the user's phone can
     // tell them apart. Pure function so it is assertable without the file channel.
     @Test
