@@ -19,6 +19,10 @@ sealed interface BaseRedditSource {
 
     suspend fun getSubredditInfo(subreddit: String): Child
 
+    /** One-line diagnostic summary of what the NATIVE lane gets from reddit's
+     *  search endpoint (see RedditOfficialSource; added 2026-11-27). */
+    suspend fun probeSearch(query: String): String
+
     suspend fun searchInSubreddit(
         subreddit: String,
         query: String,

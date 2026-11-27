@@ -73,6 +73,10 @@ class SearchWebUrlsTest {
             "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.7339.207 Mobile Safari/537.36"
         val cleaned = SearchWebUrls.cleanUserAgent(phoneUa)
         assertFalse(cleaned.contains("; wv"))
+        // "Version/4.0" is a WebView-only token: real Chrome never sends it, so
+        // leaving it in hands gatekeepers a tell even with brands fixed
+        // (2.5.108 proved brands metadata alone does not pass reddit's search).
+        assertFalse(cleaned.contains("Version/"))
         assertTrue(cleaned.contains("Pixel 10a Build/BP4A.251740.100) AppleWebKit"))
         assertTrue(cleaned.contains("Chrome/140.0.7339.207"))
         // UAs without the marker are untouched.

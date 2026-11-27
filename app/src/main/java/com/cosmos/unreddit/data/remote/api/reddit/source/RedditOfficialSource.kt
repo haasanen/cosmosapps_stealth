@@ -533,6 +533,26 @@ class RedditOfficialSource @Inject constructor(
 
     //endregion
 
+    /**
+     * 2.5.109 search diagnostic: fetch reddit search the way the native lane
+     * fetches everything else (same OkHttp client, JS-challenge solver and
+     * cookie jar — a path proven to pass reddit's challenges on feeds and
+     * post detail on the owner's device) and summarize the outcome in one
+     * log-safe string. `OK cards=N` with N>0 proves the gate is passable by a
+     * non-WebView client; FAIL lines show the exact rejection. Never throws.
+     */
+    override suspend fun probeSearch(query: String): String = withContext(ioDispatcher) {
+        val url = "https://www.reddit.com/search/?q=" +
+            java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+        try {
+            val body = fetchPage(url)
+            val cards = Jsoup.parse(body).select("shreddit-post").size
+            "OK cards=$cards bytes=${body.length}"
+        } catch (t: Throwable) {
+            "FAIL ${t.javaClass.simpleName}: ${t.message}"
+        }
+    }
+
     override suspend fun getSubredditInfo(subreddit: String): Child = withContext(ioDispatcher) {
         var name = subreddit
         var doc = Jsoup.parse(fetchPage("https://www.reddit.com/r/$name/"))

@@ -56,7 +56,8 @@ object SearchWebUrls {
      * says. The companion fix is the UA-CH metadata override in
      * ui/web/RedditWebView.kt (USER_AGENT_METADATA feature).
      */
-    fun cleanUserAgent(userAgent: String): String = userAgent.replace("; wv)", ")")
+    fun cleanUserAgent(userAgent: String): String =
+        userAgent.replace("; wv)", ")").replace(" Version/4.0", "")
 
     /**
      * The Chromium full-version token (`x.y.z.w`) inside a UA string, used to

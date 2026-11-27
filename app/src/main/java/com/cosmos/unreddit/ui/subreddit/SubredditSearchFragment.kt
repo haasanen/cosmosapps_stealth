@@ -59,7 +59,9 @@ class SubredditSearchFragment : BaseFragment() {
         initAppBar()
         bindViewModel()
 
-        RedditWebView.setup(binding.webSearch, this)
+        RedditWebView.setup(binding.webSearch, this) {
+            viewModel.runSearchProbe(viewModel.query.value)
+        }
         loadSearch(viewModel.query.value)
     }
 

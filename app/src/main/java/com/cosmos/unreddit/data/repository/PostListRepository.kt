@@ -86,6 +86,10 @@ class PostListRepository @Inject constructor(
         emit(source.getSubredditInfo(subreddit) as AboutChild)
     }
 
+    fun probeSearch(query: String): Flow<String> = flow {
+        emit(source.probeSearch(query))
+    }
+
     //endregion
 
     //region Subscriptions

@@ -33,7 +33,16 @@ import com.cosmos.unreddit.util.SearchWebUrls
  */
 object RedditWebView {
 
-    fun setup(webView: WebView, host: BaseFragment) {
+    fun setup(
+        webView: WebView,
+        host: BaseFragment,
+        onBlocked: ((String) -> Unit)? = null
+    ) {
+        // reddit's own JS spams console ERROR (ads, telemetry, captcha hooks);
+        // unbounded, that noise alone grew launch_diag.txt past 80 MB. Keep the
+        // first [CONSOLE_ERRORS_KEPT] per WebView; the rest gets one summary.
+        val consoleKept = java.util.concurrent.atomic.AtomicInteger(0)
+        var consoleCappedLogged = false
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -120,7 +129,12 @@ object RedditWebView {
                 val line = "search web console [${message.messageLevel()}] " +
                     "${message.message()} @${message.sourceId()}:${message.lineNumber()}"
                 if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                    FeedDebug.log(line)
+                    if (consoleKept.incrementAndGet() <= CONSOLE_ERRORS_KEPT) {
+                        FeedDebug.log(line)
+                    } else if (!consoleCappedLogged) {
+                        consoleCappedLogged = true
+                        FeedDebug.log("search web console: further ERROR lines suppressed")
+                    }
                 } else {
                     try {
                         Log.d(FeedDebug.TAG, line)
@@ -174,6 +188,16 @@ object RedditWebView {
                     FeedDebug.log(
                         "search web HTTP ${errorResponse.statusCode} main=${request.url}"
                     )
+                    if (errorResponse.statusCode == 403) {
+                        // The block page's own words disambiguate WHICH gate
+                        // answered (network-security vs captcha vs login).
+                        view.postDelayed({
+                            view.evaluateJavascript(SNIPPET_JS) { r ->
+                                FeedDebug.log("search web 403 body: $r")
+                            }
+                        }, 500)
+                        onBlocked?.invoke(request.url.toString())
+                    }
                 }
             }
 
@@ -199,6 +223,14 @@ object RedditWebView {
     /** Best-effort removal of reddit's "Open in the app" promo banners — they
      *  advertise a different (Play Store) build inside this app. Selectors are
      *  best-effort; a no-op when nothing matches. */
+    private const val CONSOLE_ERRORS_KEPT = 25
+
+    /** First visible text of the served document — the block/captcha page
+     *  identifies itself by wording, which no header tells us. */
+    private const val SNIPPET_JS =
+        "(() => { try { return String(document.body.innerText).slice(0, 180); } " +
+        "catch (e) { return 'n/a'; } })()"
+
     private const val BANNER_JS =
         "(() => { for (const s of ['#AppPromotionBanner', 'faceplate-sketch-promo-banner', " +
         "'smart-banner', '[data-testid*=\"promoted-activity-app\"]']) " +

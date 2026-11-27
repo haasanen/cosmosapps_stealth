@@ -37,6 +37,9 @@ class CurrentSource @Inject constructor(
     override suspend fun getSubredditInfo(subreddit: String): Child =
         redditOfficialSource.getSubredditInfo(subreddit)
 
+    override suspend fun probeSearch(query: String): String =
+        redditOfficialSource.probeSearch(query)
+
     override suspend fun searchInSubreddit(
         subreddit: String,
         query: String,
