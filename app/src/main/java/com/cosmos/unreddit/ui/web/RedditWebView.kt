@@ -153,8 +153,14 @@ object RedditWebView {
                 val url = request.url?.toString() ?: return true
                 // Sub-frames (recaptcha, media embeds) always load in the WebView.
                 if (!request.isForMainFrame) return false
-                // Search pages stay: tabs/filters/pagination are search URLs.
-                if (SearchWebUrls.isSearchPage(url)) return false
+                // Main-frame navigations ARE the story (challenge auto-resubmit
+                // is one): log every routing decision so the chain is readable
+                // without guessing which hops happened.
+                if (SearchWebUrls.isSearchPage(url)) {
+                    FeedDebug.log("search web nav: stay $url")
+                    return false
+                }
+                FeedDebug.log("search web nav: route to app $url")
                 // Everything else — posts, subreddits, users, external links —
                 // goes through the app's deep-link router (it browser-falls-back
                 // for links it does not recognize).
@@ -185,8 +191,12 @@ object RedditWebView {
                 errorResponse: WebResourceResponse
             ) {
                 if (request.isForMainFrame) {
+                    val h = errorResponse.responseHeaders ?: emptyMap<String, String>()
+                    fun hv(k: String) = h[k]?.take(140) ?: "-"
                     FeedDebug.log(
-                        "search web HTTP ${errorResponse.statusCode} main=${request.url}"
+                        "search web HTTP ${errorResponse.statusCode} " +
+                            "(${errorResponse.reasonPhrase}) main=${request.url}" +
+                            " loc=${hv("location")} server=${hv("server")} cf-ray=${hv("cf-ray")}"
                     )
                     if (errorResponse.statusCode == 403) {
                         // The block page's own words disambiguate WHICH gate
@@ -209,6 +219,10 @@ object RedditWebView {
     }
 
     fun load(webView: WebView, url: String) {
+        // The identity actually in force when the request goes out — settings
+        // and overrides can differ from what setup() intended; one line per
+        // navigation attempt is cheap and settles identity arguments forever.
+        FeedDebug.log("search web UA: ${webView.settings.userAgentString?.take(150) ?: "n/a"}")
         webView.loadUrl(url)
     }
 

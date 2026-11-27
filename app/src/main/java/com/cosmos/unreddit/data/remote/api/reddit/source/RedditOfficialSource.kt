@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.data.remote.api.reddit.source
 
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import android.net.Uri
 import android.text.Html
 import com.cosmos.unreddit.data.model.Sort
@@ -1029,18 +1030,33 @@ class RedditOfficialSource @Inject constructor(
         var lastWasBlock = false
         for (attempt in 0 until SSR_RETRIES) {
             val body = doGet(url, "GET", forPartial = false) ?: continue
-            if (isCloudflareChallenge(body)) {
+            val marker = cfMarker(body)
+            if (marker != null) {
                 lastError = "Cloudflare challenge page"
                 lastWasBlock = true
+                FeedDebug.log("fetchPage attempt=$attempt: CF page marker=$marker len=${body.length} url=$url")
                 if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
                 continue
             }
             val solved = solveJsChallenge(body, url)
-            if (solved != null) return solved
-            if (parseJsChallenge(body) == null) return body // not a challenge: real page
+            if (solved != null) {
+                FeedDebug.log("fetchPage: JS challenge solved len=${solved.length} url=$url")
+                return solved
+            }
+            if (parseJsChallenge(body) == null) {
+                // Accepting this page as the real thing is an assumption: a
+                // suspiciously SMALL page is how the 2026-09-03 block masqueraded
+                // as an "empty feed", so any small acceptance must be on record.
+                if (body.length < 30_000) {
+                    FeedDebug.log("fetchPage: SMALL page accepted as real len=${body.length} url=$url")
+                }
+                return body // not a challenge: real page
+            }
             lastError = "JS challenge could not be solved"
+            FeedDebug.log("fetchPage attempt=$attempt: JS challenge unsolvable url=$url")
             if (attempt < SSR_RETRIES - 1) delay(SSR_RETRY_BASE_MS * (1L shl attempt))
         }
+        FeedDebug.log("fetchPage GAVE UP: $lastError url=$url")
         if (lastWasBlock) throw CfBlockException()
         throw IOException("Reddit.com did not return a usable page ($lastError). Please try again.")
     }
@@ -1060,14 +1076,33 @@ class RedditOfficialSource @Inject constructor(
         var current = body
         for (round in 1..CHALLENGE_MAX_ROUNDS) {
             val challenge = parseJsChallenge(current) ?: return null
+            FeedDebug.log(
+                "challenge round=$round action=${challenge.action} tokenName=${challenge.tokenName}" +
+                    " token=${challenge.token.take(8)}…len=${challenge.token.length} literal=${challenge.literal}"
+            )
             val solvedUrl = buildChallengeResubmitUrl(challenge, originalUrl)
-            val solved = doGet(solvedUrl, "GET", forPartial = false) ?: return null
-            if (isCloudflareChallenge(solved)) return null
+            val solved = doGet(solvedUrl, "GET", forPartial = false)
+            if (solved == null) {
+                FeedDebug.log("challenge round=$round: resubmit got no usable response")
+                return null
+            }
+            cfMarker(solved)?.let {
+                FeedDebug.log("challenge round=$round: resubmit answered CF HARD BLOCK marker=$it (unsolvable)")
+                return null
+            }
             val next = parseJsChallenge(solved)
-            if (next == null) return solved // real page
-            if (next.token == challenge.token) return null // same token: it will not progress
+            if (next == null) {
+                FeedDebug.log("challenge round=$round: SOLVED len=${solved.length}")
+                return solved // real page
+            }
+            if (next.token == challenge.token) {
+                FeedDebug.log("challenge round=$round: same token back — no progress, giving up")
+                return null // same token: it will not progress
+            }
+            FeedDebug.log("challenge round=$round: fresh token issued, looping")
             current = solved // a fresh challenge: solve it again
         }
+        FeedDebug.log("challenge: $CHALLENGE_MAX_ROUNDS rounds exhausted url=$originalUrl")
         return null
     }
 
@@ -1133,8 +1168,12 @@ class RedditOfficialSource @Inject constructor(
     private suspend fun fetchPartial(url: String): String? {
         for (method in listOf("GET", "POST")) {
             val body = doGet(url, method, forPartial = true)
-            if (body != null && !isCloudflareChallenge(body)) return body
+            if (body != null) {
+                val marker = cfMarker(body) ?: return body
+                FeedDebug.log("fetchPartial $method: CF marker=$marker url=$url")
+            }
         }
+        FeedDebug.log("fetchPartial GAVE UP url=$url")
         return null
     }
 
@@ -1145,7 +1184,32 @@ class RedditOfficialSource @Inject constructor(
         val result = try {
             val req = newRequest(url, method, forPartial)
             okHttpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
+                val body = resp.body?.string()
+                val finalUrl = resp.request.url.toString()
+                if (!resp.isSuccessful) {
+                    // Non-2xx used to be a silent null: the status code, the
+                    // Location target, the redirect chain and the body's own
+                    // identity — the entire WHAT of a server rejection — were
+                    // invisible (owner rule 2026-11-27: the logs must show the
+                    // problem directly).
+                    val sniff = when {
+                        body == null -> "empty-body"
+                        else -> cfMarker(body) ?: if (parseJsChallenge(body) != null) "js-challenge" else "other"
+                    }
+                    FeedDebug.log(
+                        "HTTP $method status=${resp.code} url=$url final=$finalUrl" +
+                            " loc=${resp.header("location") ?: "-"}" +
+                            " server=${resp.header("server") ?: "-"}" +
+                            " type=${resp.header("content-type") ?: "-"}" +
+                            " bodyLen=${body?.length ?: 0} sniff=$sniff"
+                    )
+                    null
+                } else {
+                    if (finalUrl != url) {
+                        FeedDebug.log("HTTP $method ${resp.code} redirected -> $finalUrl")
+                    }
+                    body
+                }
             }
         } catch (e: CancellationException) {
             // Never swallow cancellation: the caller's scope must be able to cancel this
@@ -1182,19 +1246,31 @@ class RedditOfficialSource @Inject constructor(
         return builder.build()
     }
 
-    private fun isCloudflareChallenge(body: String): Boolean {
+    /**
+     * Returns WHICH Cloudflare signature the body carries (or null). The marker
+     * name goes into the log (2026-11-27, owner rule): "blocked by network
+     * security" vs "just a moment" vs "cf-chl" distinguishes a hard network
+     * block from a solvable interstitial from a classic JS challenge — the
+     * boolean form threw that evidence away.
+     */
+    private fun cfMarker(body: String): String? {
         val s = body.lowercase()
-        // CF's "blocked by network security" page (observed 2026-09-03): a full HTML
-        // document ~167KB, far above the classic challenge size, so the length cap
-        // below would let it pass as a real page. It parses to zero post cards, which
-        // is exactly the silent blank-feed symptom.
-        if (s.contains("blocked by network security")) return true
-        if (body.length > 30_000) return false // real pages are large
-        return s.contains("just a moment") ||
-            s.contains("cf-chl") ||
-            s.contains("challenge-platform") ||
-            s.contains("attention required")
+        // CF's "blocked by network security" page (observed 2026-09-03): a full
+        // HTML document ~167KB, far above the classic challenge size, so the
+        // length cap below would let it pass as a real page. It parses to zero
+        // post cards — exactly the silent blank-feed symptom.
+        if (s.contains("blocked by network security")) return "blocked-by-network-security"
+        if (body.length > 30_000) return null // real pages are large
+        return when {
+            s.contains("just a moment") -> "just-a-moment"
+            s.contains("cf-chl") -> "cf-chl"
+            s.contains("challenge-platform") -> "challenge-platform"
+            s.contains("attention required") -> "attention-required"
+            else -> null
+        }
     }
+
+    private fun isCloudflareChallenge(body: String): Boolean = cfMarker(body) != null
 
     /**
      * Fetches the embedded "load more" continuation partial for [doc] (the `faceplate-partial`

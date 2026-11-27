@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.util
 
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import com.cosmos.unreddit.UnredditApplication
 import com.cosmos.unreddit.data.model.MediaType
 import kotlinx.coroutines.flow.first
@@ -117,7 +118,13 @@ class InAppVideoResolver @Inject constructor(
                     ).first()
                     InAppMediaSource(v.files.mp4.url)
                 }
-                else -> null
+                else -> {
+                    // A MediaType the resolver does not know is a wrong
+                    // assumption waiting to happen (new enum value, mapper
+                    // drift): name it in the log instead of a silent null.
+                    FeedDebug.log("in-app resolve: unhandled mediaType=$mediaType url=$url")
+                    null
+                }
             }
         } catch (t: Throwable) {
             // null media used to be SILENT here — that is exactly how the
