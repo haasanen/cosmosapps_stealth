@@ -48,22 +48,6 @@ class SubredditSearchViewModel @Inject constructor(
     private val _sorting: MutableStateFlow<Sorting> = MutableStateFlow(DEFAULT_SORTING)
     val sorting: StateFlow<Sorting> = _sorting
 
-    /**
-     * Diagnostic (2.5.109): when the search WebView is blocked (HTTP 403),
-     * fetch the same search through the app's NATIVE lane and log the outcome
-     * to the system log (tag FeedDbg) as `search probe native lane: ...`. That single line
-     * decides whether reddit's device-side search gate is passable by a
-     * non-WebView client (OK cards>0) or blocks every non-full-browser path.
-     */
-    fun runSearchProbe(query: String) {
-        if (query.isBlank()) return
-        FeedDebug.log("search probe: starting native-lane probe")
-        viewModelScope.launch {
-            repository.probeSearch(query).collect {
-                FeedDebug.log("search probe native lane: $it")
-            }
-        }
-    }
 
     private val _query: MutableStateFlow<String> = MutableStateFlow("")
     val query: StateFlow<String> = _query

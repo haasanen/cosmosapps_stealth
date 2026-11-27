@@ -1,16 +1,15 @@
 package com.cosmos.unreddit.util
 
 /**
- * URL building/classification for the embedded reddit.com web search UI.
+ * URL building + browser handoff for reddit.com search.
  *
- * Background (live-captured 2026-11-25): reddit.com search became JS-only.
- * The server response for `/search/` and `/r/<sub>/search/` contains ZERO
- * result cards (`<shreddit-post` count 0 — cards render client-side from a
- * captcha-gated data call; a reCAPTCHA Enterprise iframe sits on the page),
- * the JS-challenge resubmit is answered with the 403 "blocked by network
- * security" page for non-JS clients, and XHR-shaped requests 403 outright.
- * A real browser engine passes (the owner's Chrome proves it daily), so the
- * app renders those pages in a WebView and routes result taps natively.
+ * Background (measured 2026-11-27, host + device, same exit IP): reddit
+ * search is JS-only, and its gate rejects the system WebView (Chromium
+ * transport fingerprint) at the JS-challenge resubmit with a 403 "blocked by
+ * network security" page — headers/UA-CH cannot change that verdict (a full
+ * desktop Chromium here is blocked identically while curl and Gecko pass).
+ * Search therefore hands off to the user's browser (their Fennec passes the
+ * gate); result taps return natively via the manifest reddit.com deep links.
  *
  * Pure functions — JVM-tested in SearchWebUrlsTest.
  */
@@ -27,48 +26,54 @@ object SearchWebUrls {
         return "$SITE/r/$name/search/?q=${encode(query)}&restrict_sr=1"
     }
 
-    /**
-     * True when [url] is a reddit SEARCH page (global or subreddit-scoped, on
-     * any reddit web host) and must keep loading inside the WebView instead of
-     * being handed to the native screens — this covers the in-page tab switches
-     * (All/Posts/Communities), sort and time filters, and pagination, which all
-     * keep `/search/` in the path.
-     */
-    fun isSearchPage(url: String): Boolean {
-        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase() ?: return false
-        if (!isRedditHost(host)) return false
-        val path = uri.path ?: return false
-        return SEARCH_PATH.matches(path)
-    }
-
     fun isRedditHost(host: String): Boolean =
         host == "reddit.com" || host.endsWith(".reddit.com") ||
             host == "redd.it" || host.endsWith(".redd.it")
 
-    /**
-     * Reddit's network gate treats the WebView's "; wv" marker as a generic
-     * embedded client; removing only that marker keeps the engine's real
-     * Chrome identity. Necessary but NOT sufficient: the owner's device log
-     * of 2026-11-26 (vc207) shows the cleaned-string WebView still taking a
-     * main-frame 403 on the challenge resubmit, because the Sec-CH-UA client
-     * hints keep declaring "Android WebView" no matter what the UA string
-     * says. The companion fix is the UA-CH metadata override in
-     * ui/web/RedditWebView.kt (USER_AGENT_METADATA feature).
-     */
-    fun cleanUserAgent(userAgent: String): String =
-        userAgent.replace("; wv)", ")").replace(" Version/4.0", "")
 
     /**
-     * The Chromium full-version token (`x.y.z.w`) inside a UA string, used to
-     * build a consistent Sec-CH-UA brand list. Null when the UA carries no
-     * `Chrome/` token (then the caller must skip the metadata override
-     * rather than fabricate versions).
+     * Which package the handoff intent should pin to: the resolved default
+     * browser unless it is [ownPackage] (Stealth itself handles reddit.com
+     * links, and pinning self would loop the search back into the app) or
+     * nothing resolved; null means launch the plain implicit intent (system
+     * chooser). Pure — JVM-pinned in SearchWebUrlsTest.
      */
-    fun chromeFullVersion(userAgent: String): String? =
-        Regex("Chrome/(\\d+(?:\\.\\d+)*)").find(userAgent)?.groupValues?.get(1)
+    fun pickHandoffPackage(resolvedPackage: String?, ownPackage: String): String? =
+        resolvedPackage?.takeIf { it != ownPackage }
 
-    private val SEARCH_PATH = Regex("""/search(/.*)?|/r/[^/]+/search(/.*)?""")
+    /**
+     * Open [url] in the browser the user resolves as default (their Fennec on
+     * the target device). If resolution would land back in Stealth itself
+     * (reddit.com deep-link defaults), launch WITHOUT an explicit target so
+     * the system chooser appears — never a self-loop.
+     */
+    fun handOff(context: android.content.Context, url: String) {
+        val view = android.content.Intent(android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse(url))
+            .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+        val resolver = context.packageManager.resolveActivity(
+            view, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        pickHandoffPackage(
+            resolver?.activityInfo?.packageName,
+            context.packageName
+        )?.let { view.setPackage(it) }
+        // The framework rejects startActivity from non-Activity contexts
+        // without NEW_TASK; fragments pass their Activity context and need no
+        // flag, but hardening the seam keeps any future non-Activity caller
+        // from crashing on the exact exception real Android throws.
+        if (context !is android.app.Activity) {
+            view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(view)
+        } catch (e: android.content.ActivityNotFoundException) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException(
+                "no browser available for search handoff url=$url", e)
+            android.widget.Toast.makeText(context,
+                "No browser found to open the search",
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
 
     private fun encode(query: String): String =
         java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")

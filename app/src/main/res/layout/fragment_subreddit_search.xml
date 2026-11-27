@@ -13,15 +13,4 @@
         app:layout_constraintTop_toTopOf="parent"
         layout="@layout/layout_appbar_subreddit_search" />
 
-    <!-- See fragment_search.xml: reddit search pages are JS-only; subreddit
-         search renders reddit's own page in the system WebView. -->
-    <WebView
-        android:id="@+id/web_search"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/app_bar"
-        app:layout_constraintBottom_toBottomOf="parent"/>
-
 </androidx.constraintlayout.widget.ConstraintLayout>

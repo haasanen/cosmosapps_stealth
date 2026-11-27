@@ -20,6 +20,12 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     namespace = Config.namespace
 
     compileSdk = Config.compileSdk
@@ -155,6 +161,14 @@ dependencies {
     implementation("com.drakeet.drawer:drawer:${Dependencies.Versions.drawer}")
 
     testImplementation("junit:junit:${Dependencies.Versions.jUnit}")
+    testImplementation("org.robolectric:robolectric:4.14.1") {
+        // Robolectric's bcprov-jdk18on carries class-file major 65 which the
+        // project's jetifier cannot transform; crypto shadows are unused here.
+        exclude(group = "org.bouncycastle")
+    }
+    // Robolectric needs BouncyCastle at runtime; the jdk18on 1.78 MR-jar has
+    // Java-21 version dirs jetifier can't parse, so pin the Java-8 lineage.
+    testImplementation("org.bouncycastle:bcprov-jdk15on:1.70")
     testImplementation("androidx.sqlite:sqlite:2.1.0")
     testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 

@@ -40,8 +40,7 @@
     <fragment
         android:id="@+id/subredditSearchFragment"
         android:name="com.cosmos.unreddit.ui.subreddit.SubredditSearchFragment"
-        android:label="SubredditSearchFragment"
-        tools:layout="@layout/fragment_subreddit_search">
+        android:label="SubredditSearchFragment">
         <argument
             android:name="subreddit"
             app:argType="string"/>

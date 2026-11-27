@@ -17,10 +17,12 @@ import javax.inject.Singleton
  * [RedditOfficialSource] and exists only so the repositories and paging
  * datasources keep one injection point.
  *
- * Note: global and in-subreddit SEARCH render reddit's own web UI in an
- * embedded WebView (ui/search/SearchFragment, ui/web/RedditWebView) because
- * reddit made search JS-only server-side; the search* methods here serve the
- * remaining native lanes (e.g. user search) against the same official source.
+ * Note: global and in-subreddit SEARCH are handed off to the user's browser
+ * (ui/search/SearchFragment, util/SearchWebUrls — measured 2026-11-27:
+ * reddit's search gate 403-blocks the system WebView's Chromium transport
+ * fingerprint; see SearchWebUrls' header comment); the search* methods here
+ * serve the remaining native lanes (e.g. user search) against the same
+ * official source.
  */
 @Singleton
 class CurrentSource @Inject constructor(
@@ -37,8 +39,6 @@ class CurrentSource @Inject constructor(
     override suspend fun getSubredditInfo(subreddit: String): Child =
         redditOfficialSource.getSubredditInfo(subreddit)
 
-    override suspend fun probeSearch(query: String): String =
-        redditOfficialSource.probeSearch(query)
 
     override suspend fun searchInSubreddit(
         subreddit: String,

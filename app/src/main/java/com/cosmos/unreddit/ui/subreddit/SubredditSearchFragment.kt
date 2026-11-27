@@ -11,7 +11,6 @@ import androidx.navigation.fragment.navArgs
 import com.cosmos.unreddit.R
 import com.cosmos.unreddit.databinding.FragmentSubredditSearchBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
-import com.cosmos.unreddit.ui.web.RedditWebView
 import com.cosmos.unreddit.util.SearchUtil
 import com.cosmos.unreddit.util.SearchWebUrls
 import com.cosmos.unreddit.util.extension.clearSortingListener
@@ -23,11 +22,13 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
 /**
- * In-subreddit search: reddit's own subreddit-search page in the system
- * WebView (reddit made search JS-only server-side on 2026-11-25 — the served
- * HTML carries no result cards and plain clients are 403-blocked), with
- * result taps routed to the native screens. See ui/web/RedditWebView.kt and
- * the note in SearchFragment.
+ * In-subreddit search: the app's own query field, which HANDS OFF to the
+ * user's browser on submit (measured 2026-11-27: reddit's search gate
+ * 403-blocks the system WebView's Chromium transport by TLS/HTTP2 fingerprint
+ * — headers cannot change that verdict; Gecko-class browsers pass logged out;
+ * full rationale in ui/search/SearchFragment). The screen stays open after
+ * handoff so the query label keeps the search visible; result taps return
+ * natively via the reddit.com deep links in the manifest.
  */
 @AndroidEntryPoint
 class SubredditSearchFragment : BaseFragment() {
@@ -58,11 +59,6 @@ class SubredditSearchFragment : BaseFragment() {
         initResultListener()
         initAppBar()
         bindViewModel()
-
-        RedditWebView.setup(binding.webSearch, this) {
-            viewModel.runSearchProbe(viewModel.query.value)
-        }
-        loadSearch(viewModel.query.value)
     }
 
     override fun onResume() {
@@ -75,13 +71,6 @@ class SubredditSearchFragment : BaseFragment() {
                 cancelCard.isVisible = false
             }
         }
-    }
-
-    private fun loadSearch(query: String) {
-        RedditWebView.load(
-            binding.webSearch,
-            SearchWebUrls.inSubreddit(args.subreddit, query)
-        )
     }
 
     private fun bindViewModel() {
@@ -108,7 +97,7 @@ class SubredditSearchFragment : BaseFragment() {
     private fun initAppBar() {
         with(binding.appBar) {
             subredditImage.loadSubredditIcon(args.icon)
-            // Sorting lives on the web page now (its own filter row).
+            // Sorting happens on the browser search page now.
             sortCard.isVisible = false
             sortIcon.isVisible = false
             cancelCard.setOnClickListener { cancelSearch() }
@@ -154,8 +143,10 @@ class SubredditSearchFragment : BaseFragment() {
     private fun handleSearchAction(query: String) {
         if (SearchUtil.isQueryValid(query)) {
             viewModel.setQuery(query)
-            // Reload explicitly: an identical resubmit must still refresh.
-            loadSearch(query)
+            SearchWebUrls.handOff(
+                requireContext(),
+                SearchWebUrls.inSubreddit(args.subreddit, query)
+            )
             showSearchInput(false)
         }
     }
@@ -163,8 +154,6 @@ class SubredditSearchFragment : BaseFragment() {
     override fun onBackPressed() {
         if (binding.appBar.searchInput.isVisible && viewModel.query.value.isNotBlank()) {
             showSearchInput(false)
-        } else if (binding.webSearch.canGoBack()) {
-            binding.webSearch.goBack()
         } else {
             super.onBackPressed()
         }
@@ -173,11 +162,6 @@ class SubredditSearchFragment : BaseFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         clearSortingListener()
-        RedditWebView.destroy(binding.webSearch)
         _binding = null
-    }
-
-    companion object {
-        const val TAG = "SubredditSearchFragment"
     }
 }

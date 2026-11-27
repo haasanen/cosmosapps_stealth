@@ -7,8 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure-function pins for the WebView search UI (see SearchWebUrls).
- * Ground truth captured live 2026-11-25.
+ * Pure-function pins for the browser-handoff search (2.5.110): the URL shapes
+ * reddit itself serves, the handoff target picker that must never pin the
+ * intent back into Stealth itself, and host classification for the return
+ * path (result taps come back through the manifest reddit.com deep links).
+ * Ground truth captured live 2026-11-25/27.
  */
 class SearchWebUrlsTest {
 
@@ -42,58 +45,18 @@ class SearchWebUrlsTest {
     }
 
     @Test
-    fun `search pages stay in the webview`() {
-        for (u in listOf(
-            "https://www.reddit.com/search/?q=dji+neo",
-            "https://www.reddit.com/search/?q=dji%20neo&type=link&sort=relevance&t=WEEK",
-            "https://www.reddit.com/search/?q=dji+neo&type=community&after=t5_2wu4v",
-            "https://www.reddit.com/r/DJI/search/?q=neo&restrict_sr=1&sort=relevance",
-            "https://old.reddit.com/search/?q=dji+neo",
-            "https://np.reddit.com/r/GarageGym/search/?q=cam",
-        )) assertTrue("must stay in webview: $u", SearchWebUrls.isSearchPage(u))
-    }
-
-    @Test
-    fun `non-search links leave the webview`() {
-        for (u in listOf(
-            "https://www.reddit.com/r/DjiNeo/comments/1xzndhv/gettin_dressed/",
-            "https://www.reddit.com/r/DJI/hot/",
-            "https://www.reddit.com/user/testauthor/",
-            "https://i.redd.it/49sr7t7d3f2i1.gif",
-            "https://v.redd.it/i2no06sa8y1i1",
-            "https://www.example.com/search/?q=x",      // not a reddit host
-            "https://www.reddit.com/d/creative_search", // path segment only
-            "not a url at all",
-        )) assertFalse("must NOT stay in webview: $u", SearchWebUrls.isSearchPage(u))
-    }
-
-    @Test
-    fun `user agent keeps chrome identity but drops the webview marker`() {
-        val phoneUa = "Mozilla/5.0 (Linux; Android 16; Pixel 10a Build/BP4A.251740.100; wv) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.7339.207 Mobile Safari/537.36"
-        val cleaned = SearchWebUrls.cleanUserAgent(phoneUa)
-        assertFalse(cleaned.contains("; wv"))
-        // "Version/4.0" is a WebView-only token: real Chrome never sends it, so
-        // leaving it in hands gatekeepers a tell even with brands fixed
-        // (2.5.108 proved brands metadata alone does not pass reddit's search).
-        assertFalse(cleaned.contains("Version/"))
-        assertTrue(cleaned.contains("Pixel 10a Build/BP4A.251740.100) AppleWebKit"))
-        assertTrue(cleaned.contains("Chrome/140.0.7339.207"))
-        // UAs without the marker are untouched.
-        assertEquals("Chrome/140", SearchWebUrls.cleanUserAgent("Chrome/140"))
-    }
-
-    @Test
-    fun `chrome full-version token is extracted for the UA-CH override`() {
-        val phoneUa = "Mozilla/5.0 (Linux; Android 17; Pixel 10a) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Version/4.0 Chrome/141.0.7339.116 Mobile Safari/537.36"
-        assertEquals("141.0.7339.116", SearchWebUrls.chromeFullVersion(phoneUa))
-        // A Gecko-style UA (the owner's Fennec browser) has no Chrome token:
-        // the override must then be SKIPPED, never fabricated.
-        assertNull(SearchWebUrls.chromeFullVersion(
-            "Mozilla/5.0 (Android 17; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0"
-        ))
-        assertNull(SearchWebUrls.chromeFullVersion("Chrome/"))
+    fun `handoff pins the browser never stealth itself`() {
+        // Default resolving to our own package (reddit.com link defaults) =>
+        // null => plain implicit intent so the chooser appears, never a loop.
+        assertNull(SearchWebUrls.pickHandoffPackage("com.cosmos.unreddit", "com.cosmos.unreddit"))
+        // A real browser is kept as the explicit target.
+        assertEquals(
+            "org.mozilla.firefox",
+            SearchWebUrls.pickHandoffPackage("org.mozilla.firefox", "com.cosmos.unreddit")
+        )
+        // Nothing resolves => null (caller starts the implicit intent and
+        // handles ActivityNotFoundException with a visible toast).
+        assertNull(SearchWebUrls.pickHandoffPackage(null, "com.cosmos.unreddit"))
     }
 
     @Test
