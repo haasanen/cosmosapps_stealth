@@ -200,6 +200,7 @@ class MediaViewerViewModel
     }
 
     private fun catchError(throwable: Throwable) {
+        com.cosmos.unreddit.ui.postlist.FeedDebug.logException("media viewer FAILED", throwable)
         when (throwable) {
             is IOException -> _media.value = Resource.Error(message = throwable.message)
             is HttpException -> _media.value = Resource.Error(throwable.code(), throwable.message())

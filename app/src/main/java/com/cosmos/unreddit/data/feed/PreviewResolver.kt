@@ -78,9 +78,13 @@ class PreviewResolver @Inject constructor(
         synchronized(memory) { memory[url] }?.let { entry ->
             if (!entry.expired) return entry.image
         }
-        val json = runCatching { preferences.data.first()[stringPreferencesKey(keyFor(url))] }.getOrNull()
+        val json = runCatching { preferences.data.first()[stringPreferencesKey(keyFor(url))] }
+            .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; com.cosmos.unreddit.ui.postlist.FeedDebug.logException("preview cache read FAILED url=$url", e) }
+            .getOrNull()
             ?: return null
-        val entry = runCatching { cacheAdapter.fromJson(json) }.getOrNull() ?: return null
+        val entry = runCatching { cacheAdapter.fromJson(json) }
+            .onFailure { com.cosmos.unreddit.ui.postlist.FeedDebug.logException("preview cache entry CORRUPT url=$url", it) }
+            .getOrNull() ?: return null
         synchronized(memory) { memory[url] = entry }
         return if (entry.expired) null else entry.image
     }
@@ -111,7 +115,9 @@ class PreviewResolver @Inject constructor(
         urls.distinct().associate { url ->
             url to async {
                 semaphore.withPermit {
-                    runCatching { resolve(url) }.getOrNull()
+                    runCatching { resolve(url) }
+                        .onFailure { com.cosmos.unreddit.ui.postlist.FeedDebug.logException("preview resolve threw url=$url", it) }
+                        .getOrNull()
                 }
             }
         }.mapValues { (_, deferred) -> deferred.await() }
@@ -182,7 +188,7 @@ class PreviewResolver @Inject constructor(
                     // android.net.Uri has no resolve(); java.net.URI does.
                     java.net.URI(pageUrl).resolve(raw).toString()
                 }
-            }.getOrNull() ?: raw
+            }.onFailure { com.cosmos.unreddit.ui.postlist.FeedDebug.logException("preview url resolve FAILED raw=$raw page=$pageUrl", it) }.getOrNull() ?: raw
             if (absolute.startsWith("http")) return absolute
         }
         return null
@@ -200,7 +206,7 @@ class PreviewResolver @Inject constructor(
         }
         runCatching {
             preferences.edit { it[stringPreferencesKey(keyFor(url))] = cacheAdapter.toJson(entry) }
-        }
+        }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; com.cosmos.unreddit.ui.postlist.FeedDebug.logException("preview cache write FAILED url=$url", e) }
     }
 
     private data class CacheEntry(

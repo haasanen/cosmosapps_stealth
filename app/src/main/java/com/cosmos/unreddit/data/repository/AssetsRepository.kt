@@ -34,7 +34,9 @@ class AssetsRepository @Inject constructor(
                     inputStream.source().buffer().use { bufferedSource ->
                         adapter.fromJson(bufferedSource)
                     }
-                } ?: emptyList()
+                } ?: emptyList<ServiceExternal>().also {
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.log("instances asset produced NO service entries (empty or unreadable) (unreadable or empty)")
+                }
             }
         }
     }

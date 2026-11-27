@@ -92,7 +92,10 @@ class PrivacyEnhancerViewModel @Inject constructor(
         viewModelScope.launch {
             assetsRepository.getServiceInstances()
                 .onSuccess { _instances.value = Resource.Success(it) }
-                .onFailure { _instances.value = Resource.Error(throwable = it) }
+                .onFailure {
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.logException("enhancer instances load FAILED", it)
+                    _instances.value = Resource.Error(throwable = it)
+                }
         }
     }
 }

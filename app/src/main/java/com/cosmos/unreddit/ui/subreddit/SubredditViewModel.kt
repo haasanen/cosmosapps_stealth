@@ -154,6 +154,7 @@ class SubredditViewModel @Inject constructor(
                     _about.value = Resource.Loading()
                 }
                 .catch {
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.logException("subreddit about stream FAILED", it)
                     when (it) {
                         is IOException -> _about.value = Resource.Error(message = it.message)
                         is HttpException -> _about.value = Resource.Error(it.code(), it.message())

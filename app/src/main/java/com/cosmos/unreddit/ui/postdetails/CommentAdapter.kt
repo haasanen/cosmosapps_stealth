@@ -218,6 +218,7 @@ class CommentAdapter(
                 notifyItemChanged(position)
             }
             .catch {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("comments paging stream FAILED", it)
                 comment.apply { isLoading = false; isError = true }
                 notifyItemChanged(position)
             }

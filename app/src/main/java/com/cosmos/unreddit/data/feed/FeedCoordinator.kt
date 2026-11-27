@@ -171,10 +171,15 @@ class FeedCoordinator @Inject constructor(
     private val pendingRetryKey = stringPreferencesKey("feed_pending_retry")
 
     private fun PendingRetry.encodeLite(): String =
-        runCatching { moshi.adapter(PendingRetry::class.java).toJson(this) }.getOrDefault("")
+        runCatching { moshi.adapter(PendingRetry::class.java).toJson(this) }
+            // encode failure silently loses the pending-retry episode
+            .onFailure { { FeedDebug.logException("pending-retry encode FAILED (retry episode lost)", it) } }
+            .getOrDefault("")
 
     private fun decodePendingRetry(json: String): PendingRetry? =
-        runCatching { moshi.adapter(PendingRetry::class.java).fromJson(json) }.getOrNull()
+        runCatching { moshi.adapter(PendingRetry::class.java).fromJson(json) }
+            .onFailure { { FeedDebug.logException("pending-retry decode FAILED json=${json.take(60)}", it) } }
+            .getOrNull()
 
     /**
      * Rebuild a [PendingRetry]'s confirmed per-sub results from the feed_cache table:
@@ -193,6 +198,7 @@ class FeedCoordinator @Inject constructor(
         for (sub in allSubs) {
             if (failed.any { it.equals(sub, ignoreCase = true) }) continue
             val rows = runCatching { db.feedCacheDao().bySubreddit(profileId, sub) }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("rebuild-pending cache read FAILED sub=$sub", e) }
                 .getOrDefault(emptyList())
             val posts = rows.mapNotNull { toPostData(it.postJson) }
             if (posts.isNotEmpty()) {
@@ -241,7 +247,7 @@ class FeedCoordinator @Inject constructor(
                         "(streak=${pending.streak}, age=${(System.currentTimeMillis() - pending.createdAt) / 1000}s)"
                 )
                 startRetryChain(pending.copy(failed = failed), episode = episodeGeneration, results)
-            }
+            }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("pending-retry restore FAILED", e) }
         }
     }
 
@@ -499,6 +505,7 @@ class FeedCoordinator @Inject constructor(
                             .map { it.url }
                         if (candidates.isNotEmpty()) {
                             val resolved = runCatching { previewResolver.resolveBatch(candidates) }
+                                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("link-preview resolve batch FAILED", e) }
                                 .getOrDefault(emptyMap())
                             mergedData.forEach { d ->
                                 resolved[d.url]?.let { d.thumbnail = it }
@@ -686,6 +693,7 @@ class FeedCoordinator @Inject constructor(
             // Persist BEFORE the first round: the window in which a process death
             // can lose the retry opens the moment the retry exists.
             runCatching { preferences.edit { it[pendingRetryKey] = pending.encodeLite() } }
+            .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("pending-retry prefs write FAILED", e) }
             FeedDebug.log(
                 "failed-sub retry started: ${pending.failed.size} subs " +
                     "(streak=${pending.streak} pendingAge=${(System.currentTimeMillis() - pending.createdAt) / 1000}s)"
@@ -748,7 +756,8 @@ class FeedCoordinator @Inject constructor(
                         if (roundCandidates.isNotEmpty()) {
                             val roundResolved = runCatching {
                                 previewResolver.resolveBatch(roundCandidates)
-                            }.getOrDefault(emptyMap())
+                            }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("link-preview resolve batch FAILED", e) }
+                            .getOrDefault(emptyMap())
                             roundPosts.forEach { d ->
                                 roundResolved[d.url]?.let { d.thumbnail = it }
                             }
@@ -789,6 +798,7 @@ class FeedCoordinator @Inject constructor(
                             // All subs confirmed: the retry is complete, drop the
                             // persisted record and stop the notification.
                             runCatching { preferences.edit { it.remove(pendingRetryKey) } }
+                            .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("pending-retry prefs write FAILED", e) }
                             if (episodeGeneration == episode) {
                                 // A newer cycle may have started its own
                                 // notification; only this episode ends it.
@@ -836,6 +846,7 @@ class FeedCoordinator @Inject constructor(
                 // everything anyway, and leaving a stale record on disk would
                 // resurrect a dead chain on every launch.
                 runCatching { preferences.edit { it.remove(pendingRetryKey) } }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("pending-retry prefs write FAILED", e) }
                 FeedDebug.log(
                     "failed-sub retry: budget exhausted, " +
                         "${current.failed.size} subs left on cache"
@@ -894,8 +905,10 @@ class FeedCoordinator @Inject constructor(
     /** Seen/saved badge sets straight from the DB (the chain outlives refresh args). */
     private suspend fun badgeSets(profileId: Int): Pair<Set<String>, Set<String>> {
         val history = runCatching { db.historyDao().getHistoryIdsFromProfile(profileId).first() }
+            .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("badge history read FAILED", e) }
             .getOrDefault(emptyList())
         val saved = runCatching { db.postDao().getSavedPostIdsFromProfile(profileId).first() }
+            .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("badge saved read FAILED", e) }
             .getOrDefault(emptyList())
         return history.toHashSet() to saved.toHashSet()
     }
@@ -974,7 +987,7 @@ class FeedCoordinator @Inject constructor(
         runCatching {
             val row = db.feedCacheDao().byPostId(profileId, postId) ?: return@runCatching null
             toPostData(row.postJson)?.let { postMapper.dataToEntity(it) }
-        }.getOrNull()
+        }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("post cache read FAILED postId=$postId", e) }.getOrNull()
 
     /** True when a cache row for the post is newer than [maxAgeMs] (skip re-fetch). */
     suspend fun isPostFreshInCache(
@@ -994,7 +1007,7 @@ class FeedCoordinator @Inject constructor(
         scope.launch {
             val child = runCatching {
                 officialSource.getPost(permalink, sort = Sort.BEST)
-            }.getOrNull() ?: return@launch
+            }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("refreshPost fetch FAILED permalink=$permalink", e) }.getOrNull() ?: return@launch
             val data = (child.firstOrNull()?.data?.children?.firstOrNull() as? PostChild)?.data
                 ?: return@launch
             runCatching {
@@ -1010,7 +1023,7 @@ class FeedCoordinator @Inject constructor(
                         )
                     )
                 )
-            }
+            }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("refreshPost cache write FAILED name=${data.name}", e) }
         }
     }
 
@@ -1030,7 +1043,8 @@ class FeedCoordinator @Inject constructor(
      */
     fun applyPostUpdate(profileId: Int, data: PostData) {
         scope.launch {
-            val entity = runCatching { postMapper.dataToEntity(data) }.getOrNull()
+            val entity = runCatching { postMapper.dataToEntity(data) }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("applyPostUpdate mapper FAILED name=${data.name}", e) }.getOrNull()
             // 1. Cache row (only if this post was already cached for the profile —
             //    we must not create cache rows for posts outside the home feed).
             if (db.feedCacheDao().byPostId(profileId, data.name) != null) {
@@ -1047,7 +1061,7 @@ class FeedCoordinator @Inject constructor(
                             )
                         )
                     )
-                }
+                }.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("applyPostUpdate cache write FAILED name=${data.name}", e) }
             }
             // 2. In-memory feed list: replace only the one matching entity.
             val current = _state.value
@@ -1080,6 +1094,7 @@ class FeedCoordinator @Inject constructor(
         if (fresh.size != rows.size) {
             val expired = rows.filter { it.fetchedAt < cutoff }.map { it.postId }
             runCatching { db.feedCacheDao().deleteByIds(profileId, expired) }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("cache TTL delete FAILED", e) }
         }
         val parsed = fresh.mapNotNull { toPostData(it.postJson) }
         // TEMP cache diagnostics: "raw" = rows in the table, "parsed" = rows whose
@@ -1099,6 +1114,7 @@ class FeedCoordinator @Inject constructor(
         if (empty > 0) {
             val blankIds = fresh.filter { it.postJson.isBlank() }.map { it.postId }
             runCatching { db.feedCacheDao().deleteByIds(profileId, blankIds) }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; FeedDebug.logException("cache corrupt-row delete FAILED", e) }
             com.cosmos.unreddit.ui.postlist.FeedDebug.log(
                 "cache load: purged $empty corrupt (blank JSON) rows"
             )
@@ -1226,7 +1242,8 @@ class FeedCoordinator @Inject constructor(
         data.mapNotNull { d ->
             // Respect the NSFW content preference (mirrors PostUtil.filterPosts).
             if (d.isOver18 && !showNsfw) return@mapNotNull null
-            runCatching { postMapper.dataToEntity(d) }.getOrNull()
+            runCatching { postMapper.dataToEntity(d) }
+                .onFailure { e -> FeedDebug.logException("entity map FAILED name=${d.name}", e) }.getOrNull()
         }.map { p ->
             p.apply {
                 this.seen = seen.contains(p.id)
@@ -1235,10 +1252,14 @@ class FeedCoordinator @Inject constructor(
         }
 
     private fun toPostData(json: String): PostData? =
-        runCatching { postAdapter.fromJson(json) }.getOrNull()
+        runCatching { postAdapter.fromJson(json) }
+            .onFailure { FeedDebug.logException("cached post row CORRUPT json=${json.take(60)}", it) }.getOrNull()
 
     private fun toJson(data: PostData): String =
-        runCatching { postAdapter.toJson(data) }.getOrDefault("")
+        runCatching { postAdapter.toJson(data) }
+            // blank postJson was the legacy cache-corruption source: never silently
+            .onFailure { { FeedDebug.logException("post toJson FAILED name=${data.name} (blank cache row)", it) } }
+            .getOrDefault("")
 
     private fun isOnline(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager

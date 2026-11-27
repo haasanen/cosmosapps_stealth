@@ -151,6 +151,7 @@ class PreferencesRepository @Inject constructor(
     fun getContentPreferences(): Flow<ContentPreferences> {
         return preferencesDatastore.data.catch { exception ->
             if (exception is IOException) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("datastore UNREADABLE — serving empty preferences (settings appear reset)", exception)
                 emit(emptyPreferences())
             } else {
                 throw exception

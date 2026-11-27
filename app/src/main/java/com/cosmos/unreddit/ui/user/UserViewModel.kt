@@ -171,6 +171,7 @@ class UserViewModel @Inject constructor(
             repository.getUserInfo(user).onStart {
                 _about.value = Resource.Loading()
             }.catch {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("user about stream FAILED", it)
                 when (it) {
                     is IOException -> _about.value = Resource.Error(message = it.message)
                     is HttpException -> _about.value = Resource.Error(it.code(), it.message())

@@ -608,7 +608,9 @@ class RedditOfficialSource @Inject constructor(
                 .newBuilder()
                 .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
                 .build()
-            val resp = runCatching { okHttpClient.newCall(req).execute() }.getOrNull()
+            val resp = runCatching { okHttpClient.newCall(req).execute() }
+                .onFailure { FeedDebug.logException("svc request FAILED url=${req.url}", it) }
+                .getOrNull()
             if (resp != null) {
                 resp.use {
                     if (it.isSuccessful) {
@@ -675,7 +677,9 @@ class RedditOfficialSource @Inject constructor(
             "permalink" to permalink,
             "url" to url,
             "domain" to if (isSelf) "self.$sub"
-            else runCatching { Uri.parse(url).host ?: "unknown" }.getOrDefault("unknown"),
+            else runCatching { Uri.parse(url).host ?: "unknown" }
+                .onFailure { FeedDebug.logException("link-author url parse FAILED: $url", it) }
+                .getOrDefault("unknown"),
             "is_self" to isSelf,
             "score" to 0,
             "num_comments" to 0,
@@ -690,7 +694,9 @@ class RedditOfficialSource @Inject constructor(
         Regex("""src="([^"]+redd\.it[^"]*|[^"]+redditmedia[^"]*)"""").find(contentHtml)?.groupValues?.get(1)?.let {
             map.putIfAbsent("thumbnail", it)
         }
-        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }
+            .onFailure { FeedDebug.logException("post parse dropped sub=$sub id=${map["id"]}", it) }
+            .getOrNull()
     }
 
     /** Atom timestamps: `2026-08-31T15:41:07+00:00` -> epoch seconds. */
@@ -701,7 +707,9 @@ class RedditOfficialSource @Inject constructor(
                 .replace(Regex("Z$"), "+00:00")
                 .replace(Regex("\\.\\d+$"), "")
             java.time.OffsetDateTime.parse(cleaned).toEpochSecond()
-        }.getOrDefault(0L)
+        }
+            .onFailure { FeedDebug.logException("timestamp parse FAILED value=$value", it) }
+            .getOrDefault(0L)
     }
 
     /**
@@ -748,7 +756,9 @@ class RedditOfficialSource @Inject constructor(
                 .newBuilder()
                 .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
                 .build()
-            val resp = runCatching { okHttpClient.newCall(req).execute() }.getOrNull()
+            val resp = runCatching { okHttpClient.newCall(req).execute() }
+                .onFailure { FeedDebug.logException("svc request FAILED url=${req.url}", it) }
+                .getOrNull()
             if (resp != null) {
                 resp.use {
                     if (it.isSuccessful) {
@@ -850,7 +860,9 @@ class RedditOfficialSource @Inject constructor(
                         linkTitle = null,
                         bodyHtml = d.select(".md").firstOrNull()?.html() ?: ""
                     )
-                }.getOrNull()
+                }
+                    .onFailure { FeedDebug.logException("comment partial FAILED id=$id", it) }
+                    .getOrNull()
             }
             MoreChildren(JsonMore(Data(things)))
         }
@@ -1289,7 +1301,9 @@ class RedditOfficialSource @Inject constructor(
         val baseUrl = if (doc.location().isNotBlank()) doc.location() else "https://www.reddit.com"
         val url = if (src.startsWith("/")) baseUrl + src else src
         val body = runCatching { fetchPartial(url) }.getOrNull() ?: return initial
-        val partial = runCatching { Jsoup.parse(body) }.getOrNull() ?: return initial
+        val partial = runCatching { Jsoup.parse(body) }
+            .onFailure { FeedDebug.logException("continuation partial parse FAILED url=$url", it) }
+            .getOrNull() ?: return initial
         val more = partial.select("shreddit-post").mapNotNull { postChildFromElement(it) }
         if (more.isEmpty()) return initial
         val seen = initial.mapTo(HashSet()) { it.data.name }
@@ -1361,7 +1375,9 @@ class RedditOfficialSource @Inject constructor(
      */
     private suspend fun canonicalSubredditName(sub: String): String? {
         val url = "https://www.reddit.com/r/$sub/hot/.rss?over18=1&limit=1"
-        val xml = runCatching { fetchAtomBody(url) }.getOrNull() ?: return null
+        val xml = runCatching { fetchAtomBody(url) }
+            .onFailure { FeedDebug.logException("atom fetch FAILED url=$url", it) }
+            .getOrNull() ?: return null
         val doc = Jsoup.parse(xml)
         if (doc.select("entry").isEmpty()) return null
         return doc.selectFirst("category")?.attr("term")
@@ -1739,7 +1755,9 @@ class RedditOfficialSource @Inject constructor(
             map["link_flair_text"] = flairLabel
         }
 
-        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+        return runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }
+            .onFailure { FeedDebug.logException("post parse dropped sub=$sub id=${map["id"]}", it) }
+            .getOrNull()
     }
 
     /**
@@ -1978,7 +1996,9 @@ class RedditOfficialSource @Inject constructor(
                         !inlineBody.isNullOrBlank() -> inlineBody
                         reloadUrl.isNotBlank() -> runCatching {
                             fetchPartial("$base$reloadUrl")?.let { Jsoup.parse(it).select(".md").firstOrNull()?.html() } ?: ""
-                        }.getOrDefault("")
+                        }
+                            .onFailure { FeedDebug.logException("comment body reload FAILED url=$base$reloadUrl", it) }
+                            .getOrDefault("")
                         else -> ""
                     }
                     buildCommentChild(
@@ -2027,6 +2047,7 @@ class RedditOfficialSource @Inject constructor(
         )
         if (linkTitle != null) map["link_title"] = linkTitle
         return runCatching { CommentChild(parseComment(ensureCommentDefaults(map))) }
+            .onFailure { FeedDebug.logException("comment parse FAILED, falling back to defaults", it) }
             .getOrNull()
             ?: CommentChild(
                 parseComment(
@@ -2063,7 +2084,9 @@ class RedditOfficialSource @Inject constructor(
                     val bodyHtml = if (reloadUrl.isNotBlank()) {
                         runCatching {
                             fetchPartial("$base$reloadUrl")?.let { Jsoup.parse(it).select(".md").firstOrNull()?.html() } ?: ""
-                        }.getOrDefault("")
+                        }
+                            .onFailure { FeedDebug.logException("comment body reload FAILED url=$base$reloadUrl", it) }
+                            .getOrDefault("")
                     } else ""
                     buildCommentChild(
                         name = name,
@@ -2129,7 +2152,9 @@ class RedditOfficialSource @Inject constructor(
                     "upvote_ratio" to 0.0,
                     "link_flair_richtext" to emptyList<Any>()
                 )
-                runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }.getOrNull()
+                runCatching { PostChild(parsePost(ensurePostDefaults(map, sub))) }
+                    .onFailure { FeedDebug.logException("related-post parse dropped sub=$sub id=${map["id"]}", it) }
+                    .getOrNull()
             }
             .distinctBy { it.data.name }
 
@@ -2173,7 +2198,11 @@ class RedditOfficialSource @Inject constructor(
         // "Created" text; picking the first timeago on the page grabs a tooltip instead.
         val created = doc.select("rpl-tooltip").firstOrNull { it.text().startsWith("Created ") }
             ?.selectFirst("faceplate-timeago")?.attr("ts")
-            ?.let { runCatching { parseTimestampMillis(it) / 1000 }.getOrDefault(0L) }
+            ?.let {
+                runCatching { parseTimestampMillis(it) / 1000 }
+                    .onFailure { e -> FeedDebug.logException("about ts parse FAILED ts=$it", e) }
+                    .getOrDefault(0L)
+            }
             ?: 0L
         val icon = header?.select("img")?.firstOrNull { it.attr("src").contains("redditmedia.com") }?.attr("src")
             ?: header?.attr("icon-img")
@@ -2336,7 +2365,9 @@ class RedditOfficialSource @Inject constructor(
                 .replace(Regex("([+-])(\\d{2})(\\d{2})$"), "$1$2:$3")
             val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US)
             sdf.parse(cleaned)?.time?.div(1000) ?: 0L
-        }.getOrDefault(0L)
+        }
+            .onFailure { FeedDebug.logException("timestamp parse FAILED value=$value", it) }
+            .getOrDefault(0L)
     }
 
     private fun parseTimestampMillis(value: String): Long = parseRedditTimestamp(value) * 1000

@@ -37,7 +37,9 @@ class RedgifsToken @Inject constructor(private val redgifsApi: RedgifsApi) {
         }.onSuccess { fetched ->
             token = fetched.token
             validUntil = RedgifsTokenExpiry.validUntilMillis(fetched.token)
-        }.getOrNull()?.token
+        }
+            .onFailure { com.cosmos.unreddit.ui.postlist.FeedDebug.logException("redgifs temp token fetch FAILED", it) }
+            .getOrNull()?.token
     }
 
     suspend fun getAuthorization(): String {

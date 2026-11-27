@@ -71,6 +71,7 @@ object RedgifsTokenExpiry {
                 out[outIndex++] = ((buffer shr bits) and 0xFF).toByte()
             }
         }
-        return runCatching { out.copyOf(outIndex).decodeToString() }.getOrNull()
+        return runCatching { out.copyOf(outIndex).decodeToString() }
+            .onFailure { com.cosmos.unreddit.ui.postlist.FeedDebug.logException("redgifs token expiry decode FAILED", it) }.getOrNull()
     }
 }

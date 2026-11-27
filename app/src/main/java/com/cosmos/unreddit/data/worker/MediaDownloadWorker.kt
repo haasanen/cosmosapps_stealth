@@ -196,8 +196,9 @@ class MediaDownloadWorker @AssistedInject constructor (
                         }
                     }
                 }
-            }.onFailure {
+            }.onFailure { e ->
                 uri = null
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("media download FAILED url=$url", e)
             }
         }
 
@@ -253,8 +254,9 @@ class MediaDownloadWorker @AssistedInject constructor (
                         file.delete()
                     }
                 }
-            }.onFailure {
+            }.onFailure { e ->
                 uri = null
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("media download FAILED url=$url", e)
             }
         }
 

@@ -59,7 +59,9 @@ class StealthBackupManager @Inject constructor(
                     inputStream.source().buffer().use { bufferedSource ->
                         adapter.fromJson(bufferedSource)
                     }
-                } ?: emptyList()
+                } ?: emptyList<Profile>().also {
+                    com.cosmos.unreddit.ui.postlist.FeedDebug.log("stealth backup import: source produced NO entries (unreadable or empty)")
+                }
             }
         }.onSuccess { profiles ->
             insertProfiles(profiles)
