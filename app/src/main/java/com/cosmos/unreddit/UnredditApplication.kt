@@ -55,6 +55,26 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
         super.onCreate()
         com.cosmos.unreddit.ui.postlist.FeedDebug.init(this)
 
+        // v2.5.112 diagnostic: measure the device's REAL egress address. The
+        // assumption "the phone shares the home exit IP 161.51.252.52" was
+        // never measured, and reddit's network-security gate is IP-aware —
+        // this one line per launch settles it from the owner's routine log
+        // export, no extra effort and no new permissions. Remove once the
+        // search gate question is closed.
+        Thread {
+            try {
+                val conn = java.net.URL("https://api.ipify.org").openConnection()
+                    as java.net.HttpURLConnection
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
+                val ip = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                com.cosmos.unreddit.ui.postlist.FeedDebug.log("diag device egress: $ip")
+            } catch (t: Throwable) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException(
+                    "diag device egress probe failed", t)
+            }
+        }.start()
+
         try {
             val nightMode = runBlocking { preferencesRepository.getNightMode().first() }
             appTheme = nightMode
