@@ -14,6 +14,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.cosmos.unreddit.NavigationGraphDirections
 import com.cosmos.unreddit.databinding.FragmentSubscriptionsBinding
 import com.cosmos.unreddit.ui.base.BaseFragment
+import com.cosmos.unreddit.util.Routing
+import com.cosmos.unreddit.util.SearchRouting
 import com.cosmos.unreddit.util.SearchUtil
 import com.cosmos.unreddit.util.extension.applyWindowInsets
 import com.cosmos.unreddit.util.extension.hideSoftKeyboard
@@ -120,8 +122,22 @@ class SubscriptionsFragment : BaseFragment() {
     }
 
     private fun handleSearchAction(query: String) {
-        if (SearchUtil.isQueryValid(query)) {
-            showSearchFragment(query)
+        if (!SearchUtil.isQueryValid(query)) return
+        // v2.5.111: manual subreddit/user entry — explicit forms (r/x, u/x,
+        // pasted reddit.com URLs) and bare valid names go straight to the
+        // native screen on the reliable RSS lane; everything else searches.
+        when (val routing = SearchRouting.target(query)) {
+            is Routing.Subreddit -> {
+                binding.appBar.searchInput.hideSoftKeyboard()
+                binding.appBar.searchInput.clear()
+                navigate(NavigationGraphDirections.openSubreddit(routing.name))
+            }
+            is Routing.User -> {
+                binding.appBar.searchInput.hideSoftKeyboard()
+                binding.appBar.searchInput.clear()
+                navigate(NavigationGraphDirections.openUser(routing.name))
+            }
+            is Routing.Search -> showSearchFragment(routing.query)
         }
     }
 
