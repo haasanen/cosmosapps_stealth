@@ -174,9 +174,6 @@ class PostListViewModel
                 com.cosmos.unreddit.ui.postlist.FeedDebug.lastTrigger.set(
                     "profile=${t.profileId} subs=${t.subs.size} sort=${t.sort}"
                 )
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                    "trigger -> refresh (profile=${t.profileId} subs=${t.subs.size} sort=${t.sort})"
-                )
                 feedCoordinator.refresh(
                     profileId = t.profileId,
                     subs = t.subs,

@@ -257,14 +257,12 @@ class FeedCoordinator @Inject constructor(
     fun onForeground() {
         if (!appVisible.value) {
             appVisible.value = true
-            FeedDebug.log("app foreground")
         }
     }
 
     fun onBackground() {
         if (appVisible.value) {
             appVisible.value = false
-            FeedDebug.log("app background")
         }
     }
 
@@ -360,9 +358,6 @@ class FeedCoordinator @Inject constructor(
         com.cosmos.unreddit.ui.postlist.FeedDebug.lastRefreshArgs.set(
             "profile=$profileId subs=${subs.size}"
         )
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-            "refresh START profile=$profileId subs=${subs.size} sort=$sort online=${isOnline()}"
-        )
 
         activeCycle = scope.launch {
             pendingRows.clear()
@@ -387,9 +382,7 @@ class FeedCoordinator @Inject constructor(
 
             // 1. Instant first paint from the cache.
             val cached = runCatching { loadCache(profileId) }.getOrElse { e ->
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                    "cache load FAILED: ${e.javaClass.simpleName}: ${e.message}"
-                )
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("cache load FAILED (serving no cache)", e)
                 emptyList()
             }
             val seenSet = historyIds.toHashSet()
@@ -428,9 +421,6 @@ class FeedCoordinator @Inject constructor(
             // same list they last saw. Only a manual pull-to-refresh (manual = true) or
             // a genuinely empty cache triggers a fresh fan-out.
             if (!manual && cachedPosts.isNotEmpty()) {
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                    "cache-first: serving ${cachedPosts.size} cached posts, skipping fan-out"
-                )
                 _state.update { s ->
                     s.copy(
                         posts = cachedPosts,
@@ -468,7 +458,6 @@ class FeedCoordinator @Inject constructor(
             // (and its network) alive and shows a temporary notification.
             FeedRefreshService.notify(context, context.getString(R.string.feed_refresh_started))
             try {
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log("fan-out: collecting (stream=true)")
                 officialSource.getSubredditFanOutProgressive(
                     multiredd = multiredd,
                     sort = sort,
@@ -477,11 +466,6 @@ class FeedCoordinator @Inject constructor(
                     stream = true
                 ).collect { page ->
                     val n = com.cosmos.unreddit.ui.postlist.FeedDebug.fanOutEmissions.incrementAndGet()
-                    com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                        "fan-out page #$n: done=${page.progress.done}/${page.progress.total} " +
-                            "inFlight=${page.progress.inFlight.size} posts=${page.perSub.flatten().size} " +
-                            "failed=${page.failedSubs.size}"
-                    )
                     val mergedData = FeedMerge.merge(
                         page.perSub, cached, sort,
                         failedSubs = page.failedSubs
@@ -520,9 +504,6 @@ class FeedCoordinator @Inject constructor(
                                 resolved[d.url]?.let { d.thumbnail = it }
                             }
                             if (resolved.isNotEmpty()) {
-                                com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                                    "previews resolved: ${resolved.size} of ${candidates.size} link posts"
-                                )
                             }
                         }
                     }
@@ -845,10 +826,7 @@ class FeedCoordinator @Inject constructor(
                         runCatching {
                             preferences.edit { it[pendingRetryKey] = current.encodeLite() }
                         }
-                        FeedDebug.log(
-                            "failed-sub retry round failed: ${e.javaClass.simpleName}: ${e.message} " +
-                                "(streak=${current.streak})"
-                        )
+                        FeedDebug.logException("failed-sub retry round failed (streak=${current.streak})", e)
                     }
                 )
             }
@@ -1102,19 +1080,19 @@ class FeedCoordinator @Inject constructor(
         if (fresh.size != rows.size) {
             val expired = rows.filter { it.fetchedAt < cutoff }.map { it.postId }
             runCatching { db.feedCacheDao().deleteByIds(profileId, expired) }
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                "cache load: purged ${expired.size} rows older than TTL " +
-                    "(${ttlMs / 3_600_000}h)"
-            )
         }
         val parsed = fresh.mapNotNull { toPostData(it.postJson) }
         // TEMP cache diagnostics: "raw" = rows in the table, "parsed" = rows whose
         // postJson deserialized back into a PostData. raw > parsed means stored JSON
         // is corrupt or blank (a persist-time toJson failure writes postJson = "").
         val empty = fresh.count { it.postJson.isBlank() }
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-            "cache load: raw=${rows.size} fresh=${fresh.size} parsed=${parsed.size} emptyJson=$empty"
-        )
+        // Anomaly only: a healthy load parses everything it read. Log when
+        // stored rows fail to parse or carry blank JSON (persist-time bugs).
+        if (parsed.size < fresh.size || empty > 0) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
+                "cache load ANOMALY: raw=${rows.size} fresh=${fresh.size} parsed=${parsed.size} emptyJson=$empty"
+            )
+        }
         // Self-heal: blank postJson rows can never deserialize back (they are the
         // legacy corruption from the empty MediaMetadataAdapter.toJson). Delete them
         // instead of keeping them around to be re-counted on every launch.

@@ -1179,7 +1179,6 @@ class RedditOfficialSource @Inject constructor(
 
     private suspend fun doGet(url: String, method: String, forPartial: Boolean): String? {
         // TEMP diagnostics (JVM-safe in FeedDebug; removed once root cause is found).
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP ${method} $url")
         val t0 = System.currentTimeMillis()
         val result = try {
             val req = newRequest(url, method, forPartial)
@@ -1220,7 +1219,6 @@ class RedditOfficialSource @Inject constructor(
             com.cosmos.unreddit.ui.postlist.FeedDebug.logException("HTTP FAILED ${System.currentTimeMillis() - t0}ms", e)
             return null
         }
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP done ${System.currentTimeMillis() - t0}ms (body=${result?.length ?: 0})")
         return result
     }
 

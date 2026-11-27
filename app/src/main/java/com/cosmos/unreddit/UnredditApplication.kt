@@ -54,12 +54,9 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
     override fun onCreate() {
         super.onCreate()
         com.cosmos.unreddit.ui.postlist.FeedDebug.init(this)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: begin")
 
-        val dsT0 = SystemClock.elapsedRealtime()
         try {
             val nightMode = runBlocking { preferencesRepository.getNightMode().first() }
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log("DataStore nightMode read: ${nightMode} (${SystemClock.elapsedRealtime() - dsT0}ms)")
             appTheme = nightMode
         } catch (t: Throwable) {
             com.cosmos.unreddit.ui.postlist.FeedDebug.logException("DataStore nightMode read FAILED", t)
@@ -80,11 +77,11 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
                     cause = cause.cause
                     depth++
                 }
-                // Full stack to the log FILE (the 3-frame logcat line is never enough once
-                // the build is R8-minified — the app frame is what pins the crash). The full
-                // trace also goes to the uncaught/ file the [inner] handler writes.
+                // Full trace to the system log (logcat truncates a single raw
+                // line, the throwable overload paginates): R8-minified builds
+                // need the app frame to pin a crash, 3 frames are never enough.
+                // The [inner] handler additionally writes a per-crash file.
                 com.cosmos.unreddit.ui.postlist.FeedDebug.logException("FULL STACK", e)
-                com.cosmos.unreddit.ui.postlist.FeedDebug.log("    (full stack -> log file + uncaught/ )")
                 inner.uncaughtException(t, e)
             }
         })
@@ -93,7 +90,6 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
         // so it cannot keep retrying against the removed worker class.
         WorkManager.getInstance(this)
             .cancelUniqueWork("com.cosmos.unreddit.feed_refresh")
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("Application.onCreate: done")
     }
 
     private fun Throwable.stackTraceOrNull(n: Int): String {

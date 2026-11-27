@@ -142,16 +142,13 @@ class PostDetailsViewModel @Inject constructor(
                 // and is NOT refetched. Only an explicit refresh (pull-down, retry,
                 // menu) hits the network — going back to a freshly opened post
                 // must stay on the cached copy.
-                FeedDebug.log("detail load: cache hit id=${cached.id}")
                 _post.value = Resource.Success(cached)
             } else {
                 if (cached != null) {
-                    FeedDebug.log("detail load: cached, forcing refresh id=${cached.id}")
                     // Even on a forced refresh, show the cached body first so the
                     // screen is never blank while the network is in flight.
                     _post.value = Resource.Success(cached)
                 } else {
-                    FeedDebug.log("detail load: no cache, network only")
                 }
                 loadFromNetwork(permalink, sorting, profile?.id)
             }
@@ -195,10 +192,6 @@ class PostDetailsViewModel @Inject constructor(
                             // the post list shows the new score / comment count immediately.
                             val data = PostUtil.getPostData(listings)
                             profileId?.let { feedCoordinator.applyPostUpdate(it, data) }
-                            FeedDebug.log(
-                                "detail load: network ok id=${data.name}" +
-                                    (if (attempt > 1) " (recovered on attempt $attempt)" else "")
-                            )
                         }
                     return@launch // succeeded — stop retrying
                 } catch (e: CancellationException) {
@@ -211,11 +204,9 @@ class PostDetailsViewModel @Inject constructor(
                     // preserved for diagnosis (2026-09-12 report: a gallery + text
                     // post failed to load while every other detail load in the
                     // same session succeeded; the log had no trace of the attempt).
-                    FeedDebug.log(
-                        "detail load FAILED attempt=$attempt/$MAX_FETCH_ATTEMPTS " +
-                            "url=$permalink (${e::class.simpleName}: ${e.message})"
+                    FeedDebug.logException(
+                        "detail load FAILED attempt=$attempt/$MAX_FETCH_ATTEMPTS url=$permalink", e
                     )
-                    FeedDebug.logException("detail load exception attempt=$attempt", e)
                 }
                 if (attempt < MAX_FETCH_ATTEMPTS) {
                     delay(BACKOFF_BASE_MS * (1L shl (attempt - 1))) // 1s, 2s, 4s

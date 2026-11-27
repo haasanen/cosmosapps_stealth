@@ -110,9 +110,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        FeedDebug.log("PostListFragment.onCreateView")
         _binding = FragmentPostBinding.inflate(layoutInflater, container, false)
-        FeedDebug.log("PostListFragment layout inflated")
         return binding.root
     }
 
@@ -122,9 +120,7 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
         initAppBar()
         initRecyclerView()
         initDrawer()
-        FeedDebug.log("PostListFragment initAppBar/initRecyclerView/initDrawer done")
         bindViewModel()
-        FeedDebug.log("PostListFragment.bindViewModel done (collectors attached)")
 
         binding.infoRetry.apply {
             applyMarginWindowInsets(left = false, right = false, bottom = false)
@@ -271,10 +267,6 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                         if (active) emptyFlow() else viewModel.postDataFlow
                     }
                     .collectLatest { pagingData ->
-                        val n = FeedDebug.legacyEmissions.incrementAndGet()
-                        if (n <= 5 || n % 50 == 0) {
-                            FeedDebug.log("legacy paging emission #$n")
-                        }
                         postListAdapter.submitData(pagingData)
                     }
             }
@@ -289,15 +281,12 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
                     // used to be here (first 10) made every later emission — including the
                     // ones during a settings->back recreate — invisible in the log, which
                     // was exactly why that bug could not be diagnosed from a device log.
-                    val n = FeedDebug.feedStates.incrementAndGet()
-                    FeedDebug.log("feedState #$n: posts=${state.posts.size} refresh=${state.refreshing} " +
-                        "prog=${state.progress?.done ?: "-"}/${state.progress?.total ?: "-"} " +
-                        "offline=${state.offline} err=${state.error ?: "null"}")
                     if (coordinatorMode) {
                         renderFeedState(state)
-                    } else {
-                        FeedDebug.log("feedState #$n DROPPED (coordinatorMode=false)")
                     }
+                    // else: transient pre-flip emission (applyListMode has not run
+                    // yet) — dropping it is normal, not an anomaly; the flip
+                    // re-renders the latest state itself.
                 }
             }
 
@@ -307,7 +296,6 @@ class PostListFragment : BaseFragment(), PullToRefreshLayout.OnRefreshListener {
             // re-swapped until a real value arrives.
             launch {
                 viewModel.usesCoordinator.collect { active ->
-                    FeedDebug.log("usesCoordinator -> $active")
                     if (active != null) applyListMode(active)
                 }
             }

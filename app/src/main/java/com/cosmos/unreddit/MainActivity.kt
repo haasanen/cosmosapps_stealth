@@ -72,28 +72,19 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
     }
 
     override fun attachBaseContext(base: android.content.Context) {
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: entry")
         super.attachBaseContext(base)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.attachBaseContext: done (Hilt injection runs after this)")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: entry")
         setTheme(unredditApplication.appTheme)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: setTheme done")
         super.onCreate(savedInstanceState)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: super done")
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: decorFitsSystemWindows done")
 
         binding = ActivityMainBinding.inflate(layoutInflater)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: binding inflated")
         setContentView(binding.root)
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate: content view set (theme=${unredditApplication.appTheme})")
 
         initNavigation()
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.initNavigation done")
 
         launchRepeat(Lifecycle.State.STARTED) {
             launch {
@@ -113,7 +104,6 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
                 }
             }
         }
-        com.cosmos.unreddit.ui.postlist.FeedDebug.log("MainActivity.onCreate END")
 
         // v2.5.98: VIEW deep links were already consumed by the nav host
         // during graph setup; the share sheet (ACTION_SEND text/plain) is

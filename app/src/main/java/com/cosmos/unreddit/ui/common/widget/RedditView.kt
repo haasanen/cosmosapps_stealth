@@ -226,13 +226,6 @@ class RedditView @JvmOverloads constructor(
                     onCancel = { onMediaReady() }
                 )
             }
-            // TEMP (v2.5.63): confirm the locked ratio reaches the render. The
-            // on-device first-load race that survives (if any) shows up here.
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log(
-                "inline image w=${imageBlock.width} h=${imageBlock.height} " +
-                    "ratio=${if (ratio != null) String.format(java.util.Locale.US, "%.4f", ratio) else "null"} " +
-                    "lock=${ratio != null} …${imageBlock.url.takeLast(40)}"
-            )
         }
         frame.addView(imageView)
         addView(frame)
