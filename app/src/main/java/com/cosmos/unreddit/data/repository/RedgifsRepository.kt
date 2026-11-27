@@ -21,6 +21,7 @@ class RedgifsRepository @Inject constructor(
             emit(redgifsApi.getGif(authorization, id))
         } catch (t: Exception) {
             if (t is CancellationException) throw t // propagate flow cancellation
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("redgifs call failed id=$id (will retry once if token expired)", t)
             // The cached temporary token expired server-side (401/403): refresh it
             // once and retry. Without this, an expired token would keep failing
             // every call forever (the sharp-poster swap swallows the failure, so a

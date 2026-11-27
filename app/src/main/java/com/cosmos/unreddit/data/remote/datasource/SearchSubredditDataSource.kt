@@ -28,6 +28,7 @@ class SearchSubredditDataSource(
             LoadResult.Page(data.children, data.before, data.after)
         } catch (e: Exception) {
             Log.e("SubredditDataSource", "Error", e)
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("SubredditDataSource load failed", e)
             LoadResult.Error(e)
         }
     }

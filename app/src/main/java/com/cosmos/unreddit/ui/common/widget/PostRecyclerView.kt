@@ -82,12 +82,14 @@ class PostRecyclerView @JvmOverloads constructor(
             val old = try {
                 f.getInt(this)
             } catch (t: Throwable) {
+                FeedDebug.logException("PRV probe: cannot read field ${f.name}", t)
                 continue
             }
             if (old <= 0) continue
             try {
                 f.setInt(this, 0)
             } catch (t: Throwable) {
+                FeedDebug.logException("PRV probe: cannot zero field ${f.name}", t)
                 continue
             }
             val cleared = !super.isComputingLayout()
@@ -99,7 +101,7 @@ class PostRecyclerView @JvmOverloads constructor(
             try {
                 f.setInt(this, old)
             } catch (t: Throwable) {
-                // best effort
+                FeedDebug.logException("PRV probe: cannot restore field ${f.name}", t)
             }
         }
         FeedDebug.log("PostRecyclerView counter reset FAILED at $this — no candidate field cleared isComputingLayout")

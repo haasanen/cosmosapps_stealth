@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.util
 
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import android.content.Context
 import android.os.Looper
 import com.google.android.exoplayer2.MediaItem
@@ -60,7 +61,8 @@ class FeedPreviewPlayerPool private constructor() {
             try {
                 victim.player.stop()
                 victim.player.release()
-            } catch (_: Exception) {
+            } catch (t: Exception) {
+                FeedDebug.logException("pool victim stop/release failed", t)
             }
         }
 
@@ -117,11 +119,13 @@ class FeedPreviewPlayerPool private constructor() {
             victim.token.playerDetached()
             try {
                 victim.player.stop()
-            } catch (_: Exception) {
+            } catch (t: Exception) {
+                FeedDebug.logException("pool victim stop failed", t)
             }
             try {
                 victim.player.release()
-            } catch (_: Exception) {
+            } catch (t: Exception) {
+                FeedDebug.logException("pool victim release failed", t)
             }
         }
     }
@@ -135,7 +139,8 @@ class FeedPreviewPlayerPool private constructor() {
         try {
             entry.player.stop()
             entry.player.release()
-        } catch (_: Exception) {
+        } catch (t: Exception) {
+            FeedDebug.logException("pool entry stop/release failed", t)
         }
     }
 

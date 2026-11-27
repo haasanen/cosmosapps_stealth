@@ -50,6 +50,7 @@ class SmartPostListDataSource(
             // Catch everything else: challenge/parse failures surface as plain
             // exceptions and must reach the visible error banner, not a silent
             // blank feed.
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("SmartPostListDataSource load failed", exception)
             LoadResult.Error(exception)
         }
     }

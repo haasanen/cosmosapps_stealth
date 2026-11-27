@@ -35,6 +35,7 @@ open class PostListDataSource(
             // exceptions and must reach the visible error banner, not a silent
             // blank feed.
             Log.e("PostListDataSource", "Error", exception)
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("PostListDataSource load failed", exception)
             LoadResult.Error(exception)
         }
     }

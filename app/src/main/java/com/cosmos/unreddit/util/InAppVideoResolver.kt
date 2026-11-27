@@ -120,6 +120,10 @@ class InAppVideoResolver @Inject constructor(
                 else -> null
             }
         } catch (t: Throwable) {
+            // null media used to be SILENT here — that is exactly how the
+            // "DJI Neo" no-media bug hid for a week (owner rule 2026-11-27:
+            // never swallow; an unexpected null must carry its cause).
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("in-app video resolve failed type=$mediaType url=$url", t)
             null
         }
         if (resolved != null) cache[key] = resolved

@@ -27,6 +27,7 @@ class CommentsDataSource(
             LoadResult.Page(data.children, data.before, data.after)
         } catch (e: Exception) {
             Log.e("CommentsDataSource", "Error", e)
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("CommentsDataSource load failed", e)
             LoadResult.Error(e)
         }
     }

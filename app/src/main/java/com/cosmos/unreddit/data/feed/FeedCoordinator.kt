@@ -977,6 +977,7 @@ class FeedCoordinator @Inject constructor(
                 // Propagate: scope cancellation is not a loadMore failure.
                 throw e
             } catch (e: Exception) {
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("feed loadMore failed", e)
                 _state.update { s -> s.copy(refreshing = false) }
             }
         }
@@ -1233,7 +1234,9 @@ class FeedCoordinator @Inject constructor(
                 )
             }
         } catch (e: Exception) {
-            // Purge failure is non-fatal; the next cycle retries.
+            // Purge failure is non-fatal; the next cycle retries — but it must
+            // leave a trace (owner rule 2026-11-27: never swallow errors).
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("feed cache purge failed (next cycle retries)", e)
         }
     }
 

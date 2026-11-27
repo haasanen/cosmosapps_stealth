@@ -133,6 +133,7 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
         val uri = try {
             Uri.parse(url)
         } catch (e: Exception) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("share intent: URL parse failed: $url", e)
             return
         }
         val viewIntent = Intent(Intent.ACTION_VIEW, uri)
@@ -140,7 +141,8 @@ class MainActivity : AppCompatActivity(), NavController.OnDestinationChangedList
             try {
                 startActivity(viewIntent)
             } catch (e: ActivityNotFoundException) {
-                // No browser on the device: nothing sensible left to do.
+                // No browser on the device: nothing sensible left to do — but say so.
+                com.cosmos.unreddit.ui.postlist.FeedDebug.logException("share intent: no browser on device", e)
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.cosmos.unreddit.ui.common.widget
 
+import com.cosmos.unreddit.ui.postlist.FeedDebug
 import android.content.Context
 import android.util.AttributeSet
 import android.view.Gravity
@@ -68,7 +69,8 @@ class RedditView @JvmOverloads constructor(
             for (player in liveInlinePlayers.toList()) {
                 try {
                     player.release()
-                } catch (_: Exception) {
+                } catch (t: Exception) {
+                    FeedDebug.logException("inline player release failed", t)
                 }
             }
             liveInlinePlayers.clear()
@@ -477,7 +479,8 @@ class RedditView @JvmOverloads constructor(
         for (player in inlinePlayers) {
             try {
                 player.release()
-            } catch (_: Exception) {
+            } catch (t: Exception) {
+                FeedDebug.logException("inline player release failed", t)
             }
             liveInlinePlayers.remove(player)
         }

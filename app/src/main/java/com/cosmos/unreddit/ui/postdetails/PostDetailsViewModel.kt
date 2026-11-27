@@ -215,6 +215,7 @@ class PostDetailsViewModel @Inject constructor(
                         "detail load FAILED attempt=$attempt/$MAX_FETCH_ATTEMPTS " +
                             "url=$permalink (${e::class.simpleName}: ${e.message})"
                     )
+                    FeedDebug.logException("detail load exception attempt=$attempt", e)
                 }
                 if (attempt < MAX_FETCH_ATTEMPTS) {
                     delay(BACKOFF_BASE_MS * (1L shl (attempt - 1))) // 1s, 2s, 4s

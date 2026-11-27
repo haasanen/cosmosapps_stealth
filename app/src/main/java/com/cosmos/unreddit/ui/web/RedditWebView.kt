@@ -102,7 +102,7 @@ object RedditWebView {
                     WebSettingsCompat.setUserAgentMetadata(this, metadata)
                     FeedDebug.log("search web: UA-CH override Chrome $chromeFull (Android ${Build.VERSION.RELEASE}, ${Build.MODEL})")
                 } catch (t: Throwable) {
-                    FeedDebug.log("search web: UA-CH override FAILED $t")
+                    FeedDebug.logException("search web: UA-CH override failed", t)
                 }
             } else {
                 FeedDebug.log(

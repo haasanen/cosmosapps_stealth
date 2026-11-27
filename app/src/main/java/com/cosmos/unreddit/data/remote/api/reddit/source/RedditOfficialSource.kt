@@ -195,6 +195,7 @@ class RedditOfficialSource @Inject constructor(
                             // failure is distinguished from a genuinely empty subreddit.
                             fetchSubPostsLenient(sub, sort, timeSorting, cursors[i]) ?: emptyList()
                         } catch (e: CfBlockException) {
+                            com.cosmos.unreddit.ui.postlist.FeedDebug.log("ssr multi-fetch: sub=$sub CF-blocked; treating as empty")
                             // CF is blocking this whole connection; treat the sub as empty
                             // — the merged-empty check below reports the block as an error.
                             confirmedBlock.set(true)
@@ -283,7 +284,10 @@ class RedditOfficialSource @Inject constructor(
         // A confirmed CF block page: let the fan-out worker see it so it can abort
         // the remaining subs (retrying the same host is pointless while blocked).
         throw e
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
+        com.cosmos.unreddit.ui.postlist.FeedDebug.logException("ssr sub fetch failed (transient, returning null)", e)
         // A transient failure (timeout, 5xx, unexpected parse error). Return null —
         // NOT emptyList() — so the fan-out worker can tell "this sub failed to fetch"
         // apart from "this sub is genuinely empty". Failed subs must keep their cached
@@ -501,6 +505,7 @@ class RedditOfficialSource @Inject constructor(
                                     }
                                 }
                             } catch (e: CfBlockException) {
+                                com.cosmos.unreddit.ui.postlist.FeedDebug.log("ssr fan-out: sub=$sub CF-blocked; aborting cycle")
                                 // Definitive network-level block: stop all remaining subs
                                 // and flag the cycle as hard-blocked so it is reported as
                                 // an error instead of an empty feed. The blocked sub is a
@@ -549,6 +554,7 @@ class RedditOfficialSource @Inject constructor(
             val cards = Jsoup.parse(body).select("shreddit-post").size
             "OK cards=$cards bytes=${body.length}"
         } catch (t: Throwable) {
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("search probe native lane failed", t)
             "FAIL ${t.javaClass.simpleName}: ${t.message}"
         }
     }
@@ -1147,7 +1153,7 @@ class RedditOfficialSource @Inject constructor(
             // simply returned null and keep working (or retrying) after cancellation.
             throw e
         } catch (e: Exception) {
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP FAILED ${System.currentTimeMillis() - t0}ms: ${e.javaClass.simpleName}: ${e.message}")
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("HTTP FAILED ${System.currentTimeMillis() - t0}ms", e)
             return null
         }
         com.cosmos.unreddit.ui.postlist.FeedDebug.log("HTTP done ${System.currentTimeMillis() - t0}ms (body=${result?.length ?: 0})")

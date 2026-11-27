@@ -144,6 +144,8 @@ open class BaseFragment : Fragment(), PostListAdapter.PostClickListener,
         try {
             navigate(Uri.parse(link))
         } catch (e: IllegalArgumentException) {
+            // Browser fallback is fine, but the navigation failure must be on record.
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("openRedditLink: nav graph rejected link, opened browser", e)
             linkHandler.openBrowser(link)
         }
     }

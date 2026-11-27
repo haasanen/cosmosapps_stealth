@@ -62,7 +62,7 @@ class UnredditApplication : Application(), ImageLoaderFactory, Configuration.Pro
             com.cosmos.unreddit.ui.postlist.FeedDebug.log("DataStore nightMode read: ${nightMode} (${SystemClock.elapsedRealtime() - dsT0}ms)")
             appTheme = nightMode
         } catch (t: Throwable) {
-            com.cosmos.unreddit.ui.postlist.FeedDebug.log("DataStore nightMode read FAILED: $t")
+            com.cosmos.unreddit.ui.postlist.FeedDebug.logException("DataStore nightMode read FAILED", t)
         }
 
         Thread.setDefaultUncaughtExceptionHandler(object : Thread.UncaughtExceptionHandler {
