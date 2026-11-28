@@ -123,9 +123,10 @@ class SubscriptionsFragment : BaseFragment() {
 
     private fun handleSearchAction(query: String) {
         if (!SearchUtil.isQueryValid(query)) return
-        // v2.5.111: manual subreddit/user entry — explicit forms (r/x, u/x,
-        // pasted reddit.com URLs) and bare valid names go straight to the
-        // native screen on the reliable RSS lane; everything else searches.
+        // v2.5.113: explicit forms only (r/x, u/x, user/x, pasted reddit.com
+        // URLs) go to the native screen on the reliable RSS lane; bare words
+        // are queries and search (2.5.111 bare-name jump was a hijack — owner
+        // "lucia" -> dead r/lucia screen). Browser handoff for search stays.
         when (val routing = SearchRouting.target(query)) {
             is Routing.Subreddit -> {
                 binding.appBar.searchInput.hideSoftKeyboard()

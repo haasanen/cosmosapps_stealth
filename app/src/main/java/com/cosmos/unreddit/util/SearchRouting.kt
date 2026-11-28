@@ -12,14 +12,14 @@ package com.cosmos.unreddit.util
  *  - r/<name>  (also /r/<name>, //r/<name>, and a pasted
  *    https://(www|old|new|m|np|ssl|amp).reddit.com/r/<name>/ URL) -> subreddit
  *  - u/<name>  (same form tolerance)                              -> user
- *  - bare token matching a valid subreddit name
- *    (3–21 chars [A-Za-z0-9_], alnum at both ends, no spaces)     -> subreddit
- *  - anything else -> ordinary search
+ *  - anything else — INCLUDING bare words — -> ordinary search
  *
- * Bare-token note: a single short word like "piracy" becomes a subreddit
- * jump; multi-word queries always stay search. This is deliberate — single
- * words previously hit the unreliable search anyway, and the destination is
- * the same content on the reliable lane.
+ * Bare-word auto-jump was shipped in 2.5.111 and reverted in 2.5.113 by
+ * owner correction: typing a search query like "lucia" (no spaces, happens
+ * to be a valid-name shape) got hijacked into a jump to r/lucia — which
+ * doesn't exist (measured 404) — showing a dead subreddit screen instead of
+ * search. Lesson: a search field may only act on explicit navigation input;
+ * a bare token is always a query, never a claim that the user meant r/name.
  */
 sealed class Routing {
     data class Subreddit(val name: String) : Routing()
@@ -37,7 +37,6 @@ object SearchRouting {
     // Bare-token auto-jump is conservative: 3-21 [A-Za-z0-9_] starting and
     // ending alphanumeric, so partial words/typos stay in search instead of
     // jumping to a subreddit the user may not have meant.
-    private const val STRICT_NAME = "[A-Za-z0-9][A-Za-z0-9_]{1,19}[A-Za-z0-9]"
 
     private const val HOST = "(?:(?:www|old|new|m|np|ssl|amp)\\.)?reddit\\.com"
 
@@ -48,7 +47,6 @@ object SearchRouting {
         RegexOption.IGNORE_CASE
     )
 
-    private val bareSubreddit = Regex(STRICT_NAME)
 
     /** Decide the destination for [query]; never null. */
     fun target(query: String): Routing {
@@ -63,10 +61,8 @@ object SearchRouting {
             }
         }
 
-        // A bare valid name (and no accidental URL/whitespace) jumps; reddit
-        // names are case-insensitive, canonical form keeps the user's typing.
-        if (bareSubreddit.matches(q)) return Routing.Subreddit(q)
-
+        // v2.5.113: no bare-token auto-jump (owner correction) — bare input
+        // is a query; only explicit r//u//URL forms navigate.
         return Routing.Search(q)
     }
 }
